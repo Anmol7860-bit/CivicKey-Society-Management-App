@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { SignJWT } from 'jose'
+import { jwtVerify, SignJWT } from 'jose'
 import { env } from '../../config/env.js'
 import type { Role } from '../../db/schema.js'
 
@@ -24,6 +24,17 @@ export function signAccessToken(claims: AccessTokenClaims) {
     .setIssuedAt()
     .setExpirationTime(`${env.ACCESS_TOKEN_TTL_SECONDS}s`)
     .sign(accessSecret)
+}
+
+/** Verifies signature, algorithm, issuer, audience and expiry. Throws jose errors on failure. */
+export async function verifyAccessToken(token: string) {
+  const { payload } = await jwtVerify(token, accessSecret, {
+    algorithms: [ACCESS_TOKEN_ALGORITHM],
+    issuer: env.JWT_ISSUER,
+    audience: env.JWT_AUDIENCE,
+    requiredClaims: ['sub', 'exp'],
+  })
+  return payload
 }
 
 /** 256-bit random opaque token. Only its hash is stored. */

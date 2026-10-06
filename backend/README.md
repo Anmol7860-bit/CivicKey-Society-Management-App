@@ -87,6 +87,22 @@ Every 401/403 from this endpoint also clears the cookie.
 
 Clients must not run two refreshes in parallel with the same token: the second one counts as reuse and ends the session. The frontend should share one in-flight refresh request.
 
+### Protected endpoints
+
+Send `Authorization: Bearer <accessToken>`. Routes guarded by `requireAuth` (`src/middleware/requireAuth.ts`) get `req.ctx = { userId, societyId, role }` for authorization checks.
+
+| Status | Code | When |
+|---|---|---|
+| 401 | `TOKEN_MISSING` | No `Authorization` header |
+| 401 | `TOKEN_INVALID` | Not a Bearer token, bad signature/issuer/audience/algorithm, or bad claims |
+| 401 | `TOKEN_EXPIRED` | Access token past its expiry; call `/auth/refresh` |
+
+Access tokens are verified statelessly, so a revoked session's access token stays valid until it expires (at most 15 minutes).
+
+### Request IDs
+
+Every response has an `X-Request-Id` header, and the same ID is on every log line for that request. A client may send its own `X-Request-Id` (up to 64 letters, digits, `_` or `-`); otherwise the server generates a UUID.
+
 ### Audit events
 
 Recorded in `audit_logs`: `AUTH_LOGIN_SUCCESS`, `AUTH_LOGIN_FAILED` (with reason), `AUTH_LOGIN_RATE_LIMITED`, `AUTH_REFRESH_FAILED` (with reason), `AUTH_REFRESH_REUSE_DETECTED`. Phone numbers and emails are masked; passwords and tokens are never recorded.

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import cookieParser from 'cookie-parser'
 import cors from 'cors'
 import express from 'express'
@@ -9,6 +11,16 @@ import { logger as defaultLogger } from './lib/logger.js'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import { createAuthRouter } from './modules/auth/auth.routes.js'
 
+const REQUEST_ID_PATTERN = /^[\w-]{1,64}$/
+
+/** Reuses a well-formed X-Request-Id from the caller, otherwise generates one, and echoes it back. */
+function requestId(req: IncomingMessage, res: ServerResponse) {
+  const incoming = req.headers['x-request-id']
+  const id = typeof incoming === 'string' && REQUEST_ID_PATTERN.test(incoming) ? incoming : randomUUID()
+  res.setHeader('X-Request-Id', id)
+  return id
+}
+
 export interface AppOptions {
   logger?: Logger
 }
@@ -19,7 +31,7 @@ export function createApp({ logger = defaultLogger }: AppOptions = {}) {
   app.set('trust proxy', env.TRUST_PROXY)
   app.disable('x-powered-by')
 
-  app.use(pinoHttp({ logger }))
+  app.use(pinoHttp({ logger, genReqId: requestId }))
   app.use(helmet())
   app.use(cors({ origin: env.CORS_ORIGIN.split(','), credentials: true }))
   app.use(express.json({ limit: '10kb' }))
