@@ -1,0 +1,34 @@
+{
+  "brand": {
+    "name": "CivicKey",
+    "tagline": "Property services"
+  },
+  "auth": {
+    "panel": {
+      "badge": "Secure resident access",
+      "headline": "Your property services, in one trusted place.",
+      "body": "Manage requests, visitors and community updates with role-based access.",
+      "footnote": "Protected by encrypted sessions and automatic timeout."
+    },
+    "header": {
+      "secure": "Secure sign in"
+    },
+    "login": {
+      "title": "Sign in to CivicKey",
+      "subtitle": "Use the phone number registered with your property.",
+      "phoneLabel": "Phone number",
+      "phonePlaceholder": "(000) 000-0000",
+      "passwordLabel": "Password",
+      "passwordPlaceholder": "Enter your password",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "forgotPassword": "Forgot password?",
+      "submit": "Sign in"
+    },
+    "footer": {
+      "help": "Need help? Contact property support",
+      "privacy": "Privacy",
+      "accessibility": "Accessibility"
+    }
+  }
+}

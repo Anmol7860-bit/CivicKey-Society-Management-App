@@ -1,0 +1,37 @@
+@import '@fontsource-variable/inter';
+@import 'tailwindcss';
+
+/* Design tokens from the CivicKey Figma file (01 - Login) */
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+
+  /* Split layout with the welcome panel (Figma desktop preview is 960px wide) */
+  --breakpoint-desk: 56rem;
+
+  --color-brand: #176b62;
+  --color-brand-deep: #123b3a;
+  --color-panel-text: #b8d4d0;
+
+  --color-ink: #17233a;
+  --color-ink-soft: #24334d;
+  --color-muted: #60708a;
+  --color-subtle: #8a98ac;
+
+  --color-canvas: #f6f8fb;
+  --color-line: #d7dfea;
+  --color-line-strong: #b8c5d6;
+
+  --shadow-card: 0 4px 14px 0 rgb(23 35 58 / 0.08);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-canvas font-sans text-ink-soft antialiased;
+  }
+}
