@@ -38,16 +38,25 @@ export function createAuthRouter() {
   const router = Router()
   const limiters = createLoginRateLimiters()
 
-  router.post('/login', limiters.perIp, validateBody(loginSchema), limiters.perAccount, async (req, res) => {
-    const body = req.body as LoginBody
-    const result = await login(
-      identifierFrom(body),
-      body.password,
-      { ipAddress: req.ip ?? null, userAgent: req.get('user-agent') ?? null },
-      body.role,
-    )
-    sendAuthResult(res, result)
-  })
+  // Order matters: the cheap per-IP cap first, then validation so no auth logic sees bad input,
+  // then the per-account limits that need the parsed identifier
+  router.post(
+    '/login',
+    limiters.perIp,
+    validateBody(loginSchema),
+    limiters.perAccount,
+    limiters.perIdentifier,
+    async (req, res) => {
+      const body = req.body as LoginBody
+      const result = await login(
+        identifierFrom(body),
+        body.password,
+        { ipAddress: req.ip ?? null, userAgent: req.get('user-agent') ?? null },
+        body.role,
+      )
+      sendAuthResult(res, result)
+    },
+  )
 
   router.post('/refresh', async (req, res) => {
     try {

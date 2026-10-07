@@ -69,7 +69,7 @@ The refresh token is set as an httpOnly `ck_refresh` cookie scoped to `/api/v1/a
 | 403 | `USER_INACTIVE` | Correct password, inactive account |
 | 403 | `ROLE_MISMATCH` | Correct password, but `role` was sent and differs from the account's role (no session is created) |
 | 422 | `VALIDATION_ERROR` | Missing/invalid fields, both or neither identifier, unknown fields, bad JSON |
-| 429 | `TOO_MANY_REQUESTS` | 5 failed attempts per account + IP, or 50 requests per IP, in 15 minutes |
+| 429 | `TOO_MANY_REQUESTS` | In 15 minutes: 5 failed attempts per account + IP, 20 failed attempts per account from any IP, or 50 requests per IP. Unknown accounts are limited the same way. |
 | 500 | `INTERNAL_ERROR` | Unexpected failure (details logged server-side only) |
 
 ### `POST /api/v1/auth/refresh`

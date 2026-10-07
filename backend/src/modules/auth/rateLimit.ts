@@ -64,5 +64,20 @@ export function createLoginRateLimiters() {
     handler: rejectWith429,
   })
 
-  return { perIp, perAccount }
+  // Failed attempts per account from any IP, so spreading guesses over many IPs doesn't help.
+  // Looser than perAccount because hitting it also locks out the real user for the window.
+  const perIdentifier = rateLimit({
+    windowMs,
+    limit: env.LOGIN_RATE_LIMIT_MAX * 4,
+    keyGenerator: (req) => {
+      const identifier = identifierFrom(req.body as LoginBody)
+      return `${identifier.type}:${identifier.value}`
+    },
+    skipSuccessfulRequests: true,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler: rejectWith429,
+  })
+
+  return { perIp, perAccount, perIdentifier }
 }

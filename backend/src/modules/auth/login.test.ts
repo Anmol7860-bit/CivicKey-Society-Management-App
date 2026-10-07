@@ -1,9 +1,11 @@
+import { Writable } from 'node:stream'
 import { eq } from 'drizzle-orm'
 import { jwtVerify } from 'jose'
 import request from 'supertest'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { auditLogs, authSessions, refreshTokens, users } from '../../db/schema.js'
+import { createLogger } from '../../lib/logger.js'
 import { PASSWORD, createUser, postLogin, refreshCookie, refreshTokenFrom, type App } from '../../test/helpers.js'
 import { hashRefreshToken } from './tokens.js'
 
@@ -224,6 +226,22 @@ describe('POST /api/v1/auth/login', () => {
       expect(res.body.error.code).toBe('VALIDATION_ERROR')
     })
 
+    it('rejects invalid input before any authentication logic runs', async () => {
+      await createUser()
+
+      const res = await postLogin(app, { phone: '98765', password: PASSWORD })
+
+      expect(res.status).toBe(422)
+      expect(res.body.error).toEqual({
+        code: 'VALIDATION_ERROR',
+        message: 'Request validation failed',
+        details: { fields: [{ field: 'phone', message: 'Phone must be a 10-digit Indian mobile number' }] },
+      })
+      // No login attempt was made, so nothing was audited and no session exists
+      expect(await db.select().from(auditLogs)).toHaveLength(0)
+      expect(await db.select().from(authSessions)).toHaveLength(0)
+    })
+
     it('never echoes the submitted password in validation errors', async () => {
       const res = await postLogin(app, { phone: '123', password: 'my-secret-pass' })
 
@@ -257,6 +275,33 @@ describe('POST /api/v1/auth/login', () => {
       }
     })
 
+    it('limits an account across IPs, so guesses spread over many IPs are capped', async () => {
+      await createUser()
+      app.set('trust proxy', true)
+      const fromIp = (ip: string, password: string) =>
+        postLogin(app, { phone: '9876543210', password }).set('X-Forwarded-For', ip)
+
+      // 20 failures spread so that no single IP reaches its own limit of 5
+      for (let ip = 1; ip <= 5; ip++) {
+        for (let attempt = 0; attempt < 4; attempt++) {
+          expect((await fromIp(`203.0.113.${ip}`, 'wrong-password')).status).toBe(401)
+        }
+      }
+
+      const blocked = await fromIp('203.0.113.99', PASSWORD)
+      expect(blocked.status).toBe(429)
+      expect(blocked.body.error.code).toBe('TOO_MANY_REQUESTS')
+    })
+
+    it('rate limits unknown accounts the same way, so 429 does not reveal registration', async () => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        expect((await postLogin(app, { phone: '9000000000', password: 'wrong-password' })).status).toBe(401)
+      }
+
+      const blocked = await postLogin(app, { phone: '9000000000', password: 'wrong-password' })
+      expect(blocked.status).toBe(429)
+    })
+
     it('limits each account separately', async () => {
       await createUser()
       await createUser({ phone: '9876543211', email: 'guard@example.com', role: 'GUARD' })
@@ -271,6 +316,35 @@ describe('POST /api/v1/auth/login', () => {
   })
 
   describe('sensitive data', () => {
+    it('never writes the password to logs, on any login outcome', async () => {
+      const lines: string[] = []
+      const sink = new Writable({
+        write(chunk, _encoding, callback) {
+          lines.push(chunk.toString())
+          callback()
+        },
+      })
+      const loggedApp = createApp({ logger: createLogger({ level: 'debug' }, sink) })
+      await createUser()
+      const secret = 'Wrong-Secret-42'
+
+      await postLogin(loggedApp, { phone: '9876543210', password: PASSWORD }) // success
+      await postLogin(loggedApp, { phone: '98765', password: secret }) // validation error
+      await request(loggedApp)
+        .post('/api/v1/auth/login')
+        .set('Content-Type', 'application/json')
+        .send(`{"phone": "9876543210", "password": "${secret}"`) // malformed JSON
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await postLogin(loggedApp, { phone: '9876543210', password: secret }) // failures, then 429
+      }
+
+      const output = lines.join('')
+      expect(lines.length).toBeGreaterThan(0)
+      expect(output).not.toContain(PASSWORD)
+      expect(output).not.toContain(secret)
+    })
+
+
     it('never returns the password hash or refresh token in the body', async () => {
       const user = await createUser()
 
