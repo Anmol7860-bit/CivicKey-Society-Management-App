@@ -46,7 +46,7 @@ All responses use `{ "data": ... }` on success and
 
 ### `POST /api/v1/auth/login`
 
-Body: `{ "phone": "9876543210", "password": "..." }` or `{ "email": "...", "password": "..." }`.
+Body: `{ "phone": "9876543210", "password": "..." }` or `{ "email": "...", "password": "..." }`, with an optional `"role": "RESIDENT" | "GUARD" | "ADMIN"` from the login screen's role selector. `phone` is a 10-digit Indian mobile number (starts with 6–9) without `+91`.
 
 200:
 
@@ -67,6 +67,7 @@ The refresh token is set as an httpOnly `ck_refresh` cookie scoped to `/api/v1/a
 |---|---|---|
 | 401 | `INVALID_CREDENTIALS` | Unknown phone/email or wrong password (same response for both) |
 | 403 | `USER_INACTIVE` | Correct password, inactive account |
+| 403 | `ROLE_MISMATCH` | Correct password, but `role` was sent and differs from the account's role (no session is created) |
 | 422 | `VALIDATION_ERROR` | Missing/invalid fields, both or neither identifier, unknown fields, bad JSON |
 | 429 | `TOO_MANY_REQUESTS` | 5 failed attempts per account + IP, or 50 requests per IP, in 15 minutes |
 | 500 | `INTERNAL_ERROR` | Unexpected failure (details logged server-side only) |

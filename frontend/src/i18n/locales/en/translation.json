@@ -17,8 +17,14 @@
       "title": "Sign in to CivicKey",
       "subtitle": "Use the phone number registered with your property.",
       "phoneLabel": "Phone number",
-      "phonePlaceholder": "(000) 000-0000",
+      "phonePlaceholder": "xxxxx xxxxx",
       "passwordLabel": "Password",
+      "roleLabel": "Signing in as",
+      "roles": {
+        "RESIDENT": "Resident",
+        "GUARD": "Guard",
+        "ADMIN": "Admin"
+      },
       "passwordPlaceholder": "Enter your password",
       "showPassword": "Show password",
       "hidePassword": "Hide password",
@@ -26,10 +32,11 @@
       "submit": "Sign in",
       "submitting": "Signing in…",
       "errors": {
-        "phoneInvalid": "Enter your 10-digit phone number.",
+        "phoneInvalid": "Enter a valid 10-digit Indian mobile number.",
         "passwordRequired": "Enter your password.",
         "invalidCredentials": "Incorrect phone number or password.",
         "inactive": "This account is inactive. Contact property support.",
+        "roleMismatch": "This account is not registered as {{role}}. Select the correct role and try again.",
         "validation": "Check your phone number and password, then try again.",
         "tooManyRequests": "Too many attempts. Try again in {{minutes}} min.",
         "network": "Can't reach CivicKey. Check your connection and try again.",

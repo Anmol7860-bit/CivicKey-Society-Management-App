@@ -39,10 +39,12 @@ export function createAuthRouter() {
 
   router.post('/login', limiters.perIp, validateBody(loginSchema), limiters.perAccount, async (req, res) => {
     const body = req.body as LoginBody
-    const result = await login(identifierFrom(body), body.password, {
-      ipAddress: req.ip ?? null,
-      userAgent: req.get('user-agent') ?? null,
-    })
+    const result = await login(
+      identifierFrom(body),
+      body.password,
+      { ipAddress: req.ip ?? null, userAgent: req.get('user-agent') ?? null },
+      body.role,
+    )
     sendAuthResult(res, result)
   })
 

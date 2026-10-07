@@ -7,16 +7,21 @@ import logInIcon from '../../../assets/icons/log-in.svg'
 import smartphoneIcon from '../../../assets/icons/smartphone.svg'
 import { Button } from '../../../components/ui/Button'
 import { TextField } from '../../../components/ui/TextField'
-import { formatPhone, normalizePhone, PHONE_LENGTH } from '../phone'
+import type { Role } from '../api'
+import { COUNTRY_CODE, formatPhone, isValidPhone, normalizePhone } from '../phone'
+
+const ROLES: Role[] = ['RESIDENT', 'GUARD', 'ADMIN']
 
 export interface LoginFormValues {
-  /** 10 digits, no formatting */
+  /** 10-digit Indian mobile number without +91 */
   phone: string
   password: string
+  /** Role picked on the screen; the backend rejects it if the account has a different role */
+  role: Role
 }
 
 interface LoginFormProps {
-  /** Called only with a 10-digit phone and a non-empty password */
+  /** Called only with a valid Indian mobile number and a non-empty password */
   onSubmit?: (values: LoginFormValues) => void
   pending?: boolean
   /** Message from a failed sign-in attempt */
@@ -25,6 +30,7 @@ interface LoginFormProps {
 
 export function LoginForm({ onSubmit, pending = false, error = null }: LoginFormProps) {
   const { t } = useTranslation()
+  const [role, setRole] = useState<Role>('RESIDENT')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -34,13 +40,13 @@ export function LoginForm({ onSubmit, pending = false, error = null }: LoginForm
     event.preventDefault()
     if (pending) return
     const problem =
-      phone.length !== PHONE_LENGTH
+      !isValidPhone(phone)
         ? t('auth.login.errors.phoneInvalid')
         : password.length === 0
           ? t('auth.login.errors.passwordRequired')
           : null
     setValidationError(problem)
-    if (!problem) onSubmit?.({ phone, password })
+    if (!problem) onSubmit?.({ phone, password, role })
   }
 
   const message = validationError ?? error
@@ -59,6 +65,28 @@ export function LoginForm({ onSubmit, pending = false, error = null }: LoginForm
           </p>
         )}
 
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="mb-1.5 text-[13px] font-semibold text-ink-soft">{t('auth.login.roleLabel')}</legend>
+          <div className="grid grid-cols-3 gap-1 rounded-lg border border-line-strong bg-white p-1">
+            {ROLES.map((option) => (
+              <label
+                key={option}
+                className="flex h-9 cursor-pointer items-center justify-center rounded-md text-[14px] font-semibold text-muted transition-colors has-checked:bg-brand has-checked:text-white has-focus-visible:ring-3 has-focus-visible:ring-brand/30"
+              >
+                <input
+                  type="radio"
+                  name="role"
+                  value={option}
+                  checked={role === option}
+                  onChange={() => setRole(option)}
+                  className="sr-only"
+                />
+                {t(`auth.login.roles.${option}`)}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <TextField
           id="phone"
           name="phone"
@@ -69,7 +97,12 @@ export function LoginForm({ onSubmit, pending = false, error = null }: LoginForm
           placeholder={t('auth.login.phonePlaceholder')}
           value={formatPhone(phone)}
           onChange={(event) => setPhone(normalizePhone(event.target.value))}
-          leading={<img src={smartphoneIcon} alt="" width={17} height={17} />}
+          leading={
+            <>
+              <img src={smartphoneIcon} alt="" width={17} height={17} />
+              <span className="text-[15px] font-semibold text-ink-soft">{COUNTRY_CODE}</span>
+            </>
+          }
         />
 
         <TextField

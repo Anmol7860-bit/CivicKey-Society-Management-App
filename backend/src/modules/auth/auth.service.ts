@@ -98,7 +98,12 @@ async function findUser(identifier: LoginIdentifier) {
 // Same response for unknown user and wrong password, so accounts cannot be enumerated
 const invalidCredentials = () => new AppError(401, 'INVALID_CREDENTIALS', 'Invalid login credentials')
 
-export async function login(identifier: LoginIdentifier, password: string, context: RequestContext): Promise<AuthResult> {
+export async function login(
+  identifier: LoginIdentifier,
+  password: string,
+  context: RequestContext,
+  selectedRole?: Role,
+): Promise<AuthResult> {
   const user = await findUser(identifier)
   const passwordMatches = await verifyPassword(password, user?.passwordHash)
   const auditBase = {
@@ -126,6 +131,17 @@ export async function login(identifier: LoginIdentifier, password: string, conte
       metadata: { ...attempted, reason: 'USER_INACTIVE' },
     })
     throw new AppError(403, 'USER_INACTIVE', 'User account is inactive')
+  }
+
+  // Also after the password check, so an account's role is never revealed without it
+  if (selectedRole && selectedRole !== user.role) {
+    await recordAuditEvent(db, {
+      ...auditBase,
+      eventType: 'AUTH_LOGIN_FAILED',
+      actorUserId: user.id,
+      metadata: { ...attempted, reason: 'ROLE_MISMATCH', selectedRole },
+    })
+    throw new AppError(403, 'ROLE_MISMATCH', 'Account does not have the selected role')
   }
 
   const now = new Date()

@@ -1,14 +1,18 @@
 export const PHONE_LENGTH = 10
+export const COUNTRY_CODE = '+91'
 
-/** Strips everything but digits and caps the length. */
+/** Keeps the 10 digits after +91. A pasted "+91 98765 43210" drops its country code. */
 export function normalizePhone(value: string) {
-  return value.replace(/\D/g, '').slice(0, PHONE_LENGTH)
+  const digits = value.replace(/\D/g, '')
+  return (digits.length > PHONE_LENGTH && digits.startsWith('91') ? digits.slice(2) : digits).slice(0, PHONE_LENGTH)
 }
 
-/** Formats digits as the design shows them: (312) 555-0148 */
+/** Indian mobile numbers are 10 digits starting with 6, 7, 8 or 9. */
+export function isValidPhone(digits: string) {
+  return /^[6-9]\d{9}$/.test(digits)
+}
+
+/** Formats digits the Indian way: 98765 43210 */
 export function formatPhone(digits: string) {
-  if (digits.length === 0) return ''
-  if (digits.length <= 3) return `(${digits}`
-  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
-  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  return digits.length <= 5 ? digits : `${digits.slice(0, 5)} ${digits.slice(5)}`
 }

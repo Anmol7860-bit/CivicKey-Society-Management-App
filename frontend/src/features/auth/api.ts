@@ -1,11 +1,13 @@
 import type { LoginFormValues } from './components/LoginForm'
 
+export type Role = 'RESIDENT' | 'GUARD' | 'ADMIN'
+
 export interface AuthUser {
   id: string
   name: string
   phone: string | null
   email: string | null
-  role: 'RESIDENT' | 'GUARD' | 'ADMIN'
+  role: Role
   societyId: string | null
 }
 

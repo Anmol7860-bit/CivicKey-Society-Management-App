@@ -23,6 +23,7 @@ describe('App routing', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ data }), { status: 200 })))
     render(<App />)
 
+    await userEvent.click(screen.getByRole('radio', { name: area.replace(' area', '') }))
     await userEvent.type(screen.getByLabelText('Phone number'), '9876543210')
     await userEvent.type(screen.getByLabelText('Password'), 'Resident@123')
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))

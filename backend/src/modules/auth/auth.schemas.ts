@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { userRole } from '../../db/schema.js'
 
 /**
  * POST /auth/login body. Exactly one login identifier (phone or email) is required,
@@ -9,13 +10,16 @@ export const loginSchema = z
     phone: z
       .string()
       .trim()
-      .regex(/^\d{10}$/, 'Phone must be a 10-digit number')
+      // Indian mobile number without the +91 prefix
+      .regex(/^[6-9]\d{9}$/, 'Phone must be a 10-digit Indian mobile number')
       .optional(),
     email: z.email('Email must be a valid email address').trim().toLowerCase().max(254).optional(),
     password: z
       .string({ error: 'Password is required' })
       .min(1, 'Password is required')
       .max(128, 'Password is too long'),
+    /** Role picked on the login screen; when sent, it must match the account's role */
+    role: z.enum(userRole.enumValues).optional(),
   })
   .strict()
   .refine((body) => Boolean(body.phone) !== Boolean(body.email), {

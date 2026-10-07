@@ -159,6 +159,39 @@ describe('POST /api/v1/auth/login', () => {
     })
   })
 
+  describe('selected role', () => {
+    it('signs in when the selected role matches the account', async () => {
+      await createUser({ role: 'GUARD' })
+
+      const res = await postLogin(app, { phone: '9876543210', password: PASSWORD, role: 'GUARD' })
+
+      expect(res.status).toBe(200)
+      expect(res.body.data.user.role).toBe('GUARD')
+    })
+
+    it('returns 403 ROLE_MISMATCH without creating a session when the role is wrong', async () => {
+      const user = await createUser({ role: 'RESIDENT' })
+
+      const res = await postLogin(app, { phone: '9876543210', password: PASSWORD, role: 'ADMIN' })
+
+      expect(res.status).toBe(403)
+      expect(res.body.error.code).toBe('ROLE_MISMATCH')
+      expect(refreshCookie(res)).toBeUndefined()
+      expect(await db.select().from(authSessions).where(eq(authSessions.userId, user.id))).toHaveLength(0)
+      const [event] = await db.select().from(auditLogs).where(eq(auditLogs.actorUserId, user.id))
+      expect(event!.metadata).toMatchObject({ reason: 'ROLE_MISMATCH', selectedRole: 'ADMIN' })
+    })
+
+    it('does not reveal the role for a wrong password', async () => {
+      await createUser({ role: 'RESIDENT' })
+
+      const res = await postLogin(app, { phone: '9876543210', password: 'wrong-password', role: 'ADMIN' })
+
+      expect(res.status).toBe(401)
+      expect(res.body.error.code).toBe('INVALID_CREDENTIALS')
+    })
+  })
+
   describe('validation', () => {
     it.each([
       ['empty body', {}],
@@ -167,9 +200,12 @@ describe('POST /api/v1/auth/login', () => {
       ['empty password', { phone: '9876543210', password: '' }],
       ['short phone', { phone: '98765', password: PASSWORD }],
       ['phone with letters', { phone: '98765abcde', password: PASSWORD }],
+      ['non-Indian mobile number', { phone: '5876543210', password: PASSWORD }],
+      ['phone with +91 prefix', { phone: '+919876543210', password: PASSWORD }],
+      ['unknown role', { phone: '9876543210', password: PASSWORD, role: 'SUPERUSER' }],
       ['invalid email', { email: 'not-an-email', password: PASSWORD }],
       ['both phone and email', { phone: '9876543210', email: 'riya@example.com', password: PASSWORD }],
-      ['unknown field', { phone: '9876543210', password: PASSWORD, role: 'ADMIN' }],
+      ['unknown field', { phone: '9876543210', password: PASSWORD, isAdmin: true }],
     ])('returns 422 for %s', async (_case, body) => {
       const res = await postLogin(app, body)
 
