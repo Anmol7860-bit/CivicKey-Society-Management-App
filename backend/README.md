@@ -104,6 +104,20 @@ Access tokens are verified statelessly, so a revoked session's access token stay
 
 Every response has an `X-Request-Id` header, and the same ID is on every log line for that request. A client may send its own `X-Request-Id` (up to 64 letters, digits, `_` or `-`); otherwise the server generates a UUID.
 
+### Session tables
+
+Sessions and refresh tokens are split over two tables so that every token ever issued in a session can be recognised, which is what reuse detection needs. A single `refresh_token_hash` column would only remember the current token.
+
+| Ticket field | Where it lives |
+|---|---|
+| `id`, `user_id` (FK to `users`, cascade delete), `created_at`, `expires_at` (not null), `last_used_at`, `revoked_at`, `device_id`, `ip_address`, `user_agent` | `auth_sessions` |
+| `token_family_id` | `auth_sessions.id`: one session is one token family, referenced by `refresh_tokens.session_id` |
+| `refresh_token_hash` | `refresh_tokens.token_hash`: SHA-256 hex, unique; a check constraint rejects anything that isn't a 64-char hex digest, so a raw token can't be stored |
+
+Indexes: primary keys; `auth_sessions(user_id)`; `auth_sessions(user_id, expires_at) WHERE revoked_at IS NULL` for active sessions; `refresh_tokens(session_id)` for the token family; unique `refresh_tokens(token_hash)` for refresh lookup.
+
+`device_id` is nullable and not yet filled in; the mobile app will send it.
+
 ### Audit events
 
 Recorded in `audit_logs`: `AUTH_LOGIN_SUCCESS`, `AUTH_LOGIN_FAILED` (with reason), `AUTH_LOGIN_RATE_LIMITED`, `AUTH_REFRESH_FAILED` (with reason), `AUTH_REFRESH_REUSE_DETECTED`. Phone numbers and emails are masked; passwords and tokens are never recorded.

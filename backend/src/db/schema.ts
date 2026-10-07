@@ -39,6 +39,10 @@ export const users = pgTable(
   ],
 )
 
+/**
+ * One row per login. The session is the refresh-token family: its id is the family id, and
+ * every token issued in it lives in refresh_tokens.
+ */
 export const authSessions = pgTable(
   'auth_sessions',
   {
@@ -46,6 +50,8 @@ export const authSessions = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    // ponytail: nullable until the mobile app sends a device identifier
+    deviceId: varchar('device_id', { length: 128 }),
     userAgent: text('user_agent'),
     ipAddress: varchar('ip_address', { length: 45 }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
@@ -54,7 +60,11 @@ export const authSessions = pgTable(
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('auth_sessions_user_id_idx').on(table.userId)],
+  (table) => [
+    index('auth_sessions_user_id_idx').on(table.userId),
+    // A user's live sessions, e.g. for "sign out everywhere" and session lists
+    index('auth_sessions_user_id_active_idx').on(table.userId, table.expiresAt).where(sql`${table.revokedAt} is null`),
+  ],
 )
 
 /**
@@ -77,7 +87,11 @@ export const refreshTokens = pgTable(
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('refresh_tokens_session_id_idx').on(table.sessionId)],
+  (table) => [
+    index('refresh_tokens_session_id_idx').on(table.sessionId),
+    // Raw tokens are 43-char base64url, so this rejects anything but a SHA-256 hex digest
+    check('refresh_tokens_token_hash_sha256', sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  ],
 )
 
 export const auditLogs = pgTable(
