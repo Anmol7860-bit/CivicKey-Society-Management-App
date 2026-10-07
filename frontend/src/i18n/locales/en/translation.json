@@ -23,12 +23,29 @@
       "showPassword": "Show password",
       "hidePassword": "Hide password",
       "forgotPassword": "Forgot password?",
-      "submit": "Sign in"
+      "submit": "Sign in",
+      "submitting": "Signing in…",
+      "errors": {
+        "phoneInvalid": "Enter your 10-digit phone number.",
+        "passwordRequired": "Enter your password.",
+        "invalidCredentials": "Incorrect phone number or password.",
+        "inactive": "This account is inactive. Contact property support.",
+        "validation": "Check your phone number and password, then try again.",
+        "tooManyRequests": "Too many attempts. Try again in {{minutes}} min.",
+        "network": "Can't reach CivicKey. Check your connection and try again.",
+        "generic": "Something went wrong. Please try again."
+      }
     },
     "footer": {
       "help": "Need help? Contact property support",
       "privacy": "Privacy",
       "accessibility": "Accessibility"
     }
+  },
+  "shell": {
+    "signedInAs": "Signed in as {{name}}",
+    "admin": { "title": "Admin area" },
+    "resident": { "title": "Resident area" },
+    "guard": { "title": "Guard area" }
   }
 }

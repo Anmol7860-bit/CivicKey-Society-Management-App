@@ -7,7 +7,7 @@ import logInIcon from '../../../assets/icons/log-in.svg'
 import smartphoneIcon from '../../../assets/icons/smartphone.svg'
 import { Button } from '../../../components/ui/Button'
 import { TextField } from '../../../components/ui/TextField'
-import { formatPhone, normalizePhone } from '../phone'
+import { formatPhone, normalizePhone, PHONE_LENGTH } from '../phone'
 
 export interface LoginFormValues {
   /** 10 digits, no formatting */
@@ -16,20 +16,34 @@ export interface LoginFormValues {
 }
 
 interface LoginFormProps {
-  /** Wired to the login API in the API-integration ticket */
+  /** Called only with a 10-digit phone and a non-empty password */
   onSubmit?: (values: LoginFormValues) => void
+  pending?: boolean
+  /** Message from a failed sign-in attempt */
+  error?: string | null
 }
 
-export function LoginForm({ onSubmit }: LoginFormProps) {
+export function LoginForm({ onSubmit, pending = false, error = null }: LoginFormProps) {
   const { t } = useTranslation()
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    onSubmit?.({ phone, password })
+    if (pending) return
+    const problem =
+      phone.length !== PHONE_LENGTH
+        ? t('auth.login.errors.phoneInvalid')
+        : password.length === 0
+          ? t('auth.login.errors.passwordRequired')
+          : null
+    setValidationError(problem)
+    if (!problem) onSubmit?.({ phone, password })
   }
+
+  const message = validationError ?? error
 
   return (
     <section className="flex w-full max-w-[430px] flex-col gap-3.5 rounded-xl border border-line bg-white p-5 shadow-card sm:gap-4 sm:p-6">
@@ -38,7 +52,13 @@ export function LoginForm({ onSubmit }: LoginFormProps) {
         <p className="text-[13px] leading-[1.45] text-muted">{t('auth.login.subtitle')}</p>
       </div>
 
-      <form className="flex flex-col gap-3" onSubmit={handleSubmit} noValidate>
+      <form className="flex flex-col gap-3" onSubmit={handleSubmit} noValidate aria-busy={pending}>
+        {message && (
+          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
+            {message}
+          </p>
+        )}
+
         <TextField
           id="phone"
           name="phone"
@@ -84,8 +104,8 @@ export function LoginForm({ onSubmit }: LoginFormProps) {
           </a>
         </div>
 
-        <Button type="submit" icon={<img src={logInIcon} alt="" width={17} height={17} />}>
-          {t('auth.login.submit')}
+        <Button type="submit" disabled={pending} icon={<img src={logInIcon} alt="" width={17} height={17} />}>
+          {pending ? t('auth.login.submitting') : t('auth.login.submit')}
         </Button>
       </form>
     </section>

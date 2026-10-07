@@ -43,4 +43,19 @@ describe('LoginForm', () => {
 
     expect(onSubmit).toHaveBeenCalledWith({ phone: '3125550148', password: 'secret-pass' })
   })
+
+  it('blocks submit and explains an incomplete phone or empty password', async () => {
+    const onSubmit = vi.fn()
+    render(<LoginForm onSubmit={onSubmit} />)
+
+    await userEvent.type(screen.getByLabelText('Phone number'), '31255')
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter your 10-digit phone number.')
+
+    await userEvent.type(screen.getByLabelText('Phone number'), '50148')
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter your password.')
+
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
 })
