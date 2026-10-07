@@ -1,9 +1,10 @@
 import { Router, type CookieOptions, type Response } from 'express'
 import { isProduction } from '../../config/env.js'
 import { AppError } from '../../lib/errors.js'
+import { requireAuth } from '../../middleware/requireAuth.js'
 import { validateBody } from '../../middleware/validateBody.js'
 import { identifierFrom, loginSchema, type LoginBody } from './auth.schemas.js'
-import { login, refreshSession, type AuthResult } from './auth.service.js'
+import { login, logout, refreshSession, type AuthResult } from './auth.service.js'
 import { createLoginRateLimiters } from './rateLimit.js'
 
 export const REFRESH_COOKIE_NAME = 'ck_refresh'
@@ -60,6 +61,14 @@ export function createAuthRouter() {
       if (error instanceof AppError) res.clearCookie(REFRESH_COOKIE_NAME, refreshCookieBase)
       throw error
     }
+  })
+
+  router.post('/logout', requireAuth, async (req, res) => {
+    const { userId, sessionId } = req.ctx!
+    await logout(userId, sessionId, { ipAddress: req.ip ?? null, userAgent: req.get('user-agent') ?? null })
+    res.clearCookie(REFRESH_COOKIE_NAME, refreshCookieBase)
+    res.setHeader('Cache-Control', 'no-store')
+    res.status(200).json({ data: { loggedOut: true } })
   })
 
   return router

@@ -40,7 +40,7 @@ describe('requireAuth', () => {
     const res = await getProtected(`Bearer ${token}`)
 
     expect(res.status).toBe(200)
-    expect(res.body.data).toEqual({ userId, role: 'ADMIN', societyId })
+    expect(res.body.data).toEqual({ userId, sessionId: 's1', role: 'ADMIN', societyId })
   })
 
   it('allows a null society', async () => {
@@ -73,8 +73,9 @@ describe('requireAuth', () => {
     ['an empty Bearer token', async () => 'Bearer '],
     ['a malformed token', async () => 'Bearer not.a.jwt'],
     ['a wrong signature', async () => `Bearer ${await signWith({ role: 'RESIDENT', society_id: null }, { key: new TextEncoder().encode('x'.repeat(32)) })}`],
-    ['an unknown role', async () => `Bearer ${await signWith({ role: 'SUPERUSER', society_id: null })}`],
-    ['a missing society claim', async () => `Bearer ${await signWith({ role: 'RESIDENT' })}`],
+    ['an unknown role', async () => `Bearer ${await signWith({ role: 'SUPERUSER', society_id: null, sid: 's1' })}`],
+    ['a missing session claim', async () => `Bearer ${await signWith({ role: 'RESIDENT', society_id: null })}`],
+    ['a missing society claim', async () => `Bearer ${await signWith({ role: 'RESIDENT', sid: 's1' })}`],
     ['alg none', async () => {
       const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url')
       const payload = { sub: userId, role: 'ADMIN', society_id: null, iss: 'civickey-api', aud: 'civickey-app', exp: 9999999999 }

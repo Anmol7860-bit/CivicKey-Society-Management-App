@@ -73,16 +73,18 @@ async function buildAuthResult(user: User, sessionId: string, refresh: { token: 
   }
 }
 
-/** Ends a session and every token in its family. */
+/** Ends a session and every token in its family. Returns false if it was already revoked. */
 async function revokeSession(executor: DbExecutor, sessionId: string, reason: string, now: Date) {
-  await executor
+  const revoked = await executor
     .update(authSessions)
     .set({ revokedAt: now, revokedReason: reason })
     .where(and(eq(authSessions.id, sessionId), isNull(authSessions.revokedAt)))
+    .returning({ id: authSessions.id })
   await executor
     .update(refreshTokens)
     .set({ revokedAt: now })
     .where(and(eq(refreshTokens.sessionId, sessionId), isNull(refreshTokens.revokedAt)))
+  return revoked.length > 0
 }
 
 // ---------------------------------------------------------------------------
@@ -270,4 +272,34 @@ export async function refreshSession(rawToken: string | undefined, context: Requ
 
   if (!outcome.ok) throw outcome.error
   return outcome.result
+}
+
+// ---------------------------------------------------------------------------
+// Logout
+// ---------------------------------------------------------------------------
+
+/**
+ * Revokes the caller's session and all its refresh tokens. Idempotent: logging out an
+ * already-revoked session changes nothing and records no second event.
+ */
+export async function logout(userId: string, sessionId: string, context: RequestContext) {
+  await db.transaction(async (tx) => {
+    // Scoped to the user, so a session id can only ever end its owner's session
+    const [session] = await tx
+      .select({ id: authSessions.id })
+      .from(authSessions)
+      .where(and(eq(authSessions.id, sessionId), eq(authSessions.userId, userId)))
+      .for('update')
+    if (!session) return
+
+    if (await revokeSession(tx, session.id, 'LOGOUT', new Date())) {
+      await recordAuditEvent(tx, {
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        eventType: 'AUTH_LOGOUT',
+        actorUserId: userId,
+        metadata: { sessionId: session.id },
+      })
+    }
+  })
 }

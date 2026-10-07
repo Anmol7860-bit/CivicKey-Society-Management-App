@@ -9,6 +9,7 @@ export type AuditEventType =
   | 'AUTH_LOGIN_RATE_LIMITED'
   | 'AUTH_REFRESH_FAILED'
   | 'AUTH_REFRESH_REUSE_DETECTED'
+  | 'AUTH_LOGOUT'
 
 export interface AuditEvent {
   eventType: AuditEventType

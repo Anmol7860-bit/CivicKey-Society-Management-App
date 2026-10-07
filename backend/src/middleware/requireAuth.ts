@@ -6,6 +6,8 @@ import { verifyAccessToken } from '../modules/auth/tokens.js'
 
 export interface AuthContext {
   userId: string
+  /** Session (token family) the access token was issued for */
+  sessionId: string
   societyId: string | null
   role: Role
 }
@@ -39,15 +41,16 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
     return next(error instanceof errors.JWTExpired ? tokenExpired() : tokenInvalid())
   }
 
-  const { sub, role, society_id: societyId } = payload
+  const { sub, sid, role, society_id: societyId } = payload
   if (
     typeof sub !== 'string' ||
+    typeof sid !== 'string' ||
     !userRole.enumValues.includes(role as Role) ||
     (societyId !== null && typeof societyId !== 'string')
   ) {
     return next(tokenInvalid())
   }
 
-  req.ctx = { userId: sub, societyId, role: role as Role }
+  req.ctx = { userId: sub, sessionId: sid, societyId, role: role as Role }
   next()
 }

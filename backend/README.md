@@ -88,6 +88,14 @@ Every 401/403 from this endpoint also clears the cookie.
 
 Clients must not run two refreshes in parallel with the same token: the second one counts as reuse and ends the session. The frontend should share one in-flight refresh request.
 
+### `POST /api/v1/auth/logout`
+
+Requires `Authorization: Bearer <accessToken>`. Revokes the session the access token belongs to (`revoked_reason = LOGOUT`) and every refresh token in it, clears the `ck_refresh` cookie and records `AUTH_LOGOUT`. Other sessions of the same user stay signed in.
+
+200: `{ "data": { "loggedOut": true } }`. Calling it again for an already-revoked session also returns 200 and changes nothing. Without a valid access token: 401 `TOKEN_MISSING` / `TOKEN_INVALID` / `TOKEN_EXPIRED` (refresh first, then log out).
+
+The access token itself is stateless and stays valid until it expires (at most 15 minutes); the client must discard it on logout.
+
 ### Protected endpoints
 
 Send `Authorization: Bearer <accessToken>`. Routes guarded by `requireAuth` (`src/middleware/requireAuth.ts`) get `req.ctx = { userId, societyId, role }` for authorization checks.
@@ -120,4 +128,4 @@ Indexes: primary keys; `auth_sessions(user_id)`; `auth_sessions(user_id, expires
 
 ### Audit events
 
-Recorded in `audit_logs`: `AUTH_LOGIN_SUCCESS`, `AUTH_LOGIN_FAILED` (with reason), `AUTH_LOGIN_RATE_LIMITED`, `AUTH_REFRESH_FAILED` (with reason), `AUTH_REFRESH_REUSE_DETECTED`. Phone numbers and emails are masked; passwords and tokens are never recorded.
+Recorded in `audit_logs`: `AUTH_LOGIN_SUCCESS`, `AUTH_LOGIN_FAILED` (with reason), `AUTH_LOGIN_RATE_LIMITED`, `AUTH_REFRESH_FAILED` (with reason), `AUTH_REFRESH_REUSE_DETECTED`, `AUTH_LOGOUT`. Phone numbers and emails are masked; passwords and tokens are never recorded.
