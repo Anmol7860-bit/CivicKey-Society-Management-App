@@ -86,4 +86,20 @@ describe('LoginPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent("Can't reach CivicKey.")
   })
+
+  it('recovers from a network failure so the user can retry', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { user: { name: 'Riya' } } }), { status: 200 })))
+    const onSignedIn = vi.fn()
+    render(<LoginPage onSignedIn={onSignedIn} />)
+
+    await signIn()
+    expect(await screen.findByRole('alert')).toHaveTextContent("Can't reach CivicKey.")
+    const button = screen.getByRole('button', { name: 'Sign in' })
+    expect(button).toBeEnabled()
+
+    await userEvent.click(button)
+    await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1))
+  })
 })

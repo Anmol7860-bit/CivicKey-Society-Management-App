@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import i18n from '../../../i18n'
 import { LoginForm } from './LoginForm'
 
 describe('LoginForm', () => {
@@ -82,5 +83,59 @@ describe('LoginForm', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Enter your password.')
 
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('blocks submit when the phone number is empty', async () => {
+    const onSubmit = vi.fn()
+    render(<LoginForm onSubmit={onSubmit} />)
+
+    await userEvent.type(screen.getByLabelText('Password'), 'secret-pass')
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid 10-digit Indian mobile number.')
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('can be filled in and submitted with the keyboard only', async () => {
+    const onSubmit = vi.fn()
+    render(<LoginForm onSubmit={onSubmit} />)
+
+    await userEvent.tab()
+    expect(screen.getByRole('radio', { name: 'Resident' })).toHaveFocus()
+    await userEvent.keyboard('{ArrowRight}')
+    expect(screen.getByRole('radio', { name: 'Guard' })).toBeChecked()
+
+    await userEvent.tab()
+    expect(screen.getByLabelText('Phone number')).toHaveFocus()
+    await userEvent.keyboard('9876543210')
+    await userEvent.tab()
+    expect(screen.getByLabelText('Password')).toHaveFocus()
+    await userEvent.keyboard('secret-pass')
+    await userEvent.tab()
+    expect(screen.getByRole('button', { name: 'Show password' })).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
+    expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'text')
+    await userEvent.tab()
+    expect(screen.getByRole('link', { name: 'Forgot password?' })).toHaveFocus()
+    await userEvent.tab()
+    expect(screen.getByRole('button', { name: 'Sign in' })).toHaveFocus()
+    await userEvent.keyboard('{Enter}')
+
+    expect(onSubmit).toHaveBeenCalledWith({ phone: '9876543210', password: 'secret-pass', role: 'GUARD' })
+  })
+
+  it('takes every visible string from i18n', async () => {
+    // cimode makes t() return the key, so any English left on screen is hard-coded
+    await i18n.changeLanguage('cimode')
+    try {
+      render(<LoginForm />)
+      await userEvent.click(screen.getByRole('button', { name: 'auth.login.submit' }))
+
+      expect(screen.getByRole('alert')).toHaveTextContent('auth.login.errors.phoneInvalid')
+      const text = document.body.textContent!.replace(/auth\.login\.[\w.]+|\+91/g, '')
+      expect(text.trim()).toBe('')
+    } finally {
+      await i18n.changeLanguage('en')
+    }
   })
 })
