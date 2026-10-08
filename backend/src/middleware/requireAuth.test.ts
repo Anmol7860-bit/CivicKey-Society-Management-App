@@ -76,6 +76,12 @@ describe('requireAuth', () => {
     ['an unknown role', async () => `Bearer ${await signWith({ role: 'SUPERUSER', society_id: null, sid: 's1' })}`],
     ['a missing session claim', async () => `Bearer ${await signWith({ role: 'RESIDENT', society_id: null })}`],
     ['a missing society claim', async () => `Bearer ${await signWith({ role: 'RESIDENT', sid: 's1' })}`],
+    ['a payload tampered after signing', async () => {
+      const [header, payload, signature] = (await signAccessToken({ userId, sessionId: 's1', role: 'RESIDENT', societyId })).split('.')
+      const claims = JSON.parse(Buffer.from(payload!, 'base64url').toString())
+      const forged = Buffer.from(JSON.stringify({ ...claims, role: 'ADMIN' })).toString('base64url')
+      return `Bearer ${header}.${forged}.${signature}`
+    }],
     ['alg none', async () => {
       const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url')
       const payload = { sub: userId, role: 'ADMIN', society_id: null, iss: 'civickey-api', aud: 'civickey-app', exp: 9999999999 }

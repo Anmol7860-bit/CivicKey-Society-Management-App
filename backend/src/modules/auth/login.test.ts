@@ -1,6 +1,6 @@
 import { Writable } from 'node:stream'
 import { eq } from 'drizzle-orm'
-import { jwtVerify } from 'jose'
+import { decodeJwt, jwtVerify } from 'jose'
 import request from 'supertest'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
@@ -101,6 +101,17 @@ describe('POST /api/v1/auth/login', () => {
 
       expect(res.status).toBe(200)
       expect(res.body.data.user.role).toBe('RESIDENT')
+    })
+
+    it.each(['RESIDENT', 'GUARD', 'ADMIN'] as const)('signs in a %s without the client sending a role', async (role) => {
+      await createUser({ role })
+
+      const res = await postLogin(app, { phone: '9876543210', password: PASSWORD })
+
+      expect(res.status).toBe(200)
+      expect(res.headers['content-type']).toMatch(/^application\/json/)
+      expect(res.body.data.user.role).toBe(role)
+      expect(decodeJwt(res.body.data.accessToken).role).toBe(role)
     })
   })
 
@@ -208,6 +219,9 @@ describe('POST /api/v1/auth/login', () => {
       ['invalid email', { email: 'not-an-email', password: PASSWORD }],
       ['both phone and email', { phone: '9876543210', email: 'riya@example.com', password: PASSWORD }],
       ['unknown field', { phone: '9876543210', password: PASSWORD, isAdmin: true }],
+      ['numeric phone', { phone: 9876543210, password: PASSWORD }],
+      ['numeric password', { phone: '9876543210', password: 123456 }],
+      ['array body', [{ phone: '9876543210', password: PASSWORD }]],
     ])('returns 422 for %s', async (_case, body) => {
       const res = await postLogin(app, body)
 
