@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, request, test, type Page } from '@playwright/test'
 
 // Seeded by `npm run db:seed` in backend (see global-setup.ts)
 const accounts = {
@@ -16,15 +16,24 @@ async function signIn(page: Page, phone: string, password: string, roleLabel = '
   await page.getByRole('button', { name: 'Sign in' }).click()
 }
 
-test.beforeEach(async ({ page }) => {
+// The app renders nothing until its session-restore call answers, so wait for the form
+async function openLogin(page: Page) {
   await page.goto('/login')
+  await expect(page.getByRole('heading', { name: 'Sign in to CivicKey' })).toBeVisible()
+}
+
+test.beforeEach(async ({ page }) => {
+  await openLogin(page)
 })
 
 test('AUTH-UI-001/002 login page renders without errors or horizontal scroll', async ({ page }) => {
   const errors: string[] = []
-  page.on('console', (msg) => msg.type() === 'error' && errors.push(msg.text()))
+  // A signed-out visitor's session-restore call gets a 401, which browsers log as a failed resource
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' && !/status of 401/.test(msg.text())) errors.push(msg.text())
+  })
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.reload()
+  await openLogin(page)
 
   for (const control of [
     page.getByLabel('Phone number'),
@@ -120,11 +129,60 @@ test('AUTH-UI-025/026 password and access token never reach browser storage', as
   expect(stored).not.toContain('ck_refresh')
 })
 
-// Known gap: session restore via /auth/refresh is not built yet (in-memory session only)
-test.fixme('AUTH-UI-024 reloading the page keeps the user signed in', async ({ page }) => {
+test('AUTH-UI-024 reloading the page keeps the user signed in', async ({ page }) => {
   await signIn(page, accounts.RESIDENT.phone, accounts.RESIDENT.password)
   await expect(page).toHaveURL(accounts.RESIDENT.area)
 
   await page.reload()
   await expect(page).toHaveURL(accounts.RESIDENT.area)
+  await expect(page.getByText(`Signed in as ${accounts.RESIDENT.name}`)).toBeVisible()
+})
+
+test('AUTH-UI-022/023 logout ends the session and protected pages redirect to login', async ({ page }) => {
+  await signIn(page, accounts.GUARD.phone, accounts.GUARD.password, accounts.GUARD.label)
+  await expect(page).toHaveURL(accounts.GUARD.area)
+
+  const logout = page.waitForResponse('**/api/v1/auth/logout')
+  await page.getByRole('button', { name: 'Log out' }).click()
+  expect((await logout).status()).toBe(200)
+  await expect(page).toHaveURL('/login')
+
+  // A fresh page load can't restore it either: the server revoked the session
+  await page.goto(accounts.GUARD.area)
+  await expect(page).toHaveURL('/login')
+})
+
+test.describe('session expiry', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.clock.install()
+    await openLogin(page)
+  })
+
+  test('AUTH-UI-020 the access token is refreshed before it expires', async ({ page }) => {
+    await signIn(page, accounts.ADMIN.phone, accounts.ADMIN.password, accounts.ADMIN.label)
+    await expect(page).toHaveURL(accounts.ADMIN.area)
+
+    const refreshed = page.waitForResponse('**/api/v1/auth/refresh')
+    await page.clock.fastForward('14:00')
+    expect((await refreshed).status()).toBe(200)
+    await expect(page.getByText(`Signed in as ${accounts.ADMIN.name}`)).toBeVisible()
+  })
+
+  test('AUTH-UI-021 a revoked session returns the user to login with a message', async ({ page, context, baseURL }) => {
+    await signIn(page, accounts.RESIDENT.phone, accounts.RESIDENT.password)
+    await expect(page).toHaveURL(accounts.RESIDENT.area)
+
+    // Someone else uses this browser's refresh token first, so the browser's copy is now a reused token
+    const cookie = (await context.cookies()).find((c) => c.name === 'ck_refresh')!
+    const attacker = await request.newContext({ baseURL })
+    const stolen = await attacker.post('/api/v1/auth/refresh', { headers: { Cookie: `ck_refresh=${cookie.value}` } })
+    expect(stolen.status()).toBe(200)
+    await attacker.dispose()
+
+    const refreshed = page.waitForResponse('**/api/v1/auth/refresh')
+    await page.clock.fastForward('14:00')
+    expect((await refreshed).status()).toBe(401)
+    await expect(page).toHaveURL('/login')
+    await expect(page.getByRole('alert')).toHaveText('Your session has ended. Please sign in again.')
+  })
 })

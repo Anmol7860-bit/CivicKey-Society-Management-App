@@ -4,10 +4,16 @@ import { ApiError, login, type AuthSession } from './api'
 import { AuthLayout } from './components/AuthLayout'
 import { LoginForm, type LoginFormValues } from './components/LoginForm'
 
-export function LoginPage({ onSignedIn }: { onSignedIn: (session: AuthSession) => void }) {
+interface LoginPageProps {
+  onSignedIn: (session: AuthSession) => void
+  /** Shown until the next attempt, e.g. why the previous session ended */
+  notice?: string | null
+}
+
+export function LoginPage({ onSignedIn, notice = null }: LoginPageProps) {
   const { t } = useTranslation()
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(notice)
   // State updates are async, so a fast double submit could slip past `pending`
   const inFlight = useRef(false)
 

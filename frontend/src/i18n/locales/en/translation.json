@@ -47,12 +47,17 @@
       "help": "Need help? Contact property support",
       "privacy": "Privacy",
       "accessibility": "Accessibility"
+    },
+    "session": {
+      "expired": "Your session has ended. Please sign in again."
     }
   },
   "shell": {
     "signedInAs": "Signed in as {{name}}",
     "admin": { "title": "Admin area" },
     "resident": { "title": "Resident area" },
-    "guard": { "title": "Guard area" }
+    "guard": { "title": "Guard area" },
+    "logout": "Log out",
+    "loggingOut": "Logging out…"
   }
 }
