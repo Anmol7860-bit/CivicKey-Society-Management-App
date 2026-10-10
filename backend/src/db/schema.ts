@@ -6,6 +6,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uuid,
@@ -14,6 +15,27 @@ import {
 } from 'drizzle-orm/pg-core'
 
 export const userRole = pgEnum('user_role', ['RESIDENT', 'GUARD', 'ADMIN'])
+
+/** A Resident's classification, not a role. Kept while a Resident serves on the committee (role ADMIN). */
+export const residentType = pgEnum('resident_type', ['OWNER', 'TENANT'])
+
+/**
+ * Permissions assigned to individual Admin users. Guard and Resident permissions come from the
+ * role itself (see modules/access/permissions.ts), so only Admin ones are stored.
+ */
+export const adminPermission = pgEnum('admin_permission', [
+  // General Admin
+  'SOCIETY_MANAGE',
+  'USER_MANAGE',
+  'GUARD_MANAGE',
+  'STAFF_MANAGE',
+  'AUDIT_VIEW',
+  // Committee-specific
+  'BILLING_RATE_SET',
+  'INVOICE_GENERATE',
+  'PAYMENT_CASH_MARK',
+  'REPORT_VIEW',
+])
 
 export const users = pgTable(
   'users',
@@ -28,6 +50,7 @@ export const users = pgTable(
     email: varchar('email', { length: 254 }).unique(),
     passwordHash: text('password_hash').notNull(),
     role: userRole('role').notNull(),
+    residentType: residentType('resident_type'),
     isActive: boolean('is_active').notNull().default(true),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -36,7 +59,25 @@ export const users = pgTable(
   (table) => [
     check('users_login_identifier_present', sql`${table.phone} is not null or ${table.email} is not null`),
     check('users_email_lowercase', sql`${table.email} = lower(${table.email})`),
+    // Residents always have a type; guards never do. Admins may (a Resident serving on the committee).
+    check(
+      'users_resident_type_matches_role',
+      sql`(${table.role} = 'RESIDENT' and ${table.residentType} is not null) or (${table.role} = 'GUARD' and ${table.residentType} is null) or ${table.role} = 'ADMIN'`,
+    ),
   ],
+)
+
+export const userPermissions = pgTable(
+  'user_permissions',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    permission: adminPermission('permission').notNull(),
+    grantedBy: uuid('granted_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.permission] })],
 )
 
 /**
@@ -116,3 +157,5 @@ export const auditLogs = pgTable(
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Role = (typeof userRole.enumValues)[number]
+export type ResidentType = (typeof residentType.enumValues)[number]
+export type AdminPermission = (typeof adminPermission.enumValues)[number]

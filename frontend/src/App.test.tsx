@@ -11,7 +11,7 @@ const fail = (status: number, code: string): Reply => ({ status, body: { error: 
 const session = (role = 'RESIDENT', accessToken = 'jwt-1') => ({
   accessToken,
   expiresIn: 900,
-  user: { id: 'u1', name: 'Riya', role, societyId: null },
+  user: { id: 'u1', name: 'Riya', role, residentType: null, societyId: null, permissions: [] },
 })
 
 /** Fakes the auth API. Each endpoint plays its replies in order and repeats the last one. Refresh defaults to "no cookie". */

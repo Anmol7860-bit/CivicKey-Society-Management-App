@@ -54,10 +54,44 @@
   },
   "shell": {
     "signedInAs": "Signed in as {{name}}",
-    "admin": { "title": "Admin area" },
-    "resident": { "title": "Resident area" },
-    "guard": { "title": "Guard area" },
+    "admin": {
+      "title": "Admin area"
+    },
+    "resident": {
+      "title": "Resident area"
+    },
+    "guard": {
+      "title": "Guard area"
+    },
     "logout": "Log out",
-    "loggingOut": "Logging out…"
+    "loggingOut": "Logging out…",
+    "residentType": {
+      "OWNER": "Owner",
+      "TENANT": "Tenant"
+    },
+    "functions": "Your functions",
+    "noFunctions": "No functions are assigned to your account yet. Contact your society admin.",
+    "function": {
+      "visitorRegister": "Register visitor",
+      "visitDecide": "Allow or deny entry",
+      "visitEntry": "Record entry",
+      "visitExit": "Record exit",
+      "passValidate": "Validate visitor or staff pass",
+      "visitorApprove": "Approve visitors",
+      "visitorPass": "Create visitor pass",
+      "ownVisits": "Visitor history",
+      "ownBills": "My bills",
+      "payBill": "Pay bill",
+      "ownReceipts": "My receipts",
+      "society": "Society, blocks and flats",
+      "users": "Users and resident links",
+      "guards": "Guards and staff",
+      "staff": "Register staff and issue passes",
+      "audit": "Audit logs",
+      "billingRates": "Billing rates",
+      "invoices": "Invoices and one-time charges",
+      "cashPayments": "Mark cash payments",
+      "reports": "Reports"
+    }
   }
 }

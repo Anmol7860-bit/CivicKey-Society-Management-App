@@ -2,6 +2,7 @@ import type { RequestHandler } from 'express'
 import { errors } from 'jose'
 import { userRole, type Role } from '../db/schema.js'
 import { AppError } from '../lib/errors.js'
+import type { Permission } from '../modules/access/permissions.js'
 import { verifyAccessToken } from '../modules/auth/tokens.js'
 
 export interface AuthContext {
@@ -10,6 +11,8 @@ export interface AuthContext {
   sessionId: string
   societyId: string | null
   role: Role
+  /** Set by requirePermission from the database */
+  permissions?: Permission[]
 }
 
 declare global {

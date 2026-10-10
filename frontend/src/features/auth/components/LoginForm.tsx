@@ -46,7 +46,9 @@ export function LoginForm({ onSubmit, pending = false, error = null }: LoginForm
           ? t('auth.login.errors.passwordRequired')
           : null
     setValidationError(problem)
-    if (!problem) onSubmit?.({ phone, password, role })
+    // Move focus to the field to fix, so keyboard and screen reader users land on it
+    if (problem) (event.currentTarget.elements.namedItem(isValidPhone(phone) ? 'password' : 'phone') as HTMLInputElement).focus()
+    else onSubmit?.({ phone, password, role })
   }
 
   const message = validationError ?? error

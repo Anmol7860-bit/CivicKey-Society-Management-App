@@ -29,6 +29,13 @@
       "when": 1791366057159,
       "tag": "0003_auth_sessions_device_and_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791675611398,
+      "tag": "0004_roles_and_permissions",
+      "breakpoints": true
     }
   ]
 }

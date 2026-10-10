@@ -186,3 +186,24 @@ test.describe('session expiry', () => {
     await expect(page.getByRole('alert')).toHaveText('Your session has ended. Please sign in again.')
   })
 })
+
+test.describe('role dashboards', () => {
+  test('a committee member sees only their committee functions', async ({ page }) => {
+    // Seeded Tenant on the committee: ADMIN role with committee permissions only
+    await signIn(page, '9876543214', 'Committee@123', 'Admin')
+
+    await expect(page).toHaveURL(/\/admin$/)
+    const functions = page.getByRole('list', { name: 'Your functions' }).getByRole('heading')
+    await expect(functions).toHaveText(['Billing rates', 'Invoices and one-time charges', 'Mark cash payments', 'Reports'])
+    await expect(page.getByText('Tenant')).toBeVisible()
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+  })
+
+  test('a guard sees gate functions and no billing or admin functions', async ({ page }) => {
+    await signIn(page, accounts.GUARD.phone, accounts.GUARD.password, accounts.GUARD.label)
+
+    const functions = page.getByRole('list', { name: 'Your functions' })
+    await expect(functions.getByRole('heading', { name: 'Register visitor' })).toBeVisible()
+    await expect(functions).not.toContainText(/bill|Users|Audit/i)
+  })
+})

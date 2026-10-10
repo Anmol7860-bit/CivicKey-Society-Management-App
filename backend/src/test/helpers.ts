@@ -16,6 +16,7 @@ export async function createUser(overrides: Partial<NewUser> = {}) {
       phone: '9876543210',
       email: 'riya@example.com',
       role: 'RESIDENT',
+      residentType: overrides.role && overrides.role !== 'RESIDENT' ? null : 'OWNER',
       societyId: '11111111-1111-4111-8111-111111111111',
       passwordHash: await hashPassword(PASSWORD),
       ...overrides,

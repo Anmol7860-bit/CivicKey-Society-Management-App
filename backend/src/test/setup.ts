@@ -14,7 +14,7 @@ beforeAll(async () => {
 })
 
 beforeEach(async () => {
-  await pool.query('TRUNCATE audit_logs, refresh_tokens, auth_sessions, users RESTART IDENTITY CASCADE')
+  await pool.query('TRUNCATE user_permissions, audit_logs, refresh_tokens, auth_sessions, users RESTART IDENTITY CASCADE')
 })
 
 afterAll(async () => {

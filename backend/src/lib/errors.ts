@@ -9,6 +9,8 @@ export type ErrorCode =
   | 'TOKEN_EXPIRED'
   | 'VALIDATION_ERROR'
   | 'TOO_MANY_REQUESTS'
+  | 'FORBIDDEN'
+  | 'COMMITTEE_NOT_ALLOWED'
   | 'NOT_FOUND'
   | 'INTERNAL_ERROR'
 

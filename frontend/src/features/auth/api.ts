@@ -2,13 +2,26 @@ import type { LoginFormValues } from './components/LoginForm'
 
 export type Role = 'RESIDENT' | 'GUARD' | 'ADMIN'
 
+// Role from the backend decides the area; the user never picks it
+export const areaByRole = { ADMIN: 'admin', RESIDENT: 'resident', GUARD: 'guard' } as const
+
+export type Permission =
+  | 'SOCIETY_MANAGE' | 'USER_MANAGE' | 'GUARD_MANAGE' | 'STAFF_MANAGE' | 'AUDIT_VIEW'
+  | 'BILLING_RATE_SET' | 'INVOICE_GENERATE' | 'PAYMENT_CASH_MARK' | 'REPORT_VIEW'
+  | 'VISITOR_REGISTER' | 'VISIT_DECIDE' | 'VISIT_ENTRY_RECORD' | 'VISIT_EXIT_RECORD' | 'PASS_VALIDATE'
+  | 'VISITOR_APPROVE' | 'VISITOR_PASS_CREATE' | 'OWN_VISITS_VIEW' | 'OWN_BILLS_VIEW' | 'OWN_BILL_PAY' | 'OWN_RECEIPTS_VIEW'
+
 export interface AuthUser {
   id: string
   name: string
   phone: string | null
   email: string | null
   role: Role
+  /** OWNER or TENANT for Residents, including a Resident serving on the committee as ADMIN */
+  residentType: 'OWNER' | 'TENANT' | null
   societyId: string | null
+  /** Decides what the UI shows; the backend checks each operation itself */
+  permissions: Permission[]
 }
 
 export interface AuthSession {

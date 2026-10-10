@@ -10,6 +10,8 @@ export type AuditEventType =
   | 'AUTH_REFRESH_FAILED'
   | 'AUTH_REFRESH_REUSE_DETECTED'
   | 'AUTH_LOGOUT'
+  | 'COMMITTEE_MEMBERSHIP_SET'
+  | 'COMMITTEE_MEMBERSHIP_REMOVED'
 
 export interface AuditEvent {
   eventType: AuditEventType

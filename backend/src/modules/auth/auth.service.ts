@@ -1,7 +1,8 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
-import { authSessions, refreshTokens, users, type Role, type User } from '../../db/schema.js'
+import { authSessions, refreshTokens, users, type ResidentType, type Role, type User } from '../../db/schema.js'
+import { loadPermissions, type Permission } from '../access/permissions.js'
 import { AppError } from '../../lib/errors.js'
 import { maskIdentifier, recordAuditEvent, type DbExecutor } from '../audit/audit.service.js'
 import type { LoginIdentifier } from './auth.schemas.js'
@@ -20,7 +21,10 @@ export interface SafeUser {
   phone: string | null
   email: string | null
   role: Role
+  residentType: ResidentType | null
   societyId: string | null
+  /** What the UI may show; the backend still checks each operation */
+  permissions: Permission[]
 }
 
 /** Returned by login and refresh. The route puts refreshToken in a cookie, never in the body. */
@@ -33,14 +37,16 @@ export interface AuthResult {
   user: SafeUser
 }
 
-export function toSafeUser(user: User): SafeUser {
+export function toSafeUser(user: User, permissions: Permission[]): SafeUser {
   return {
     id: user.id,
     name: user.name,
     phone: user.phone,
     email: user.email,
     role: user.role,
+    residentType: user.residentType,
     societyId: user.societyId,
+    permissions,
   }
 }
 
@@ -56,7 +62,12 @@ async function issueRefreshToken(executor: DbExecutor, sessionId: string, now: D
   return { id: row.id, token, expiresAt }
 }
 
-async function buildAuthResult(user: User, sessionId: string, refresh: { token: string; expiresAt: Date }): Promise<AuthResult> {
+async function buildAuthResult(
+  executor: DbExecutor,
+  user: User,
+  sessionId: string,
+  refresh: { token: string; expiresAt: Date },
+): Promise<AuthResult> {
   const accessToken = await signAccessToken({
     userId: user.id,
     sessionId,
@@ -69,7 +80,7 @@ async function buildAuthResult(user: User, sessionId: string, refresh: { token: 
     refreshToken: refresh.token,
     refreshTokenExpiresAt: refresh.expiresAt,
     sessionId,
-    user: toSafeUser(user),
+    user: toSafeUser(user, await loadPermissions(executor, user.id, user.role)),
   }
 }
 
@@ -172,7 +183,7 @@ export async function login(
       metadata: { ...attempted, sessionId: session.id, role: user.role },
     })
 
-    return buildAuthResult(user, session.id, refresh)
+    return buildAuthResult(tx, user, session.id, refresh)
   })
 }
 
@@ -267,7 +278,7 @@ export async function refreshSession(rawToken: string | undefined, context: Requ
       .set({ lastUsedAt: now, expiresAt: next.expiresAt })
       .where(eq(authSessions.id, session.id))
 
-    return { ok: true, result: await buildAuthResult(user, session.id, next) }
+    return { ok: true, result: await buildAuthResult(tx, user, session.id, next) }
   })
 
   if (!outcome.ok) throw outcome.error

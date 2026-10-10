@@ -77,10 +77,12 @@ describe('LoginForm', () => {
     await userEvent.type(screen.getByLabelText('Phone number'), '98765')
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid 10-digit Indian mobile number.')
+    expect(screen.getByLabelText('Phone number')).toHaveFocus()
 
     await userEvent.type(screen.getByLabelText('Phone number'), '43210')
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     expect(screen.getByRole('alert')).toHaveTextContent('Enter your password.')
+    expect(screen.getByLabelText('Password')).toHaveFocus()
 
     expect(onSubmit).not.toHaveBeenCalled()
   })
