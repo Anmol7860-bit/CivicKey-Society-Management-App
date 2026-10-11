@@ -2,8 +2,8 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { userPermissions, users, type User } from '../../db/schema.js'
-import { createUser } from '../../test/helpers.js'
+import { users, type User } from '../../db/schema.js'
+import { createUser, grantPermissions } from '../../test/helpers.js'
 import { signAccessToken } from './tokens.js'
 
 const app = createApp()
@@ -26,16 +26,13 @@ describe('GET /api/v1/auth/permissions', () => {
       userId: resident.id,
       role: 'RESIDENT',
       residentType: 'TENANT',
-      permissions: ['VISITOR_APPROVE', 'VISITOR_PASS_CREATE', 'VISIT_VIEW_OWN', 'BILL_VIEW_OWN', 'BILL_PAY', 'RECEIPT_VIEW_OWN'],
+      permissions: ['BILL_PAY', 'BILL_VIEW_OWN', 'RECEIPT_VIEW_OWN', 'VISITOR_APPROVE', 'VISITOR_PASS_CREATE', 'VISIT_VIEW_OWN'],
     })
   })
 
   it('returns only the permissions assigned to a committee member', async () => {
     const committee = await createUser({ role: 'ADMIN', residentType: 'OWNER' })
-    await db.insert(userPermissions).values([
-      { userId: committee.id, permission: 'REPORT_VIEW' },
-      { userId: committee.id, permission: 'BILLING_RATE_SET' },
-    ])
+    await grantPermissions(committee.id, ['REPORT_VIEW', 'BILLING_RATE_SET'])
 
     const res = await getPermissions(committee)
 
@@ -58,6 +55,13 @@ describe('GET /api/v1/auth/permissions', () => {
     const res = await getPermissions(user)
     expect(res.status).toBe(403)
     expect(res.body.error.code).toBe('ROLE_NOT_ASSIGNED')
+  })
+
+  it('returns 403 ROLE_NOT_ASSIGNED when the user has no role', async () => {
+    const user = await createUser()
+    await db.execute(`delete from user_roles where user_id = '${user.id}'`)
+
+    expect((await getPermissions(user)).body.error.code).toBe('ROLE_NOT_ASSIGNED')
   })
 
   it('returns 401 without a token', async () => {

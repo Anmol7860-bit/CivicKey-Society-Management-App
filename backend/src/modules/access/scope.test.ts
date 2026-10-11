@@ -3,13 +3,14 @@ import type { PgInsertValue } from 'drizzle-orm/pg-core'
 import request from 'supertest'
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { auditLogs, flatResidents, flats, societies, userPermissions, type AdminPermission, type User } from '../../db/schema.js'
+import { auditLogs, flatResidents, flats, societies } from '../../db/schema.js'
 import { errorHandler } from '../../middleware/errorHandler.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requireFlatAccess } from '../../middleware/requireFlatAccess.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
-import { createUser, TEST_SOCIETY_ID } from '../../test/helpers.js'
+import { createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
 import { signAccessToken } from '../auth/tokens.js'
+import type { AdminPermission } from './permissions.js'
 import { assertState, requireRecord } from './scope.js'
 
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
@@ -27,7 +28,7 @@ app.get('/flats/:flatId/visits', requireAuth, requirePermission('REPORT_VIEW'), 
 app.use(errorHandler)
 
 /** The token's role and society are deliberately wrong to prove both are read from the database. */
-async function as(user: User) {
+async function as(user: { id: string }) {
   const token = await signAccessToken({ userId: user.id, sessionId: 's1', role: 'GUARD', societyId: OTHER_SOCIETY_ID })
   return `Bearer ${token}`
 }
@@ -44,7 +45,7 @@ function link(userId: string, flatId: string, extra: Partial<PgInsertValue<typeo
 
 async function admin(...permissions: AdminPermission[]) {
   const user = await createUser({ phone: '9000000010', email: null, role: 'ADMIN', residentType: 'TENANT' })
-  await db.insert(userPermissions).values(permissions.map((permission) => ({ userId: user.id, permission })))
+  await grantPermissions(user.id, permissions)
   return user
 }
 
@@ -74,8 +75,8 @@ describe('flat ownership and scope', () => {
   })
 
   it.each([
-    ['ended', { validFrom: day(-30), validTo: day(-1) }],
-    ['not yet started', { validFrom: day(1) }],
+    ['ended', { startDate: day(-30), endDate: day(-1) }],
+    ['not yet started', { startDate: day(1) }],
   ])('refuses a relationship that has %s', async (_label, period) => {
     const resident = await createUser()
     const flat = await createFlat()
@@ -89,7 +90,7 @@ describe('flat ownership and scope', () => {
   it('counts the last valid day as active', async () => {
     const resident = await createUser()
     const flat = await createFlat()
-    await link(resident.id, flat.id, { validFrom: day(-30), validTo: day(0) })
+    await link(resident.id, flat.id, { startDate: day(-30), endDate: day(0) })
 
     expect((await request(app).get(`/flats/${flat.id}/bills`).set('Authorization', await as(resident))).status).toBe(200)
   })
@@ -97,7 +98,7 @@ describe('flat ownership and scope', () => {
   it('lets a VIEW_ONLY Resident read but not write', async () => {
     const resident = await createUser()
     const flat = await createFlat()
-    await link(resident.id, flat.id, { access: 'VIEW_ONLY' })
+    await link(resident.id, flat.id, { accessLevel: 'VIEW_ONLY' })
 
     expect((await request(app).get(`/flats/${flat.id}/bills`).set('Authorization', await as(resident))).status).toBe(200)
     const res = await request(app).post(`/flats/${flat.id}/bills/pay`).set('Authorization', await as(resident))

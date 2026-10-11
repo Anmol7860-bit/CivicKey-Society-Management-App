@@ -81,22 +81,22 @@ export const AREAS: Record<Role, AreaConfig> = {
     home: 'operations',
     nav: [
       { key: 'operations', path: 'operations', icon: LayoutDashboard },
-      { key: 'visitorRegistration', path: 'visitor-registration', icon: UserPlus, anyOf: ['VISITOR_REGISTER'] },
+      { key: 'visitorRegistration', path: 'visitor-registration', icon: UserPlus, anyOf: ['VISIT_REGISTER'] },
       { key: 'passValidation', path: 'pass-validation', icon: ScanLine, anyOf: ['PASS_VALIDATE'] },
-      { key: 'gate', path: 'gate', icon: ArrowLeftRight, anyOf: ['VISIT_ENTRY_RECORD', 'VISIT_EXIT_RECORD', 'VISIT_DECIDE'] },
+      { key: 'gate', path: 'gate', icon: ArrowLeftRight, anyOf: ['VISIT_ENTRY_RECORD', 'VISIT_EXIT', 'VISIT_DECIDE'] },
       { key: 'staffVerification', path: 'staff-verification', icon: BadgeCheck, anyOf: ['PASS_VALIDATE'] },
       { key: 'sync', path: 'sync', icon: RefreshCw },
     ],
-    primaryAction: { key: 'registerVisitor', path: 'visitor-registration', icon: UserPlus, anyOf: ['VISITOR_REGISTER'] },
+    primaryAction: { key: 'registerVisitor', path: 'visitor-registration', icon: UserPlus, anyOf: ['VISIT_REGISTER'] },
     stats: [
       { key: 'expected', icon: Users },
       { key: 'onSite', icon: MapPin },
       { key: 'sync', icon: CloudCheck },
     ],
     shortcuts: [
-      { key: 'registerVisitor', path: 'visitor-registration', icon: UserPlus, anyOf: ['VISITOR_REGISTER'] },
+      { key: 'registerVisitor', path: 'visitor-registration', icon: UserPlus, anyOf: ['VISIT_REGISTER'] },
       { key: 'validatePass', path: 'pass-validation', icon: ScanLine, anyOf: ['PASS_VALIDATE'] },
-      { key: 'entryExit', path: 'gate', icon: ArrowLeftRight, anyOf: ['VISIT_ENTRY_RECORD', 'VISIT_EXIT_RECORD'] },
+      { key: 'entryExit', path: 'gate', icon: ArrowLeftRight, anyOf: ['VISIT_ENTRY_RECORD', 'VISIT_EXIT'] },
     ],
   },
   ADMIN: {

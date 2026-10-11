@@ -1,7 +1,9 @@
 import request from 'supertest'
 import type { createApp } from '../app.js'
 import { db } from '../db/client.js'
-import { societies, users, type NewUser } from '../db/schema.js'
+import { inArray } from 'drizzle-orm'
+import { permissions, societies, userPermissions, users, type NewUser, type Role } from '../db/schema.js'
+import { assignRole, type AdminPermission } from '../modules/access/permissions.js'
 import { hashPassword } from '../modules/auth/password.js'
 
 export type App = ReturnType<typeof createApp>
@@ -10,7 +12,8 @@ export const PASSWORD = 'Resident@123'
 
 export const TEST_SOCIETY_ID = '11111111-1111-4111-8111-111111111111'
 
-export async function createUser(overrides: Partial<NewUser> = {}) {
+/** Creates a user with a role in user_roles (default RESIDENT). */
+export async function createUser({ role = 'RESIDENT', ...overrides }: Partial<NewUser> & { role?: Role } = {}) {
   await db.insert(societies).values({ id: TEST_SOCIETY_ID, name: 'Test Society' }).onConflictDoNothing()
   const [user] = await db
     .insert(users)
@@ -18,14 +21,20 @@ export async function createUser(overrides: Partial<NewUser> = {}) {
       name: 'Riya Sharma',
       phone: '9876543210',
       email: 'riya@example.com',
-      role: 'RESIDENT',
-      residentType: overrides.role && overrides.role !== 'RESIDENT' ? null : 'OWNER',
+      residentType: role === 'RESIDENT' ? 'OWNER' : null,
       societyId: TEST_SOCIETY_ID,
       passwordHash: await hashPassword(PASSWORD),
       ...overrides,
     })
     .returning()
-  return user!
+  await assignRole(db, user!.id, role)
+  return { ...user!, role }
+}
+
+/** Grants user-specific permissions; the grantee is recorded as granter unless one is given. */
+export async function grantPermissions(userId: string, codes: AdminPermission[], grantedBy = userId) {
+  const rows = await db.select({ id: permissions.id }).from(permissions).where(inArray(permissions.code, codes))
+  await db.insert(userPermissions).values(rows.map((row) => ({ userId, permissionId: row.id, grantedBy })))
 }
 
 export function postLogin(app: App, body: unknown) {

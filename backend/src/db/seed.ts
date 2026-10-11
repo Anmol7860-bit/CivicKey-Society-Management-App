@@ -1,10 +1,10 @@
 // Development test accounts: npm run db:seed
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { env } from '../config/env.js'
 import { hashPassword } from '../modules/auth/password.js'
 import { db, pool } from './client.js'
-import { adminPermission, flatResidents, flats, societies, userPermissions, users, type AdminPermission, type NewUser } from './schema.js'
-import { COMMITTEE_PERMISSIONS } from '../modules/access/permissions.js'
+import { flatResidents, flats, permissions as permissionTable, societies, userPermissions, users, type NewUser, type Role } from './schema.js'
+import { ADMIN_PERMISSIONS, assignRole, COMMITTEE_PERMISSIONS, type AdminPermission } from '../modules/access/permissions.js'
 
 if (env.NODE_ENV === 'production') {
   throw new Error('Refusing to seed test accounts in production')
@@ -12,12 +12,12 @@ if (env.NODE_ENV === 'production') {
 
 const SOCIETY_ID = '5eed0000-0000-4000-8000-000000000001'
 
-type Account = Omit<NewUser, 'passwordHash'> & { password: string; permissions?: readonly AdminPermission[]; flat?: string }
+type Account = Omit<NewUser, 'passwordHash'> & { role: Role; password: string; permissions?: readonly AdminPermission[]; flat?: string }
 
 const accounts: Account[] = [
   { name: 'Riya Sharma', phone: '9876543210', role: 'RESIDENT', residentType: 'OWNER', password: 'Resident@123', flat: 'A-101' },
   { name: 'Mahesh Patil', phone: '9876543211', role: 'GUARD', password: 'Guard@123' },
-  { name: 'Anita Rao', phone: '9876543212', email: 'admin@civickey.local', role: 'ADMIN', password: 'Admin@123', permissions: adminPermission.enumValues },
+  { name: 'Anita Rao', phone: '9876543212', email: 'admin@civickey.local', role: 'ADMIN', password: 'Admin@123', permissions: ADMIN_PERMISSIONS },
   // A Tenant on the committee: Admin role with committee permissions only
   { name: 'Vikram Joshi', phone: '9876543214', role: 'ADMIN', residentType: 'TENANT', password: 'Committee@123', permissions: COMMITTEE_PERMISSIONS, flat: 'B-204' },
   { name: 'Former Resident', phone: '9876543213', role: 'RESIDENT', residentType: 'TENANT', password: 'Inactive@123', isActive: false },
@@ -26,7 +26,10 @@ const accounts: Account[] = [
 try {
   await db.insert(societies).values({ id: SOCIETY_ID, name: 'Green Meadows' }).onConflictDoNothing()
 
-  for (const { password, permissions = [], flat, ...fields } of accounts) {
+  // The first Admin grants everyone's permissions, including (as the bootstrap account) their own
+  let granter: string | undefined
+
+  for (const { role, password, permissions = [], flat, ...fields } of accounts) {
     const account = { ...fields, societyId: SOCIETY_ID }
     const passwordHash = await hashPassword(password)
     const [user] = await db
@@ -34,6 +37,7 @@ try {
       .values({ ...account, passwordHash })
       .onConflictDoUpdate({ target: users.phone, set: { ...account, passwordHash, updatedAt: new Date() } })
       .returning({ id: users.id })
+    await assignRole(db, user!.id, role)
     if (flat) {
       const [block, number] = flat.split('-') as [string, string]
       const [row] = await db
@@ -45,10 +49,12 @@ try {
       if (linked.length === 0) await db.insert(flatResidents).values({ userId: user!.id, flatId: row!.id })
     }
     if (permissions.length > 0) {
+      granter ??= user!.id
+      const ids = await db.select({ id: permissionTable.id }).from(permissionTable).where(inArray(permissionTable.code, [...permissions]))
       await db
         .insert(userPermissions)
-        .values(permissions.map((permission) => ({ userId: user!.id, permission })))
-        .onConflictDoNothing()
+        .values(ids.map(({ id }) => ({ userId: user!.id, permissionId: id, grantedBy: granter! })))
+        .onConflictDoUpdate({ target: [userPermissions.userId, userPermissions.permissionId], set: { revokedAt: null } })
     }
   }
   console.log(`Seeded ${accounts.length} users:`)

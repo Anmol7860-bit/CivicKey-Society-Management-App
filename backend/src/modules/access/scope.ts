@@ -70,16 +70,16 @@ export async function assertFlatAccess(ctx: AuthContext, flatId: string, { write
   if (ctx.role !== 'RESIDENT') throw await deny(ctx.userId, permissionDenied(), { flatId })
 
   const links = await db
-    .select({ access: flatResidents.access })
+    .select({ accessLevel: flatResidents.accessLevel })
     .from(flatResidents)
     .where(
       and(
         eq(flatResidents.userId, ctx.userId),
         eq(flatResidents.flatId, flatId),
-        lte(flatResidents.validFrom, sql`current_date`),
-        or(isNull(flatResidents.validTo), gte(flatResidents.validTo, sql`current_date`)),
+        lte(flatResidents.startDate, sql`current_date`),
+        or(isNull(flatResidents.endDate), gte(flatResidents.endDate, sql`current_date`)),
       ),
     )
   if (links.length === 0) throw await deny(ctx.userId, notYourFlat(), { flatId })
-  if (write && !links.some((link) => link.access === 'FULL')) throw await deny(ctx.userId, permissionDenied(), { flatId, write })
+  if (write && !links.some((link) => link.accessLevel === 'FULL')) throw await deny(ctx.userId, permissionDenied(), { flatId, write })
 }

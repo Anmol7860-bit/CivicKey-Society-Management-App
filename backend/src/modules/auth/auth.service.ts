@@ -1,7 +1,7 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, getTableColumns, isNull } from 'drizzle-orm'
 import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
-import { authSessions, refreshTokens, users, type ResidentType, type Role, type User } from '../../db/schema.js'
+import { authSessions, refreshTokens, roles, userRoles, users, type ResidentType, type Role, type User } from '../../db/schema.js'
 import { loadPermissions, type Permission } from '../access/permissions.js'
 import { AppError } from '../../lib/errors.js'
 import { maskIdentifier, recordAuditEvent, type DbExecutor } from '../audit/audit.service.js'
@@ -37,7 +37,12 @@ export interface AuthResult {
   user: SafeUser
 }
 
-export function toSafeUser(user: User, permissions: Permission[]): SafeUser {
+/** A user with their role from user_roles; null when no role is assigned. */
+type UserWithRole = User & { role: Role | null }
+
+const userWithRole = { ...getTableColumns(users), role: roles.name }
+
+export function toSafeUser(user: User & { role: Role }, permissions: Permission[]): SafeUser {
   return {
     id: user.id,
     name: user.name,
@@ -64,7 +69,7 @@ async function issueRefreshToken(executor: DbExecutor, sessionId: string, now: D
 
 async function buildAuthResult(
   executor: DbExecutor,
-  user: User,
+  user: User & { role: Role },
   sessionId: string,
   refresh: { token: string; expiresAt: Date },
 ): Promise<AuthResult> {
@@ -104,8 +109,14 @@ async function revokeSession(executor: DbExecutor, sessionId: string, reason: st
 
 async function findUser(identifier: LoginIdentifier) {
   const column = identifier.type === 'phone' ? users.phone : users.email
-  const [user] = await db.select().from(users).where(eq(column, identifier.value)).limit(1)
-  return user
+  const [user] = await db
+    .select(userWithRole)
+    .from(users)
+    .leftJoin(userRoles, eq(userRoles.userId, users.id))
+    .leftJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(eq(column, identifier.value))
+    .limit(1)
+  return user as UserWithRole | undefined
 }
 
 // Same response for unknown user and wrong password, so accounts cannot be enumerated
@@ -146,8 +157,19 @@ export async function login(
     throw new AppError(403, 'USER_INACTIVE', 'User account is inactive')
   }
 
+  const role = user.role
+  if (!role) {
+    await recordAuditEvent(db, {
+      ...auditBase,
+      eventType: 'AUTH_LOGIN_FAILED',
+      actorUserId: user.id,
+      metadata: { ...attempted, reason: 'ROLE_NOT_ASSIGNED' },
+    })
+    throw new AppError(403, 'ROLE_NOT_ASSIGNED', 'No active role is assigned to this user')
+  }
+
   // Also after the password check, so an account's role is never revealed without it
-  if (selectedRole && selectedRole !== user.role) {
+  if (selectedRole && selectedRole !== role) {
     await recordAuditEvent(db, {
       ...auditBase,
       eventType: 'AUTH_LOGIN_FAILED',
@@ -183,7 +205,7 @@ export async function login(
       metadata: { ...attempted, sessionId: session.id, role: user.role },
     })
 
-    return buildAuthResult(tx, user, session.id, refresh)
+    return buildAuthResult(tx, { ...user, role }, session.id, refresh)
   })
 }
 
@@ -214,10 +236,12 @@ export async function refreshSession(rawToken: string | undefined, context: Requ
   const outcome = await db.transaction(async (tx): Promise<RefreshOutcome> => {
     // Row locks serialise concurrent refreshes of the same token and races with logout
     const [row] = await tx
-      .select({ token: refreshTokens, session: authSessions, user: users })
+      .select({ token: refreshTokens, session: authSessions, user: users, role: roles.name })
       .from(refreshTokens)
       .innerJoin(authSessions, eq(refreshTokens.sessionId, authSessions.id))
       .innerJoin(users, eq(authSessions.userId, users.id))
+      .leftJoin(userRoles, eq(userRoles.userId, users.id))
+      .leftJoin(roles, eq(roles.id, userRoles.roleId))
       .where(eq(refreshTokens.tokenHash, tokenHash))
       .for('update', { of: [refreshTokens, authSessions] })
 
@@ -226,7 +250,7 @@ export async function refreshSession(rawToken: string | undefined, context: Requ
       return { ok: false, error: invalidRefreshToken() }
     }
 
-    const { token, session, user } = row
+    const { token, session, user, role } = row
     const sessionMeta = { sessionId: session.id }
 
     if (token.rotatedAt) {
@@ -271,6 +295,17 @@ export async function refreshSession(rawToken: string | undefined, context: Requ
       return { ok: false, error: new AppError(403, 'USER_INACTIVE', 'User account is inactive') }
     }
 
+    if (!role) {
+      await revokeSession(tx, session.id, 'ROLE_NOT_ASSIGNED', now)
+      await recordAuditEvent(tx, {
+        ...auditBase,
+        eventType: 'AUTH_REFRESH_FAILED',
+        actorUserId: user.id,
+        metadata: { ...sessionMeta, reason: 'ROLE_NOT_ASSIGNED' },
+      })
+      return { ok: false, error: new AppError(403, 'ROLE_NOT_ASSIGNED', 'No active role is assigned to this user') }
+    }
+
     const next = await issueRefreshToken(tx, session.id, now)
     await tx.update(refreshTokens).set({ rotatedAt: now, replacedById: next.id }).where(eq(refreshTokens.id, token.id))
     await tx
@@ -278,7 +313,7 @@ export async function refreshSession(rawToken: string | undefined, context: Requ
       .set({ lastUsedAt: now, expiresAt: next.expiresAt })
       .where(eq(authSessions.id, session.id))
 
-    return { ok: true, result: await buildAuthResult(tx, user, session.id, next) }
+    return { ok: true, result: await buildAuthResult(tx, { ...user, role }, session.id, next) }
   })
 
   if (!outcome.ok) throw outcome.error

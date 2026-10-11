@@ -2,15 +2,21 @@ import express from 'express'
 import request from 'supertest'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { adminPermission, userPermissions, users, type AdminPermission } from '../../db/schema.js'
+import { permissions, rolePermissions, roles, userPermissions, users } from '../../db/schema.js'
 import { errorHandler } from '../../middleware/errorHandler.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
-import { createUser, PASSWORD, postLogin } from '../../test/helpers.js'
+import { createUser, grantPermissions, PASSWORD, postLogin } from '../../test/helpers.js'
 import { signAccessToken } from '../auth/tokens.js'
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import {
+  ADMIN_PERMISSIONS,
+  assignRole,
   COMMITTEE_PERMISSIONS,
+  GUARD_PERMISSIONS,
+  loadRole,
+  RESIDENT_PERMISSIONS,
+  type AdminPermission,
   removeCommitteeMembership,
   setCommitteeMembership,
   type Permission,
@@ -28,9 +34,41 @@ async function call(user: { id: string; role: 'ADMIN' | 'GUARD' | 'RESIDENT' }, 
   return request(app).get(`/op/${permission}`).set('Authorization', `Bearer ${token}`)
 }
 
-async function grant(userId: string, ...permissions: AdminPermission[]) {
-  await db.insert(userPermissions).values(permissions.map((permission) => ({ userId, permission })))
+function grant(userId: string, ...codes: AdminPermission[]) {
+  return grantPermissions(userId, codes)
 }
+
+/** Codes of the user's active (unrevoked) user-specific permissions */
+async function activeGrants(userId: string) {
+  const rows = await db
+    .select({ code: permissions.code })
+    .from(userPermissions)
+    .innerJoin(permissions, eq(permissions.id, userPermissions.permissionId))
+    .where(and(eq(userPermissions.userId, userId), isNull(userPermissions.revokedAt)))
+  return rows.map((row) => row.code).sort()
+}
+
+describe('permission master data', () => {
+  it('matches the codes the code refers to', async () => {
+    const rows = await db.select({ code: permissions.code, description: permissions.description }).from(permissions)
+
+    expect(rows.map((row) => row.code).sort()).toEqual([...ADMIN_PERMISSIONS, ...GUARD_PERMISSIONS, ...RESIDENT_PERMISSIONS].sort())
+    expect(rows.every((row) => row.description.length > 0)).toBe(true)
+  })
+
+  it('gives Guards and Residents their permissions through role_permissions, and Admins none', async () => {
+    const rows = await db
+      .select({ role: roles.name, code: permissions.code })
+      .from(rolePermissions)
+      .innerJoin(roles, eq(roles.id, rolePermissions.roleId))
+      .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
+    const codesOf = (role: string) => rows.filter((row) => row.role === role).map((row) => row.code).sort()
+
+    expect(codesOf('GUARD')).toEqual([...GUARD_PERMISSIONS].sort())
+    expect(codesOf('RESIDENT')).toEqual([...RESIDENT_PERMISSIONS].sort())
+    expect(codesOf('ADMIN')).toEqual([])
+  })
+})
 
 describe('permission matrix', () => {
   // [permission, guard allowed, resident allowed]; Admin rows are covered by the assignment tests below
@@ -44,10 +82,10 @@ describe('permission matrix', () => {
     ['PAYMENT_CASH_MARK', false, false],
     ['REPORT_VIEW', false, false],
     ['AUDIT_VIEW', false, false],
-    ['VISITOR_REGISTER', true, false],
+    ['VISIT_REGISTER', true, false],
     ['VISIT_DECIDE', true, false],
     ['VISIT_ENTRY_RECORD', true, false],
-    ['VISIT_EXIT_RECORD', true, false],
+    ['VISIT_EXIT', true, false],
     ['PASS_VALIDATE', true, false],
     ['VISITOR_APPROVE', false, true],
     ['VISITOR_PASS_CREATE', false, true],
@@ -77,9 +115,9 @@ describe('permission matrix', () => {
 
   it('lets an Admin use every Admin permission assigned to them', async () => {
     const admin = await createUser({ phone: '9000000005', email: null, role: 'ADMIN' })
-    await grant(admin.id, ...adminPermission.enumValues)
+    await grant(admin.id, ...ADMIN_PERMISSIONS)
 
-    for (const permission of adminPermission.enumValues) {
+    for (const permission of ADMIN_PERMISSIONS) {
       expect((await call(admin, permission)).status).toBe(200)
     }
   })
@@ -103,26 +141,39 @@ describe('permission matrix', () => {
     const admin = await createUser({ role: 'ADMIN', residentType: 'OWNER' })
     await grant(admin.id, 'REPORT_VIEW')
     const token = await signAccessToken({ userId: admin.id, sessionId: 's1', role: 'ADMIN', societyId: null })
-    await db.update(users).set({ role: 'RESIDENT' }).where(eq(users.id, admin.id))
+    await assignRole(db, admin.id, 'RESIDENT')
 
     const res = await request(app).get('/op/REPORT_VIEW').set('Authorization', `Bearer ${token}`)
 
     expect(res.status).toBe(403)
   })
 
+  it('ignores a revoked permission and honours it again once re-granted', async () => {
+    const admin = await createUser({ role: 'ADMIN' })
+    await grant(admin.id, 'AUDIT_VIEW')
+    await db.update(userPermissions).set({ revokedAt: new Date() }).where(eq(userPermissions.userId, admin.id))
+
+    expect((await call(admin, 'AUDIT_VIEW')).status).toBe(403)
+
+    await db.update(userPermissions).set({ revokedAt: null }).where(eq(userPermissions.userId, admin.id))
+    expect((await call(admin, 'AUDIT_VIEW')).status).toBe(200)
+  })
+
+  it('denies a user with no role assigned', async () => {
+    const user = await createUser()
+    await db.execute(`delete from user_roles where user_id = '${user.id}'`)
+
+    expect((await call(user, 'BILL_VIEW_OWN')).status).toBe(403)
+  })
+
   it('rejects an inactive user', async () => {
     const guard = await createUser({ role: 'GUARD', isActive: false })
 
-    expect((await call(guard, 'VISITOR_REGISTER')).status).toBe(403)
+    expect((await call(guard, 'VISIT_REGISTER')).status).toBe(403)
   })
 })
 
 describe('resident type', () => {
-  it('requires a type for Residents and forbids one for Guards', async () => {
-    await expect(createUser({ role: 'RESIDENT', residentType: null })).rejects.toThrow()
-    await expect(createUser({ role: 'GUARD', residentType: 'TENANT' })).rejects.toThrow()
-  })
-
   it('gives Owners and Tenants the same Resident permissions', async () => {
     const tenant = await createUser({ residentType: 'TENANT' })
 
@@ -157,8 +208,13 @@ describe('committee membership', () => {
     await removeCommitteeMembership(actor, resident.id)
 
     const [user] = await db.select().from(users).where(eq(users.id, resident.id))
-    expect(user).toMatchObject({ role: 'RESIDENT', residentType: 'TENANT' })
-    expect(await db.select().from(userPermissions)).toEqual([])
+    expect(user!.residentType).toBe('TENANT')
+    expect(await loadRole(db, resident.id)).toBe('RESIDENT')
+    expect(await activeGrants(resident.id)).toEqual([])
+    // Revoked grants stay as history, with who granted them
+    const history = await db.select().from(userPermissions).where(eq(userPermissions.userId, resident.id))
+    expect(history).toHaveLength(COMMITTEE_PERMISSIONS.length)
+    expect(history.every((row) => row.revokedAt && row.grantedBy === actor)).toBe(true)
   })
 
   it('keeps separately assigned General Admin permissions when committee membership ends', async () => {
@@ -168,10 +224,19 @@ describe('committee membership', () => {
 
     await removeCommitteeMembership(actor, resident.id)
 
-    const rows = await db.select().from(userPermissions)
-    expect(rows.map((row) => row.permission)).toEqual(['USER_MANAGE'])
-    const [user] = await db.select().from(users).where(eq(users.id, resident.id))
-    expect(user!.role).toBe('ADMIN')
+    expect(await activeGrants(resident.id)).toEqual(['USER_MANAGE'])
+    expect(await loadRole(db, resident.id)).toBe('ADMIN')
+  })
+
+  it('replaces the committee permissions when set again, and can restore a revoked one', async () => {
+    const resident = await createUser()
+    await setCommitteeMembership(actor, resident.id, ['REPORT_VIEW', 'BILLING_RATE_SET'])
+
+    await setCommitteeMembership(actor, resident.id, ['INVOICE_GENERATE'])
+    expect(await activeGrants(resident.id)).toEqual(['INVOICE_GENERATE'])
+
+    await setCommitteeMembership(actor, resident.id, ['REPORT_VIEW'])
+    expect(await activeGrants(resident.id)).toEqual(['REPORT_VIEW'])
   })
 
   it.each([

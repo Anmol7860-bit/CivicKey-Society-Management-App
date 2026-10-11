@@ -43,6 +43,13 @@
       "when": 1791739604669,
       "tag": "0005_society_flats_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791752894748,
+      "tag": "0006_roles_and_permission_tables",
+      "breakpoints": true
     }
   ]
 }

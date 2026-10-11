@@ -1,18 +1,30 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { adminPermission, userPermissions, users, type AdminPermission, type Role } from '../../db/schema.js'
+import { permissions, rolePermissions, roles, userPermissions, userRoles, users, type Role } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import { recordAuditEvent, type DbExecutor } from '../audit/audit.service.js'
 
+// The permissions table is the source of truth; these lists mirror the master data inserted by
+// migration 0006 so code can name permissions with type checking. A test keeps them in step.
+
+export const GENERAL_ADMIN_PERMISSIONS = ['SOCIETY_MANAGE', 'USER_MANAGE', 'GUARD_MANAGE', 'STAFF_MANAGE', 'AUDIT_VIEW'] as const
+
+export const COMMITTEE_PERMISSIONS = ['BILLING_RATE_SET', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK', 'REPORT_VIEW'] as const
+
+/** Only these can be assigned to a user; Guard and Resident permissions come from the role. */
+export const ADMIN_PERMISSIONS = [...GENERAL_ADMIN_PERMISSIONS, ...COMMITTEE_PERMISSIONS] as const
+
+/** role_permissions for GUARD */
 export const GUARD_PERMISSIONS = [
-  'VISITOR_REGISTER',
+  'VISIT_REGISTER',
   /** The Guard's gate decision; separate from the Resident's VISITOR_APPROVE */
   'VISIT_DECIDE',
   'VISIT_ENTRY_RECORD',
-  'VISIT_EXIT_RECORD',
+  'VISIT_EXIT',
   'PASS_VALIDATE',
 ] as const
 
+/** role_permissions for RESIDENT */
 export const RESIDENT_PERMISSIONS = [
   /** The Resident's approval of a visitor to their own flat */
   'VISITOR_APPROVE',
@@ -23,45 +35,68 @@ export const RESIDENT_PERMISSIONS = [
   'RECEIPT_VIEW_OWN',
 ] as const
 
-export const COMMITTEE_PERMISSIONS = [
-  'BILLING_RATE_SET',
-  'INVOICE_GENERATE',
-  'PAYMENT_CASH_MARK',
-  'REPORT_VIEW',
-] as const satisfies readonly AdminPermission[]
-
+export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number]
 export type Permission = AdminPermission | (typeof GUARD_PERMISSIONS)[number] | (typeof RESIDENT_PERMISSIONS)[number]
 
-/**
- * Guards and Residents get a fixed set from their role. Admins get only what is assigned to them,
- * so a committee member never gains General Admin permissions by holding the ADMIN role.
- * Assigned rows are ignored for other roles.
- */
-export function effectivePermissions(role: Role, assigned: readonly AdminPermission[]): Permission[] {
-  if (role === 'GUARD') return [...GUARD_PERMISSIONS]
-  if (role === 'RESIDENT') return [...RESIDENT_PERMISSIONS]
-  return adminPermission.enumValues.filter((permission) => assigned.includes(permission))
+/** The user's role from user_roles, or undefined when none is assigned. */
+export async function loadRole(executor: DbExecutor, userId: string) {
+  const [row] = await executor
+    .select({ role: roles.name })
+    .from(userRoles)
+    .innerJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(eq(userRoles.userId, userId))
+  return row?.role
 }
 
-export async function loadPermissions(executor: DbExecutor, userId: string, role: Role) {
-  const rows = await executor
-    .select({ permission: userPermissions.permission })
-    .from(userPermissions)
-    .where(eq(userPermissions.userId, userId))
-  return effectivePermissions(
-    role,
-    rows.map((row) => row.permission),
-  )
+/** Sets the user's single role, replacing any previous one. */
+export async function assignRole(executor: DbExecutor, userId: string, role: Role) {
+  const roleId = sql`(select ${roles.id} from ${roles} where ${roles.name} = ${role})`
+  await executor
+    .insert(userRoles)
+    .values({ userId, roleId })
+    .onConflictDoUpdate({ target: userRoles.userId, set: { roleId } })
+}
+
+/**
+ * Effective permissions: the role's permissions plus, for Admins, their active user-specific
+ * Admin permissions. So a committee member never gains General Admin permissions by holding the
+ * ADMIN role, and permissions stored for a Guard or Resident are ignored.
+ */
+export async function loadPermissions(executor: DbExecutor, userId: string, role: Role): Promise<Permission[]> {
+  const fromRole = await executor
+    .select({ code: permissions.code })
+    .from(rolePermissions)
+    .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
+    .innerJoin(roles, eq(roles.id, rolePermissions.roleId))
+    .where(eq(roles.name, role))
+  const assigned =
+    role === 'ADMIN'
+      ? await executor
+          .select({ code: permissions.code })
+          .from(userPermissions)
+          .innerJoin(permissions, eq(permissions.id, userPermissions.permissionId))
+          .where(
+            and(
+              eq(userPermissions.userId, userId),
+              isNull(userPermissions.revokedAt),
+              inArray(permissions.code, [...ADMIN_PERMISSIONS]),
+            ),
+          )
+      : []
+  const codes = new Set([...fromRole, ...assigned].map((row) => row.code))
+  return ([...codes] as Permission[]).sort()
 }
 
 /** GET /auth/permissions: the role and permissions as stored now, not as the token claims them. */
 export async function getEffectivePermissions(userId: string) {
   const [user] = await db
-    .select({ role: users.role, residentType: users.residentType, isActive: users.isActive })
+    .select({ residentType: users.residentType, isActive: users.isActive, role: roles.name })
     .from(users)
+    .leftJoin(userRoles, eq(userRoles.userId, users.id))
+    .leftJoin(roles, eq(roles.id, userRoles.roleId))
     .where(eq(users.id, userId))
-  // The role column is the user's single active role; a missing or deactivated user has none
-  if (!user?.isActive) throw new AppError(403, 'ROLE_NOT_ASSIGNED', 'No active role is assigned to this user')
+  // A deactivated user has no active role
+  if (!user?.isActive || !user.role) throw new AppError(403, 'ROLE_NOT_ASSIGNED', 'No active role is assigned to this user')
 
   return {
     userId,
@@ -77,6 +112,19 @@ export async function getEffectivePermissions(userId: string) {
 
 const committeeError = (message: string) => new AppError(409, 'COMMITTEE_NOT_ALLOWED', message)
 
+async function permissionIds(executor: DbExecutor, codes: readonly Permission[]) {
+  const rows = await executor.select({ id: permissions.id }).from(permissions).where(inArray(permissions.code, [...codes]))
+  return rows.map((row) => row.id)
+}
+
+/** Revokes the user's active grants among `ids`; revoked rows stay as history. */
+function revokeGrants(executor: DbExecutor, userId: string, ids: string[]) {
+  return executor
+    .update(userPermissions)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(userPermissions.userId, userId), inArray(userPermissions.permissionId, ids), isNull(userPermissions.revokedAt)))
+}
+
 /**
  * Makes a Resident a committee member with exactly the given committee permissions. Their role
  * becomes ADMIN; their Resident Type is kept. Calling it again replaces the committee permissions.
@@ -84,10 +132,10 @@ const committeeError = (message: string) => new AppError(409, 'COMMITTEE_NOT_ALL
 export async function setCommitteeMembership(
   actorUserId: string,
   userId: string,
-  permissions: readonly (typeof COMMITTEE_PERMISSIONS)[number][],
+  granted: readonly (typeof COMMITTEE_PERMISSIONS)[number][],
 ) {
-  if (permissions.length === 0) throw committeeError('Assign at least one committee permission')
-  if (permissions.some((permission) => !(COMMITTEE_PERMISSIONS as readonly string[]).includes(permission))) {
+  if (granted.length === 0) throw committeeError('Assign at least one committee permission')
+  if (granted.some((permission) => !(COMMITTEE_PERMISSIONS as readonly string[]).includes(permission))) {
     throw committeeError('Only committee permissions can be assigned this way')
   }
 
@@ -96,34 +144,47 @@ export async function setCommitteeMembership(
     // residentType marks Resident identity; an ADMIN without it is a staff admin, not a resident
     if (!user || !user.residentType) throw committeeError('Only Residents can be committee members')
 
+    const keep = await permissionIds(tx, granted)
+    const committee = await permissionIds(tx, COMMITTEE_PERMISSIONS)
+    await revokeGrants(tx, userId, committee.filter((id) => !keep.includes(id)))
+    const now = new Date()
     await tx
-      .delete(userPermissions)
-      .where(and(eq(userPermissions.userId, userId), inArray(userPermissions.permission, [...COMMITTEE_PERMISSIONS])))
-    await tx.insert(userPermissions).values(permissions.map((permission) => ({ userId, permission, grantedBy: actorUserId })))
-    await tx.update(users).set({ role: 'ADMIN', updatedAt: new Date() }).where(eq(users.id, userId))
+      .insert(userPermissions)
+      .values(keep.map((permissionId) => ({ userId, permissionId, grantedBy: actorUserId, grantedAt: now })))
+      .onConflictDoUpdate({
+        target: [userPermissions.userId, userPermissions.permissionId],
+        set: { grantedBy: actorUserId, grantedAt: now, revokedAt: null },
+        // An already active grant keeps its original granter and time
+        setWhere: sql`${userPermissions.revokedAt} is not null`,
+      })
+    await assignRole(tx, userId, 'ADMIN')
+    await tx.update(users).set({ updatedAt: now }).where(eq(users.id, userId))
     await recordAuditEvent(tx, {
       eventType: 'COMMITTEE_MEMBERSHIP_SET',
       actorUserId,
-      metadata: { userId, permissions: [...permissions] },
+      metadata: { userId, permissions: [...granted] },
     })
   })
 }
 
 /**
- * Removes the committee permissions. A Resident left with no other Admin permission goes back to
- * the RESIDENT role with their Resident Type unchanged.
+ * Revokes the committee permissions. A Resident left with no other active Admin permission goes
+ * back to the RESIDENT role with their Resident Type unchanged.
  */
 export async function removeCommitteeMembership(actorUserId: string, userId: string) {
   await db.transaction(async (tx) => {
     const [user] = await tx.select().from(users).where(eq(users.id, userId)).for('update')
     if (!user) throw committeeError('User not found')
 
-    await tx
-      .delete(userPermissions)
-      .where(and(eq(userPermissions.userId, userId), inArray(userPermissions.permission, [...COMMITTEE_PERMISSIONS])))
-    const remaining = await tx.select().from(userPermissions).where(eq(userPermissions.userId, userId))
+    const committee = await permissionIds(tx, COMMITTEE_PERMISSIONS)
+    await revokeGrants(tx, userId, committee)
+    const remaining = await tx
+      .select({ id: userPermissions.permissionId })
+      .from(userPermissions)
+      .where(and(eq(userPermissions.userId, userId), isNull(userPermissions.revokedAt), notInArray(userPermissions.permissionId, committee)))
     if (user.residentType && remaining.length === 0) {
-      await tx.update(users).set({ role: 'RESIDENT', updatedAt: new Date() }).where(eq(users.id, userId))
+      await assignRole(tx, userId, 'RESIDENT')
+      await tx.update(users).set({ updatedAt: new Date() }).where(eq(users.id, userId))
     }
     await recordAuditEvent(tx, { eventType: 'COMMITTEE_MEMBERSHIP_REMOVED', actorUserId, metadata: { userId } })
   })

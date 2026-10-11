@@ -21,24 +21,6 @@ export const userRole = pgEnum('user_role', ['RESIDENT', 'GUARD', 'ADMIN'])
 /** A Resident's classification, not a role. Kept while a Resident serves on the committee (role ADMIN). */
 export const residentType = pgEnum('resident_type', ['OWNER', 'TENANT'])
 
-/**
- * Permissions assigned to individual Admin users. Guard and Resident permissions come from the
- * role itself (see modules/access/permissions.ts), so only Admin ones are stored.
- */
-export const adminPermission = pgEnum('admin_permission', [
-  // General Admin
-  'SOCIETY_MANAGE',
-  'USER_MANAGE',
-  'GUARD_MANAGE',
-  'STAFF_MANAGE',
-  'AUDIT_VIEW',
-  // Committee-specific
-  'BILLING_RATE_SET',
-  'INVOICE_GENERATE',
-  'PAYMENT_CASH_MARK',
-  'REPORT_VIEW',
-])
-
 export const societies = pgTable('societies', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: varchar('name', { length: 160 }).notNull(),
@@ -56,7 +38,6 @@ export const users = pgTable(
     /** Stored lowercase */
     email: varchar('email', { length: 254 }).unique(),
     passwordHash: text('password_hash').notNull(),
-    role: userRole('role').notNull(),
     residentType: residentType('resident_type'),
     isActive: boolean('is_active').notNull().default(true),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
@@ -66,25 +47,69 @@ export const users = pgTable(
   (table) => [
     check('users_login_identifier_present', sql`${table.phone} is not null or ${table.email} is not null`),
     check('users_email_lowercase', sql`${table.email} = lower(${table.email})`),
-    // Residents always have a type; guards never do. Admins may (a Resident serving on the committee).
-    check(
-      'users_resident_type_matches_role',
-      sql`(${table.role} = 'RESIDENT' and ${table.residentType} is not null) or (${table.role} = 'GUARD' and ${table.residentType} is null) or ${table.role} = 'ADMIN'`,
-    ),
   ],
 )
 
+export const roles = pgTable('roles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: userRole('name').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** The user's assigned application role; one per user. */
+export const userRoles = pgTable('user_roles', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  roleId: uuid('role_id')
+    .notNull()
+    .references(() => roles.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** Permission master data, inserted by migration (see modules/access/permissions.ts). */
+export const permissions = pgTable('permissions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  code: varchar('code', { length: 100 }).notNull().unique(),
+  description: text('description').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** Permissions every user of a role has. ADMIN has none: Admins get theirs from user_permissions. */
+export const rolePermissions = pgTable(
+  'role_permissions',
+  {
+    roleId: uuid('role_id')
+      .notNull()
+      .references(() => roles.id, { onDelete: 'cascade' }),
+    permissionId: uuid('permission_id')
+      .notNull()
+      .references(() => permissions.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.roleId, table.permissionId] }),
+    index('idx_role_permissions_permission_id').on(table.permissionId),
+  ],
+)
+
+/** Permissions assigned to one user, e.g. a committee member's. Revoked rows are kept for history. */
 export const userPermissions = pgTable(
   'user_permissions',
   {
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    permission: adminPermission('permission').notNull(),
-    grantedBy: uuid('granted_by').references(() => users.id, { onDelete: 'set null' }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    permissionId: uuid('permission_id')
+      .notNull()
+      .references(() => permissions.id, { onDelete: 'cascade' }),
+    grantedBy: uuid('granted_by')
+      .notNull()
+      .references(() => users.id),
+    grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.permission] })],
+  (table) => [primaryKey({ columns: [table.userId, table.permissionId] })],
 )
 
 export const flats = pgTable(
@@ -115,15 +140,15 @@ export const flatResidents = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    access: flatAccess('access').notNull().default('FULL'),
-    validFrom: date('valid_from').notNull().default(sql`current_date`),
+    accessLevel: flatAccess('access_level').notNull().default('FULL'),
+    startDate: date('start_date').notNull().default(sql`current_date`),
     /** Last valid day; null while open-ended */
-    validTo: date('valid_to'),
+    endDate: date('end_date'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('flat_residents_user_id_flat_id_idx').on(table.userId, table.flatId),
-    check('flat_residents_valid_period', sql`${table.validTo} is null or ${table.validTo} >= ${table.validFrom}`),
+    check('flat_residents_valid_period', sql`${table.endDate} is null or ${table.endDate} >= ${table.startDate}`),
   ],
 )
 
@@ -205,4 +230,3 @@ export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Role = (typeof userRole.enumValues)[number]
 export type ResidentType = (typeof residentType.enumValues)[number]
-export type AdminPermission = (typeof adminPermission.enumValues)[number]
