@@ -1,0 +1,82 @@
+import { ArrowLeft, RouteOff, ShieldX } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { Link, Navigate, useLocation } from 'react-router'
+import type { AuthUser } from '../auth/api'
+import { Dashboard } from '../dashboard/Dashboard'
+import { AppShell } from './AppShell'
+import { allowed, AREAS, homePath } from './areas'
+
+const AREA_NAMES = Object.values(AREAS).map((config) => config.area as string)
+
+function AccessDenied({ user, path }: { user: AuthUser; path: string }) {
+  const { t } = useTranslation()
+  const role = t(`auth.login.roles.${user.role}`)
+
+  return (
+    <div className="flex min-h-full flex-col items-center justify-center gap-4 px-2 py-10 text-center">
+      <span className="flex size-[76px] items-center justify-center rounded-full bg-red-50 text-red-600">
+        <ShieldX size={36} aria-hidden />
+      </span>
+      <p className="rounded-full bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700 uppercase">{t('shell.denied.code')}</p>
+      <h1 className="max-w-[480px] text-[26px] leading-9 text-ink">{t('shell.denied.title')}</h1>
+      <p className="max-w-[480px] text-[14px] leading-[23px] text-muted">{t('shell.denied.description', { role })}</p>
+      <p className="flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-[12px]">
+        <RouteOff size={15} className="text-red-600" aria-hidden />
+        <span className="text-ink">{path}</span>
+        <span className="text-red-700">{t('shell.denied.blocked', { role })}</span>
+      </p>
+      <Link
+        to={homePath(user.role)}
+        className="flex h-11 items-center gap-2 rounded-lg bg-brand px-4 text-[14px] font-semibold text-white hover:bg-[#125a52] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-brand/30"
+      >
+        <ArrowLeft size={16} aria-hidden />
+        {t('shell.denied.back', { role })}
+      </Link>
+    </div>
+  )
+}
+
+// ponytail: stands in for each destination until its feature ticket ships the real page
+function ComingSoon({ title }: { title: string }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex flex-col gap-3">
+      <h1 className="text-[22px] leading-7 text-ink">{title}</h1>
+      <p className="rounded-xl border border-line bg-white p-4 text-[13px] text-muted">{t('shell.comingSoon')}</p>
+    </div>
+  )
+}
+
+/**
+ * Resolves a signed-in URL: the user's own allowed pages render, another role's area or a page
+ * the user lacks permission for shows Access Denied, and anything else goes to the home page.
+ */
+export function AreaRoute({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<void> }) {
+  const { t } = useTranslation()
+  const { pathname } = useLocation()
+  const [, area = '', page = ''] = pathname.split('/')
+  const config = AREAS[user.role]
+  const item = area === config.area ? config.nav.find((entry) => entry.path === page) : undefined
+
+  let content
+  if (area === config.area) {
+    if (!item) return <Navigate to={homePath(user.role)} replace />
+    content = !allowed(user, item) ? (
+      <AccessDenied user={user} path={pathname} />
+    ) : item.path === config.home ? (
+      <Dashboard user={user} />
+    ) : (
+      <ComingSoon title={t(`area.${config.area}.nav.${item.key}`)} />
+    )
+  } else if (AREA_NAMES.includes(area)) {
+    content = <AccessDenied user={user} path={pathname} />
+  } else {
+    return <Navigate to={homePath(user.role)} replace />
+  }
+
+  return (
+    <AppShell user={user} onLogout={onLogout}>
+      {content}
+    </AppShell>
+  )
+}

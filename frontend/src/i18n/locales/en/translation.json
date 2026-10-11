@@ -54,44 +54,139 @@
   },
   "shell": {
     "signedInAs": "Signed in as {{name}}",
-    "admin": {
-      "title": "Admin area"
-    },
-    "resident": {
-      "title": "Resident area"
-    },
-    "guard": {
-      "title": "Guard area"
-    },
     "logout": "Log out",
     "loggingOut": "Logging out…",
-    "residentType": {
-      "OWNER": "Owner",
-      "TENANT": "Tenant"
+    "help": "Help center",
+    "account": "Account menu",
+    "navigation": "Main navigation",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "allowed": "{{role}} · allowed",
+    "greeting": {
+      "morning": "Good morning, {{name}}",
+      "afternoon": "Good afternoon, {{name}}",
+      "evening": "Good evening, {{name}}"
     },
-    "functions": "Your functions",
-    "noFunctions": "No functions are assigned to your account yet. Contact your society admin.",
-    "function": {
-      "visitorRegister": "Register visitor",
-      "visitDecide": "Allow or deny entry",
-      "visitEntry": "Record entry",
-      "visitExit": "Record exit",
-      "passValidate": "Validate visitor or staff pass",
-      "visitorApprove": "Approve visitors",
-      "visitorPass": "Create visitor pass",
-      "ownVisits": "Visitor history",
-      "ownBills": "My bills",
-      "payBill": "Pay bill",
-      "ownReceipts": "My receipts",
-      "society": "Society, blocks and flats",
-      "users": "Users and resident links",
-      "guards": "Guards and staff",
-      "staff": "Register staff and issue passes",
-      "audit": "Audit logs",
-      "billingRates": "Billing rates",
-      "invoices": "Invoices and one-time charges",
-      "cashPayments": "Mark cash payments",
-      "reports": "Reports"
+    "summary": "Summary",
+    "shortcuts": "Shortcuts",
+    "noData": "No data yet",
+    "noActivity": "No activity yet.",
+    "comingSoon": "This section is not available yet.",
+    "denied": {
+      "code": "403 · Access denied",
+      "title": "You don’t have access to this area",
+      "description": "Your {{role}} role cannot open this page. Return to an allowed area, or contact your society administrator if you think this is a mistake.",
+      "blocked": "blocked for {{role}}",
+      "back": "Back to {{role}} dashboard"
+    }
+  },
+  "area": {
+    "resident": {
+      "workspace": "Resident workspace",
+      "title": "Overview",
+      "nav": {
+        "overview": "Overview",
+        "visitorApproval": "Visitor approval",
+        "visitorPasses": "Visitor passes",
+        "dailyHelp": "Daily help",
+        "bills": "Bills & payments",
+        "notifications": "Notifications",
+        "activity": "My activity"
+      },
+      "primary": {
+        "approveVisitor": "Approve visitor"
+      },
+      "stats": {
+        "awaiting": "Awaiting approval",
+        "passes": "Active passes",
+        "bills": "Bills"
+      },
+      "shortcuts": {
+        "visitorApproval": {
+          "label": "Visitor approval",
+          "description": "Review and approve requests"
+        },
+        "visitorPass": {
+          "label": "Create visitor pass",
+          "description": "Issue a time-bound QR pass"
+        },
+        "bills": {
+          "label": "Bills & payments",
+          "description": "View dues and payment history"
+        }
+      },
+      "activity": "Own activity & history"
+    },
+    "guard": {
+      "workspace": "Guard workspace",
+      "title": "Gate operations",
+      "nav": {
+        "operations": "Gate overview",
+        "visitorRegistration": "Visitor registration",
+        "passValidation": "Pass validation",
+        "gate": "Gate entry / exit",
+        "staffVerification": "Staff verification",
+        "sync": "Sync status"
+      },
+      "primary": {
+        "registerVisitor": "Register visitor"
+      },
+      "stats": {
+        "expected": "Expected today",
+        "onSite": "Currently on site",
+        "sync": "Sync status"
+      },
+      "shortcuts": {
+        "registerVisitor": {
+          "label": "Register visitor",
+          "description": "Capture details and host"
+        },
+        "validatePass": {
+          "label": "Validate pass",
+          "description": "Scan QR or enter pass ID"
+        },
+        "entryExit": {
+          "label": "Record entry / exit",
+          "description": "Update live gate occupancy"
+        }
+      },
+      "activity": "Current gate activity"
+    },
+    "admin": {
+      "workspace": "Admin workspace",
+      "title": "Community overview",
+      "nav": {
+        "overview": "Overview",
+        "society": "Society & users",
+        "staff": "Staff management",
+        "security": "Security activity",
+        "billing": "Billing",
+        "reports": "Reports",
+        "tasks": "Community tasks"
+      },
+      "primary": {
+        "addUser": "Add user"
+      },
+      "stats": {
+        "occupancy": "Society occupancy",
+        "users": "Users & staff",
+        "billing": "Billing status"
+      },
+      "shortcuts": {
+        "society": {
+          "label": "Society & users",
+          "description": "Manage residents and access"
+        },
+        "staff": {
+          "label": "Staff management",
+          "description": "Roles, shifts and verification"
+        },
+        "billingReports": {
+          "label": "Billing & reports",
+          "description": "Collections and exports"
+        }
+      },
+      "activity": "Security & community activity"
     }
   }
 }

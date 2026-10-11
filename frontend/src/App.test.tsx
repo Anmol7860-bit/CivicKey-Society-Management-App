@@ -64,34 +64,35 @@ describe('App routing', () => {
   })
 
   it.each([
-    ['ADMIN', '/admin', 'Admin area'],
-    ['RESIDENT', '/resident', 'Resident area'],
-    ['GUARD', '/guard', 'Guard area'],
-  ])('sends a %s to %s after login', async (role, path, area) => {
-    await signInAs(role, area.replace(' area', ''))
+    ['ADMIN', 'Admin', '/admin/overview', 'Community overview'],
+    ['RESIDENT', 'Resident', '/resident/overview', /, Riya$/],
+    ['GUARD', 'Guard', '/guard/operations', 'Gate operations'],
+  ])('sends a %s to their dashboard after login', async (role, label, path, heading) => {
+    await signInAs(role, label)
 
-    expect(await screen.findByRole('heading', { name: area })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
     expect(window.location.pathname).toBe(path)
     expect(screen.getByText('Signed in as Riya')).toBeInTheDocument()
   })
 
   it.each([
-    ['ADMIN', 'Admin', '/admin', ['/resident', '/guard']],
-    ['RESIDENT', 'Resident', '/resident', ['/admin', '/guard']],
-    ['GUARD', 'Guard', '/guard', ['/admin', '/resident']],
-  ])('keeps a %s out of other roles’ areas', async (role, label, home, others) => {
+    ['ADMIN', 'Admin', ['/resident/overview', '/guard/operations']],
+    ['RESIDENT', 'Resident', ['/admin/overview', '/guard/operations']],
+    ['GUARD', 'Guard', ['/admin/overview', '/resident/overview']],
+  ])('shows Access Denied when a %s opens another role’s area', async (role, label, others) => {
     await signInAs(role, label)
-    await screen.findByRole('heading', { name: `${label} area` })
+    await screen.findByRole('navigation', { name: 'Main navigation' })
 
     for (const path of others) {
       visit(path)
-      expect(window.location.pathname).toBe(home)
+      expect(await screen.findByRole('heading', { name: 'You don’t have access to this area' })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: `Back to ${label} dashboard` })).toBeInTheDocument()
     }
   })
 
   it('keeps the access token out of browser storage', async () => {
     await signInAs('RESIDENT', 'Resident')
-    await screen.findByRole('heading', { name: 'Resident area' })
+    await screen.findByRole('heading', { name: /, Riya$/ })
 
     const stored = JSON.stringify({ ...localStorage, ...sessionStorage }) + document.cookie
     expect(stored).not.toContain('secret-access-jwt')
@@ -102,11 +103,11 @@ describe('App routing', () => {
 describe('session', () => {
   it('restores the session from the refresh cookie after a page reload', async () => {
     const fetch = fakeApi({ refresh: [ok(session('GUARD'))] })
-    window.history.replaceState(null, '', '/guard')
+    window.history.replaceState(null, '', '/guard/operations')
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'Guard area' })).toBeInTheDocument()
-    expect(window.location.pathname).toBe('/guard')
+    expect(await screen.findByRole('heading', { name: 'Gate operations' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/guard/operations')
     expect(callsTo(fetch, 'login')).toHaveLength(0)
   })
 
@@ -114,14 +115,14 @@ describe('session', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const fetch = fakeApi({ refresh: [ok(session('RESIDENT', 'jwt-1')), ok(session('RESIDENT', 'jwt-2'))] })
     render(<App />)
-    await screen.findByRole('heading', { name: 'Resident area' })
+    await screen.findByRole('heading', { name: /, Riya$/ })
 
     await act(() => vi.advanceTimersByTimeAsync(839_000))
     expect(callsTo(fetch, 'refresh')).toHaveLength(1)
     await act(() => vi.advanceTimersByTimeAsync(1_000))
     expect(callsTo(fetch, 'refresh')).toHaveLength(2)
 
-    expect(screen.getByRole('heading', { name: 'Resident area' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /, Riya$/ })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Log out' }))
     await screen.findByRole('heading', { name: 'Sign in to CivicKey' })
     expect(callsTo(fetch, 'logout')[0]![1]!.headers).toEqual({ Authorization: 'Bearer jwt-2' })
@@ -134,7 +135,7 @@ describe('session', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     fakeApi({ refresh: [ok(session()), reply] })
     render(<App />)
-    await screen.findByRole('heading', { name: 'Resident area' })
+    await screen.findByRole('heading', { name: /, Riya$/ })
 
     await act(() => vi.advanceTimersByTimeAsync(840_000))
 
@@ -146,14 +147,14 @@ describe('session', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const fetch = fakeApi({ refresh: [ok(session()), new TypeError('Failed to fetch'), ok(session())] })
     render(<App />)
-    await screen.findByRole('heading', { name: 'Resident area' })
+    await screen.findByRole('heading', { name: /, Riya$/ })
 
     await act(() => vi.advanceTimersByTimeAsync(840_000))
-    expect(screen.getByRole('heading', { name: 'Resident area' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /, Riya$/ })).toBeInTheDocument()
 
     await act(() => vi.advanceTimersByTimeAsync(30_000))
     expect(callsTo(fetch, 'refresh')).toHaveLength(3)
-    expect(screen.getByRole('heading', { name: 'Resident area' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /, Riya$/ })).toBeInTheDocument()
   })
 })
 
@@ -168,7 +169,7 @@ describe('logout', () => {
     expect(callsTo(fetch, 'logout')[0]![1]).toMatchObject({ method: 'POST', headers: { Authorization: 'Bearer jwt-1' } })
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
-    visit('/admin')
+    visit('/admin/overview')
     expect(window.location.pathname).toBe('/login')
   })
 

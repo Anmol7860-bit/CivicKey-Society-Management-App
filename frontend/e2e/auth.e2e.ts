@@ -3,11 +3,18 @@ import { expect, request, test, type Page } from '@playwright/test'
 
 // Seeded by `npm run db:seed` in backend (see global-setup.ts)
 const accounts = {
-  RESIDENT: { phone: '9876543210', password: 'Resident@123', label: 'Resident', area: '/resident', name: 'Riya Sharma' },
-  GUARD: { phone: '9876543211', password: 'Guard@123', label: 'Guard', area: '/guard', name: 'Mahesh Patil' },
-  ADMIN: { phone: '9876543212', password: 'Admin@123', label: 'Admin', area: '/admin', name: 'Anita Rao' },
+  RESIDENT: { phone: '9876543210', password: 'Resident@123', label: 'Resident', area: '/resident/overview', name: 'Riya Sharma' },
+  GUARD: { phone: '9876543211', password: 'Guard@123', label: 'Guard', area: '/guard/operations', name: 'Mahesh Patil' },
+  ADMIN: { phone: '9876543212', password: 'Admin@123', label: 'Admin', area: '/admin/overview', name: 'Anita Rao' },
 }
 const INACTIVE = { phone: '9876543213', password: 'Inactive@123' }
+
+/** Desktop and tablet log out from the account menu; mobile from the navigation drawer. */
+async function logOut(page: Page) {
+  const account = page.getByLabel('Account menu')
+  await ((await account.isVisible()) ? account : page.getByRole('button', { name: 'Open menu' })).click()
+  await page.getByRole('button', { name: 'Log out' }).filter({ visible: true }).click()
+}
 
 async function signIn(page: Page, phone: string, password: string, roleLabel = 'Resident') {
   await page.locator('fieldset label', { hasText: roleLabel }).click()
@@ -78,14 +85,15 @@ for (const [role, account] of Object.entries(accounts)) {
     await signIn(page, account.phone, account.password, account.label)
 
     await expect(page).toHaveURL(account.area)
-    await expect(page.getByText(`Signed in as ${account.name}`)).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
 
     for (const other of Object.values(accounts).filter((a) => a !== account)) {
       await page.evaluate((path) => {
         window.history.pushState(null, '', path)
         window.dispatchEvent(new PopStateEvent('popstate'))
       }, other.area)
-      await expect(page).toHaveURL(account.area)
+      await expect(page.getByRole('heading', { name: 'You don’t have access to this area' })).toBeVisible()
+      await expect(page.getByRole('link', { name: `Back to ${account.label} dashboard` })).toBeVisible()
     }
   })
 }
@@ -135,7 +143,7 @@ test('AUTH-UI-024 reloading the page keeps the user signed in', async ({ page })
 
   await page.reload()
   await expect(page).toHaveURL(accounts.RESIDENT.area)
-  await expect(page.getByText(`Signed in as ${accounts.RESIDENT.name}`)).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
 })
 
 test('AUTH-UI-022/023 logout ends the session and protected pages redirect to login', async ({ page }) => {
@@ -143,7 +151,7 @@ test('AUTH-UI-022/023 logout ends the session and protected pages redirect to lo
   await expect(page).toHaveURL(accounts.GUARD.area)
 
   const logout = page.waitForResponse('**/api/v1/auth/logout')
-  await page.getByRole('button', { name: 'Log out' }).click()
+  await logOut(page)
   expect((await logout).status()).toBe(200)
   await expect(page).toHaveURL('/login')
 
@@ -165,7 +173,7 @@ test.describe('session expiry', () => {
     const refreshed = page.waitForResponse('**/api/v1/auth/refresh')
     await page.clock.fastForward('14:00')
     expect((await refreshed).status()).toBe(200)
-    await expect(page.getByText(`Signed in as ${accounts.ADMIN.name}`)).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   })
 
   test('AUTH-UI-021 a revoked session returns the user to login with a message', async ({ page, context, baseURL }) => {
@@ -188,22 +196,36 @@ test.describe('session expiry', () => {
 })
 
 test.describe('role dashboards', () => {
-  test('a committee member sees only their committee functions', async ({ page }) => {
+  test('a committee member sees only their committee destinations', async ({ page }) => {
     // Seeded Tenant on the committee: ADMIN role with committee permissions only
     await signIn(page, '9876543214', 'Committee@123', 'Admin')
 
-    await expect(page).toHaveURL(/\/admin$/)
-    const functions = page.getByRole('list', { name: 'Your functions' }).getByRole('heading')
-    await expect(functions).toHaveText(['Billing rates', 'Invoices and one-time charges', 'Mark cash payments', 'Reports'])
-    await expect(page.getByText('Tenant')).toBeVisible()
+    await expect(page).toHaveURL('/admin/overview')
+    await expect(page.getByRole('heading', { name: 'Community overview' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Add user' })).toHaveCount(0)
+    if (await page.getByRole('button', { name: 'Open menu' }).isVisible()) {
+      await page.getByRole('button', { name: 'Open menu' }).click()
+    }
+    const nav = page.getByRole('navigation', { name: 'Main navigation' }).filter({ visible: true })
+    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Billing', 'Reports', 'Community tasks'])
+  })
+
+  test('a guard dashboard has no billing or admin destinations and no accessibility violations', async ({ page }) => {
+    await signIn(page, accounts.GUARD.phone, accounts.GUARD.password, accounts.GUARD.label)
+
+    await expect(page.getByRole('heading', { name: 'Gate operations' })).toBeVisible()
+    await expect(page.locator('body')).not.toContainText(/Bill|Society & users|Audit/)
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
   })
 
-  test('a guard sees gate functions and no billing or admin functions', async ({ page }) => {
-    await signIn(page, accounts.GUARD.phone, accounts.GUARD.password, accounts.GUARD.label)
+  test('opening an admin page as a resident shows Access Denied with a way back', async ({ page }) => {
+    await signIn(page, accounts.RESIDENT.phone, accounts.RESIDENT.password, accounts.RESIDENT.label)
+    await expect(page).toHaveURL(accounts.RESIDENT.area)
 
-    const functions = page.getByRole('list', { name: 'Your functions' })
-    await expect(functions.getByRole('heading', { name: 'Register visitor' })).toBeVisible()
-    await expect(functions).not.toContainText(/bill|Users|Audit/i)
+    await page.goto('/admin/reports')
+    await expect(page.getByRole('heading', { name: 'You don’t have access to this area' })).toBeVisible()
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+    await page.getByRole('link', { name: 'Back to Resident dashboard' }).click()
+    await expect(page).toHaveURL(accounts.RESIDENT.area)
   })
 })

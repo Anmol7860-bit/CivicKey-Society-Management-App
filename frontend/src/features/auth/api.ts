@@ -2,9 +2,6 @@ import type { LoginFormValues } from './components/LoginForm'
 
 export type Role = 'RESIDENT' | 'GUARD' | 'ADMIN'
 
-// Role from the backend decides the area; the user never picks it
-export const areaByRole = { ADMIN: 'admin', RESIDENT: 'resident', GUARD: 'guard' } as const
-
 export type Permission =
   | 'SOCIETY_MANAGE' | 'USER_MANAGE' | 'GUARD_MANAGE' | 'STAFF_MANAGE' | 'AUDIT_VIEW'
   | 'BILLING_RATE_SET' | 'INVOICE_GENERATE' | 'PAYMENT_CASH_MARK' | 'REPORT_VIEW'

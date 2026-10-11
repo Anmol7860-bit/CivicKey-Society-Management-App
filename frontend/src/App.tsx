@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
-import { ApiError, areaByRole, logout, refresh, type AuthSession } from './features/auth/api'
+import { ApiError, logout, refresh, type AuthSession } from './features/auth/api'
 import { LoginPage } from './features/auth/LoginPage'
-import { Dashboard } from './features/dashboard/Dashboard'
+import { homePath } from './features/shell/areas'
+import { AreaRoute } from './features/shell/AreaRoute'
 
 /** Refresh this long before the access token expires, so API calls never carry an expired one */
 const REFRESH_EARLY_SECONDS = 60
@@ -74,7 +75,7 @@ function App() {
 
   if (restoring) return null
 
-  const home = session ? `/${areaByRole[session.user.role]}` : '/login'
+  const home = session ? homePath(session.user.role) : '/login'
 
   return (
     <BrowserRouter>
@@ -83,9 +84,11 @@ function App() {
           path="/login"
           element={session ? <Navigate to={home} replace /> : <LoginPage onSignedIn={handleSignedIn} notice={notice} />}
         />
-        {/* Only the signed-in user's own area exists; any other URL (incl. other roles' areas) redirects home */}
-        {session && <Route path={home} element={<Dashboard user={session.user} onLogout={handleLogout} />} />}
-        <Route path="*" element={<Navigate to={home} replace />} />
+        {/* AreaRoute shows Access Denied for other roles' areas and pages the user lacks permission for */}
+        <Route
+          path="*"
+          element={session ? <AreaRoute user={session.user} onLogout={handleLogout} /> : <Navigate to={home} replace />}
+        />
       </Routes>
     </BrowserRouter>
   )

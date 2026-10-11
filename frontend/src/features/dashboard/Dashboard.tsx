@@ -1,84 +1,97 @@
+import { ChevronRight, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '../../components/ui/Button'
-import { areaByRole, type AuthUser, type Permission } from '../auth/api'
+import { Link } from 'react-router'
+import type { AuthUser } from '../auth/api'
+import { allowed, AREAS } from '../shell/areas'
 
-/**
- * Every dashboard function and the permission that unlocks it. The UI only hides what the user
- * can't use; the backend checks the same permission on each operation.
- */
-const FUNCTIONS: Array<{ key: string; permission: Permission }> = [
-  // Guard
-  { key: 'visitorRegister', permission: 'VISITOR_REGISTER' },
-  { key: 'visitDecide', permission: 'VISIT_DECIDE' },
-  { key: 'visitEntry', permission: 'VISIT_ENTRY_RECORD' },
-  { key: 'visitExit', permission: 'VISIT_EXIT_RECORD' },
-  { key: 'passValidate', permission: 'PASS_VALIDATE' },
-  // Resident
-  { key: 'visitorApprove', permission: 'VISITOR_APPROVE' },
-  { key: 'visitorPass', permission: 'VISITOR_PASS_CREATE' },
-  { key: 'ownVisits', permission: 'OWN_VISITS_VIEW' },
-  { key: 'ownBills', permission: 'OWN_BILLS_VIEW' },
-  { key: 'payBill', permission: 'OWN_BILL_PAY' },
-  { key: 'ownReceipts', permission: 'OWN_RECEIPTS_VIEW' },
-  // General Admin
-  { key: 'society', permission: 'SOCIETY_MANAGE' },
-  { key: 'users', permission: 'USER_MANAGE' },
-  { key: 'guards', permission: 'GUARD_MANAGE' },
-  { key: 'staff', permission: 'STAFF_MANAGE' },
-  { key: 'audit', permission: 'AUDIT_VIEW' },
-  // Committee
-  { key: 'billingRates', permission: 'BILLING_RATE_SET' },
-  { key: 'invoices', permission: 'INVOICE_GENERATE' },
-  { key: 'cashPayments', permission: 'PAYMENT_CASH_MARK' },
-  { key: 'reports', permission: 'REPORT_VIEW' },
-]
+function greetingKey(hour: number) {
+  return hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'
+}
 
-export function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<void> }) {
+/** The role's overview page. Every action and summary is filtered by the user's permissions. */
+export function Dashboard({ user }: { user: AuthUser }) {
   const { t } = useTranslation()
-  const [pending, setPending] = useState(false)
-  const area = areaByRole[user.role]
-  const functions = FUNCTIONS.filter(({ permission }) => user.permissions.includes(permission))
+  const [hour] = useState(() => new Date().getHours())
+  const config = AREAS[user.role]
+  const prefix = `area.${config.area}`
+  const primary = allowed(user, config.primaryAction) ? config.primaryAction : null
+  const stats = config.stats.filter((stat) => allowed(user, stat))
+  const shortcuts = config.shortcuts.filter((shortcut) => allowed(user, shortcut))
+  const title =
+    config.area === 'resident'
+      ? t(`shell.greeting.${greetingKey(hour)}`, { name: user.name.split(' ')[0] })
+      : t(`${prefix}.title`)
+
+  const primaryButton = primary && (
+    <Link
+      to={`/${config.area}/${primary.path}`}
+      className="flex h-11 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-[14px] font-semibold text-white hover:bg-[#125a52] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-brand/30"
+    >
+      <Plus size={16} aria-hidden />
+      {t(`${prefix}.primary.${primary.key}`)}
+    </Link>
+  )
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6" data-area={area}>
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold text-ink">{t(`shell.${area}.title`)}</h1>
-          <p className="text-muted">
-            {t('shell.signedInAs', { name: user.name })}
-            {user.residentType && (
-              <span className="ml-2 rounded-full bg-brand/10 px-2 py-0.5 text-[13px] font-semibold text-brand">
-                {t(`shell.residentType.${user.residentType}`)}
-              </span>
-            )}
-          </p>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-end justify-between gap-4">
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] font-semibold tracking-wide text-brand uppercase">{t(`${prefix}.workspace`)}</p>
+          <h1 className="text-[22px] leading-7 text-ink">{title}</h1>
         </div>
-        <div className="w-40">
-          <Button
-            disabled={pending}
-            onClick={() => {
-              setPending(true)
-              void onLogout()
-            }}
-          >
-            {pending ? t('shell.loggingOut') : t('shell.logout')}
-          </Button>
-        </div>
-      </header>
+        {/* Mobile moves the primary action to the bottom of the page */}
+        <div className="hidden sm:block">{primaryButton}</div>
+      </div>
 
-      {functions.length > 0 ? (
-        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label={t('shell.functions')}>
-          {functions.map(({ key }) => (
-            // ponytail: tiles are labels until each function's page ships; make them links then
-            <li key={key} className="rounded-xl border border-line bg-white p-4 shadow-card">
-              <h2 className="font-semibold text-ink">{t(`shell.function.${key}`)}</h2>
+      {stats.length > 0 && (
+        <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-3" aria-label={t('shell.summary')}>
+          {stats.map(({ key, icon: Icon }, index) => (
+            // Mobile keeps the first two summaries, as in the design
+            <li key={key} className={`flex flex-col gap-2 rounded-xl border border-line bg-white p-3.5 ${index > 1 ? 'hidden sm:flex' : ''}`}>
+              <div className="flex items-center justify-between text-[11px] text-muted">
+                {t(`${prefix}.stats.${key}`)}
+                <Icon size={15} className="text-brand" aria-hidden />
+              </div>
+              {/* ponytail: no summary APIs yet; show the value from the API once each feature ships */}
+              <p className="text-lg text-ink">—</p>
+              <p className="text-[10px] text-muted">{t('shell.noData')}</p>
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="rounded-xl border border-line bg-white p-4 text-muted">{t('shell.noFunctions')}</p>
       )}
-    </main>
+
+      {shortcuts.length > 0 && (
+        <ul className="hidden gap-2.5 sm:grid sm:grid-cols-3" aria-label={t('shell.shortcuts')}>
+          {shortcuts.map(({ key, path, icon: Icon }) => (
+            <li key={key}>
+              <Link
+                to={`/${config.area}/${path}`}
+                className="flex h-full min-h-[70px] items-center gap-2.5 rounded-xl border border-line bg-white px-3 py-3 hover:border-brand/40 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-brand/30"
+              >
+                <span className="flex size-[34px] shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                  <Icon size={17} aria-hidden />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="text-[13px] font-medium text-ink">{t(`${prefix}.shortcuts.${key}.label`)}</span>
+                  <span className="text-[10px] leading-[13px] text-muted">{t(`${prefix}.shortcuts.${key}.description`)}</span>
+                </span>
+                <ChevronRight size={14} className="shrink-0 text-muted" aria-hidden />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-3.5" aria-labelledby="activity-title">
+        <h2 id="activity-title" className="text-[13px] text-ink">
+          {t(`${prefix}.activity`)}
+        </h2>
+        {/* ponytail: activity feed needs the audit/visits APIs; empty state until then */}
+        <p className="text-[12px] text-muted">{t('shell.noActivity')}</p>
+      </section>
+
+      {primaryButton && <div className="sm:hidden">{primaryButton}</div>}
+    </div>
   )
 }
