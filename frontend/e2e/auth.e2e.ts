@@ -218,6 +218,17 @@ test.describe('role dashboards', () => {
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
   })
 
+  test('a guard typing a billing or resident-management URL is denied', async ({ page }) => {
+    await signIn(page, accounts.GUARD.phone, accounts.GUARD.password, accounts.GUARD.label)
+    await expect(page).toHaveURL(accounts.GUARD.area)
+
+    for (const path of ['/admin/billing', '/admin/society', '/resident/bills']) {
+      await page.goto(path)
+      await expect(page.getByRole('heading', { name: 'You don’t have access to this area' })).toBeVisible()
+      await expect(page.getByText(path, { exact: true })).toBeVisible()
+    }
+  })
+
   test('opening an admin page as a resident shows Access Denied with a way back', async ({ page }) => {
     await signIn(page, accounts.RESIDENT.phone, accounts.RESIDENT.password, accounts.RESIDENT.label)
     await expect(page).toHaveURL(accounts.RESIDENT.area)

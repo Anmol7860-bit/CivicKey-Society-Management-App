@@ -72,6 +72,9 @@ describe('restricted routes', () => {
   it.each([
     ['another role’s area', '/admin/reports', user('RESIDENT', RESIDENT, 'OWNER')],
     ['a page the user lacks permission for', '/admin/society', user('ADMIN', ['REPORT_VIEW'], 'OWNER')],
+    ['billing, for a Guard', '/admin/billing', user('GUARD', GUARD)],
+    ['resident management, for a Guard', '/admin/society', user('GUARD', GUARD)],
+    ['a Resident’s bills, for a Guard', '/resident/bills', user('GUARD', GUARD)],
   ])('shows Access Denied for %s and keeps the user’s own navigation', (_case, path, signedIn) => {
     renderAt(path, signedIn)
 
