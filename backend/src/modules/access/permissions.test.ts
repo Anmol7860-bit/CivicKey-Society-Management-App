@@ -51,10 +51,10 @@ describe('permission matrix', () => {
     ['PASS_VALIDATE', true, false],
     ['VISITOR_APPROVE', false, true],
     ['VISITOR_PASS_CREATE', false, true],
-    ['OWN_VISITS_VIEW', false, true],
-    ['OWN_BILLS_VIEW', false, true],
-    ['OWN_BILL_PAY', false, true],
-    ['OWN_RECEIPTS_VIEW', false, true],
+    ['VISIT_VIEW_OWN', false, true],
+    ['BILL_VIEW_OWN', false, true],
+    ['BILL_PAY', false, true],
+    ['RECEIPT_VIEW_OWN', false, true],
   ]
 
   it.each(matrix)('%s: guard=%s resident=%s', async (permission, guardAllowed, residentAllowed) => {
@@ -91,12 +91,12 @@ describe('permission matrix', () => {
     expect((await call(guard, 'USER_MANAGE')).status).toBe(403)
   })
 
-  it('returns 403 FORBIDDEN without saying which permission was missing', async () => {
+  it('returns 403 PERMISSION_DENIED without saying which permission was missing', async () => {
     const resident = await createUser()
 
     const res = await call(resident, 'AUDIT_VIEW')
 
-    expect(res.body.error).toEqual({ code: 'FORBIDDEN', message: 'You do not have permission for this action' })
+    expect(res.body.error).toEqual({ code: 'PERMISSION_DENIED', message: 'You are not authorized to perform this action.' })
   })
 
   it('uses the role in the database, not the one in a still-valid token', async () => {
@@ -126,7 +126,7 @@ describe('resident type', () => {
   it('gives Owners and Tenants the same Resident permissions', async () => {
     const tenant = await createUser({ residentType: 'TENANT' })
 
-    expect((await call(tenant, 'OWN_BILLS_VIEW')).status).toBe(200)
+    expect((await call(tenant, 'BILL_VIEW_OWN')).status).toBe(200)
     expect((await call(tenant, 'USER_MANAGE')).status).toBe(403)
   })
 })

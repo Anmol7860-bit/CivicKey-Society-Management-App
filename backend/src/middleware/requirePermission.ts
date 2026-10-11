@@ -4,12 +4,11 @@ import { db } from '../db/client.js'
 import { users } from '../db/schema.js'
 import { AppError } from '../lib/errors.js'
 import { loadPermissions, type Permission } from '../modules/access/permissions.js'
-
-const forbidden = () => new AppError(403, 'FORBIDDEN', 'You do not have permission for this action')
+import { deny, permissionDenied } from '../modules/access/scope.js'
 
 /**
- * Use after requireAuth. Reads the role and permissions from the database, not the token, so a
- * removed permission or a role change takes effect on the next request.
+ * Use after requireAuth. Reads the role, society and permissions from the database, not the token
+ * or the request, so a removed permission or a role change takes effect on the next request.
  */
 export function requirePermission(permission: Permission): RequestHandler {
   return async (req, _res, next) => {
@@ -17,15 +16,15 @@ export function requirePermission(permission: Permission): RequestHandler {
     if (!ctx) return next(new AppError(401, 'TOKEN_MISSING', 'Authentication required'))
 
     const [user] = await db
-      .select({ role: users.role, isActive: users.isActive })
+      .select({ role: users.role, isActive: users.isActive, societyId: users.societyId })
       .from(users)
       .where(eq(users.id, ctx.userId))
-    if (!user?.isActive) return next(forbidden())
+    const permissions = user?.isActive ? await loadPermissions(db, ctx.userId, user.role) : []
+    if (!permissions.includes(permission)) {
+      return next(await deny(user ? ctx.userId : null, permissionDenied(), { permission, method: req.method, path: req.originalUrl }))
+    }
 
-    const permissions = await loadPermissions(db, ctx.userId, user.role)
-    if (!permissions.includes(permission)) return next(forbidden())
-
-    req.ctx = { ...ctx, role: user.role, permissions }
+    req.ctx = { ...ctx, role: user!.role, societyId: user!.societyId, permissions }
     next()
   }
 }

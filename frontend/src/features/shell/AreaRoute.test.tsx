@@ -15,7 +15,7 @@ const user = (role: AuthUser['role'], permissions: Permission[], residentType: A
   permissions,
 })
 
-const RESIDENT: Permission[] = ['VISITOR_APPROVE', 'VISITOR_PASS_CREATE', 'OWN_VISITS_VIEW', 'OWN_BILLS_VIEW', 'OWN_BILL_PAY', 'OWN_RECEIPTS_VIEW']
+const RESIDENT: Permission[] = ['VISITOR_APPROVE', 'VISITOR_PASS_CREATE', 'VISIT_VIEW_OWN', 'BILL_VIEW_OWN', 'BILL_PAY', 'RECEIPT_VIEW_OWN']
 const GUARD: Permission[] = ['VISITOR_REGISTER', 'VISIT_DECIDE', 'VISIT_ENTRY_RECORD', 'VISIT_EXIT_RECORD', 'PASS_VALIDATE']
 
 function renderAt(path: string, signedIn: AuthUser) {

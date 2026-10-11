@@ -12,6 +12,7 @@ export type AuditEventType =
   | 'AUTH_LOGOUT'
   | 'COMMITTEE_MEMBERSHIP_SET'
   | 'COMMITTEE_MEMBERSHIP_REMOVED'
+  | 'AUTHORIZATION_DENIED'
 
 export interface AuditEvent {
   eventType: AuditEventType

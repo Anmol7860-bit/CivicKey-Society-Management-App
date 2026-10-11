@@ -1,14 +1,17 @@
 import request from 'supertest'
 import type { createApp } from '../app.js'
 import { db } from '../db/client.js'
-import { users, type NewUser } from '../db/schema.js'
+import { societies, users, type NewUser } from '../db/schema.js'
 import { hashPassword } from '../modules/auth/password.js'
 
 export type App = ReturnType<typeof createApp>
 
 export const PASSWORD = 'Resident@123'
 
+export const TEST_SOCIETY_ID = '11111111-1111-4111-8111-111111111111'
+
 export async function createUser(overrides: Partial<NewUser> = {}) {
+  await db.insert(societies).values({ id: TEST_SOCIETY_ID, name: 'Test Society' }).onConflictDoNothing()
   const [user] = await db
     .insert(users)
     .values({
@@ -17,7 +20,7 @@ export async function createUser(overrides: Partial<NewUser> = {}) {
       email: 'riya@example.com',
       role: 'RESIDENT',
       residentType: overrides.role && overrides.role !== 'RESIDENT' ? null : 'OWNER',
-      societyId: '11111111-1111-4111-8111-111111111111',
+      societyId: TEST_SOCIETY_ID,
       passwordHash: await hashPassword(PASSWORD),
       ...overrides,
     })

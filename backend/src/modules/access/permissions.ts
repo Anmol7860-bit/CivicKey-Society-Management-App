@@ -17,10 +17,10 @@ export const RESIDENT_PERMISSIONS = [
   /** The Resident's approval of a visitor to their own flat */
   'VISITOR_APPROVE',
   'VISITOR_PASS_CREATE',
-  'OWN_VISITS_VIEW',
-  'OWN_BILLS_VIEW',
-  'OWN_BILL_PAY',
-  'OWN_RECEIPTS_VIEW',
+  'VISIT_VIEW_OWN',
+  'BILL_VIEW_OWN',
+  'BILL_PAY',
+  'RECEIPT_VIEW_OWN',
 ] as const
 
 export const COMMITTEE_PERMISSIONS = [
@@ -52,6 +52,23 @@ export async function loadPermissions(executor: DbExecutor, userId: string, role
     role,
     rows.map((row) => row.permission),
   )
+}
+
+/** GET /auth/permissions: the role and permissions as stored now, not as the token claims them. */
+export async function getEffectivePermissions(userId: string) {
+  const [user] = await db
+    .select({ role: users.role, residentType: users.residentType, isActive: users.isActive })
+    .from(users)
+    .where(eq(users.id, userId))
+  // The role column is the user's single active role; a missing or deactivated user has none
+  if (!user?.isActive) throw new AppError(403, 'ROLE_NOT_ASSIGNED', 'No active role is assigned to this user')
+
+  return {
+    userId,
+    role: user.role,
+    residentType: user.residentType,
+    permissions: await loadPermissions(db, userId, user.role),
+  }
 }
 
 // ---------------------------------------------------------------------------

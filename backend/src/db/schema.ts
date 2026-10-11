@@ -2,11 +2,13 @@ import { sql } from 'drizzle-orm'
 import {
   boolean,
   check,
+  date,
   index,
   jsonb,
   pgEnum,
   pgTable,
   primaryKey,
+  unique,
   text,
   timestamp,
   uuid,
@@ -37,12 +39,17 @@ export const adminPermission = pgEnum('admin_permission', [
   'REPORT_VIEW',
 ])
 
+export const societies = pgTable('societies', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 160 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const users = pgTable(
   'users',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    // FK to societies is added when the societies table is created
-    societyId: uuid('society_id'),
+    societyId: uuid('society_id').references(() => societies.id),
     name: varchar('name', { length: 120 }).notNull(),
     /** 10-digit mobile number, digits only */
     phone: varchar('phone', { length: 15 }).unique(),
@@ -78,6 +85,46 @@ export const userPermissions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.userId, table.permission] })],
+)
+
+export const flats = pgTable(
+  'flats',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    block: varchar('block', { length: 32 }).notNull(),
+    number: varchar('number', { length: 16 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('flats_society_block_number_unique').on(table.societyId, table.block, table.number)],
+)
+
+/** VIEW_ONLY members can read the flat's data but not act on it (pay, approve, create passes). */
+export const flatAccess = pgEnum('flat_access', ['FULL', 'VIEW_ONLY'])
+
+/** Links a Resident to a flat for a validity period; active when today is within it. */
+export const flatResidents = pgTable(
+  'flat_residents',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    flatId: uuid('flat_id')
+      .notNull()
+      .references(() => flats.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    access: flatAccess('access').notNull().default('FULL'),
+    validFrom: date('valid_from').notNull().default(sql`current_date`),
+    /** Last valid day; null while open-ended */
+    validTo: date('valid_to'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('flat_residents_user_id_flat_id_idx').on(table.userId, table.flatId),
+    check('flat_residents_valid_period', sql`${table.validTo} is null or ${table.validTo} >= ${table.validFrom}`),
+  ],
 )
 
 /**

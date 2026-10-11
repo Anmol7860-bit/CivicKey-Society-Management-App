@@ -3,6 +3,7 @@ import { isProduction } from '../../config/env.js'
 import { AppError } from '../../lib/errors.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { validateBody } from '../../middleware/validateBody.js'
+import { getEffectivePermissions } from '../access/permissions.js'
 import { identifierFrom, loginSchema, type LoginBody } from './auth.schemas.js'
 import { login, logout, refreshSession, type AuthResult } from './auth.service.js'
 import { createLoginRateLimiters } from './rateLimit.js'
@@ -78,6 +79,12 @@ export function createAuthRouter() {
     res.clearCookie(REFRESH_COOKIE_NAME, refreshCookieBase)
     res.setHeader('Cache-Control', 'no-store')
     res.status(200).json({ data: { loggedOut: true } })
+  })
+
+  router.get('/permissions', requireAuth, async (req, res) => {
+    const result = await getEffectivePermissions(req.ctx!.userId)
+    res.setHeader('Cache-Control', 'no-store')
+    res.status(200).json({ data: result })
   })
 
   return router
