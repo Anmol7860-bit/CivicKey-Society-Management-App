@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import type { AuthUser } from '../auth/api'
 import { allowed, AREAS } from '../shell/areas'
+import { SyncSummary } from '../sync/SyncPage'
 
 function greetingKey(hour: number) {
   return hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'
@@ -53,9 +54,17 @@ export function Dashboard({ user }: { user: AuthUser }) {
                 {t(`${prefix}.stats.${key}`)}
                 <Icon size={15} className="text-brand" aria-hidden />
               </div>
-              {/* ponytail: no summary APIs yet; show the value from the API once each feature ships */}
-              <p className="text-lg text-ink">—</p>
-              <p className="text-[10px] text-muted">{t('shell.noData')}</p>
+              {config.area === 'guard' && key === 'sync' ? (
+                <p className="text-[13px] text-ink">
+                  <SyncSummary />
+                </p>
+              ) : (
+                // ponytail: no summary APIs yet; show the value from the API once each feature ships
+                <>
+                  <p className="text-lg text-ink">—</p>
+                  <p className="text-[10px] text-muted">{t('shell.noData')}</p>
+                </>
+              )}
             </li>
           ))}
         </ul>

@@ -188,5 +188,45 @@
       },
       "activity": "Security & community activity"
     }
+  },
+  "sync": {
+    "summary": {
+      "synced": "All entries synced",
+      "waiting_one": "{{count}} entry waiting to sync",
+      "waiting_other": "{{count}} entries waiting to sync",
+      "offline_one": "Offline · {{count}} entry waiting to sync",
+      "offline_other": "Offline · {{count}} entries waiting to sync"
+    },
+    "syncNow": "Sync now",
+    "syncing": "Syncing…",
+    "connection": "Connection",
+    "online": "Online",
+    "offline": "Offline",
+    "lastSynced": "Last successful sync",
+    "lastError": "Last sync error",
+    "never": "Never",
+    "none": "None",
+    "queue": "Entries on this device",
+    "empty": "Nothing recorded on this device yet.",
+    "liveNote": "Entries saved offline reach residents only after they sync. A resident has not been asked or told until then.",
+    "columns": {
+      "recorded": "Recorded",
+      "type": "Entry",
+      "status": "Status",
+      "attempts": "Attempts",
+      "error": "Error"
+    },
+    "operations": {
+      "VISITOR_REGISTER": "Visitor registered",
+      "VISIT_ENTRY_RECORD": "Entry recorded",
+      "VISIT_EXIT": "Exit recorded"
+    },
+    "statuses": {
+      "PENDING_SYNC": "Waiting to sync",
+      "SYNCING": "Syncing",
+      "SYNCED": "Synced",
+      "FAILED_RETRY": "Will retry",
+      "FAILED_ADMIN": "Needs admin"
+    }
   }
 }

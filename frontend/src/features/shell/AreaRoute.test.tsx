@@ -21,7 +21,7 @@ const GUARD: Permission[] = ['VISIT_REGISTER', 'VISIT_DECIDE', 'VISIT_ENTRY_RECO
 function renderAt(path: string, signedIn: AuthUser) {
   render(
     <MemoryRouter initialEntries={[path]}>
-      <AreaRoute user={signedIn} onLogout={async () => {}} />
+      <AreaRoute user={signedIn} accessToken="token" onLogout={async () => {}} />
     </MemoryRouter>,
   )
 }

@@ -87,7 +87,7 @@ function App() {
         {/* AreaRoute shows Access Denied for other roles' areas and pages the user lacks permission for */}
         <Route
           path="*"
-          element={session ? <AreaRoute user={session.user} onLogout={handleLogout} /> : <Navigate to={home} replace />}
+          element={session ? <AreaRoute user={session.user} accessToken={session.accessToken} onLogout={handleLogout} /> : <Navigate to={home} replace />}
         />
       </Routes>
     </BrowserRouter>

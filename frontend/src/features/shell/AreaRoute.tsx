@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Link, Navigate, useLocation } from 'react-router'
 import type { AuthUser } from '../auth/api'
 import { Dashboard } from '../dashboard/Dashboard'
+import { SyncPage } from '../sync/SyncPage'
+import { useAutoSync } from '../sync/useSync'
 import { AppShell } from './AppShell'
 import { allowed, AREAS, homePath } from './areas'
 
@@ -47,11 +49,23 @@ function ComingSoon({ title }: { title: string }) {
   )
 }
 
+/** Uploads the guard's offline entries in the background on every guard page */
+function AutoSync({ accessToken }: { accessToken: string }) {
+  useAutoSync(accessToken)
+  return null
+}
+
 /**
  * Resolves a signed-in URL: the user's own allowed pages render, another role's area or a page
  * the user lacks permission for shows Access Denied, and anything else goes to the home page.
  */
-export function AreaRoute({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<void> }) {
+interface AreaRouteProps {
+  user: AuthUser
+  accessToken: string
+  onLogout: () => Promise<void>
+}
+
+export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
   const { t } = useTranslation()
   const { pathname } = useLocation()
   const [, area = '', page = ''] = pathname.split('/')
@@ -65,6 +79,8 @@ export function AreaRoute({ user, onLogout }: { user: AuthUser; onLogout: () => 
       <AccessDenied user={user} path={pathname} />
     ) : item.path === config.home ? (
       <Dashboard user={user} />
+    ) : user.role === 'GUARD' && item.key === 'sync' ? (
+      <SyncPage accessToken={accessToken} />
     ) : (
       <ComingSoon title={t(`area.${config.area}.nav.${item.key}`)} />
     )
@@ -76,6 +92,7 @@ export function AreaRoute({ user, onLogout }: { user: AuthUser; onLogout: () => 
 
   return (
     <AppShell user={user} onLogout={onLogout}>
+      {user.role === 'GUARD' && <AutoSync accessToken={accessToken} />}
       {content}
     </AppShell>
   )

@@ -1,9 +1,10 @@
-import { LogOut, Menu, ShieldCheck, X, Bell } from 'lucide-react'
+import { LogOut, Menu, RefreshCw, ShieldCheck, X, Bell } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink } from 'react-router'
 import buildingOnBrand from '../../assets/icons/building-2-on-brand.svg'
 import type { AuthUser } from '../auth/api'
+import { SyncSummary } from '../sync/SyncPage'
 import { allowed, AREAS } from './areas'
 
 interface ShellProps {
@@ -97,6 +98,16 @@ export function AppShell({ user, onLogout, children }: ShellProps) {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* A guard always sees whether gate entries are still waiting on this device */}
+          {config.area === 'guard' && (
+            <NavLink
+              to="/guard/sync"
+              className="flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-xs text-muted hover:text-ink"
+            >
+              <RefreshCw size={13} aria-hidden />
+              <SyncSummary compact />
+            </NavLink>
+          )}
           <RoleBadge user={user} />
           <a href="/help" className="hidden rounded text-[13px] text-muted hover:text-ink sm:inline">
             {t('shell.help')}
