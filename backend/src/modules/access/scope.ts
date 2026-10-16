@@ -10,7 +10,7 @@ export const permissionDenied = () => new AppError(403, 'PERMISSION_DENIED', 'Yo
 const crossSociety = () => new AppError(403, 'CROSS_SOCIETY_ACCESS', 'This resource belongs to another society')
 const notYourFlat = () => new AppError(403, 'NOT_YOUR_FLAT', 'You do not have access to this flat')
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Records the denial in the audit log and returns the error to throw. */
 export async function deny(userId: string | null, error: AppError, metadata: Record<string, unknown> = {}) {

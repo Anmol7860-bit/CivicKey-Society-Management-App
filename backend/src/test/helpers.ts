@@ -2,7 +2,7 @@ import request from 'supertest'
 import type { createApp } from '../app.js'
 import { db } from '../db/client.js'
 import { inArray } from 'drizzle-orm'
-import { permissions, societies, userPermissions, users, type NewUser, type Role } from '../db/schema.js'
+import { blocks, flats, floors, permissions, societies, userPermissions, users, type NewUser, type Role } from '../db/schema.js'
 import { assignRole, type AdminPermission } from '../modules/access/permissions.js'
 import { hashPassword } from '../modules/auth/password.js'
 
@@ -35,6 +35,15 @@ export async function createUser({ role = 'RESIDENT', ...overrides }: Partial<Ne
 export async function grantPermissions(userId: string, codes: AdminPermission[], grantedBy = userId) {
   const rows = await db.select({ id: permissions.id }).from(permissions).where(inArray(permissions.code, codes))
   await db.insert(userPermissions).values(rows.map((row) => ({ userId, permissionId: row.id, grantedBy })))
+}
+
+/** A flat in block A on floor "1st Floor", creating the society, block and floor as needed. */
+export async function createFlat(societyId = TEST_SOCIETY_ID, number = '101') {
+  await db.insert(societies).values({ id: societyId, name: 'Society' }).onConflictDoNothing()
+  const [block] = await db.insert(blocks).values({ societyId, name: `A-${number}` }).returning()
+  const [floor] = await db.insert(floors).values({ blockId: block!.id, label: '1st Floor' }).returning()
+  const [flat] = await db.insert(flats).values({ societyId, blockId: block!.id, floorId: floor!.id, number }).returning()
+  return flat!
 }
 
 export function postLogin(app: App, body: unknown) {

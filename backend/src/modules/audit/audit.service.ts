@@ -13,6 +13,13 @@ export type AuditEventType =
   | 'COMMITTEE_MEMBERSHIP_SET'
   | 'COMMITTEE_MEMBERSHIP_REMOVED'
   | 'AUTHORIZATION_DENIED'
+  | 'SOCIETY_UPDATED'
+  | 'BLOCK_CREATED'
+  | 'BLOCK_UPDATED'
+  | 'FLOOR_CREATED'
+  | 'FLOOR_UPDATED'
+  | 'FLAT_CREATED'
+  | 'FLAT_UPDATED'
 
 export interface AuditEvent {
   eventType: AuditEventType

@@ -16,6 +16,7 @@ export type ErrorCode =
   | 'INVALID_STATE'
   | 'COMMITTEE_NOT_ALLOWED'
   | 'NOT_FOUND'
+  | 'ALREADY_EXISTS'
   | 'INTERNAL_ERROR'
 
 interface AppErrorOptions {

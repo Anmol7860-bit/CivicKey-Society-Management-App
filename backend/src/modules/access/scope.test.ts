@@ -3,12 +3,12 @@ import type { PgInsertValue } from 'drizzle-orm/pg-core'
 import request from 'supertest'
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { auditLogs, flatResidents, flats, societies } from '../../db/schema.js'
+import { auditLogs, flatResidents } from '../../db/schema.js'
 import { errorHandler } from '../../middleware/errorHandler.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requireFlatAccess } from '../../middleware/requireFlatAccess.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
-import { createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
+import { createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
 import { signAccessToken } from '../auth/tokens.js'
 import type { AdminPermission } from './permissions.js'
 import { assertState, requireRecord } from './scope.js'
@@ -31,12 +31,6 @@ app.use(errorHandler)
 async function as(user: { id: string }) {
   const token = await signAccessToken({ userId: user.id, sessionId: 's1', role: 'GUARD', societyId: OTHER_SOCIETY_ID })
   return `Bearer ${token}`
-}
-
-async function createFlat(societyId = TEST_SOCIETY_ID, number = '101') {
-  await db.insert(societies).values({ id: societyId, name: 'Society' }).onConflictDoNothing()
-  const [flat] = await db.insert(flats).values({ societyId, block: 'A', number }).returning()
-  return flat!
 }
 
 function link(userId: string, flatId: string, extra: Partial<PgInsertValue<typeof flatResidents>> = {}) {

@@ -50,6 +50,13 @@
       "when": 1791752894748,
       "tag": "0006_roles_and_permission_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792088831385,
+      "tag": "0007_society_structure",
+      "breakpoints": true
     }
   ]
 }

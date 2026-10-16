@@ -3,12 +3,15 @@ import {
   boolean,
   check,
   date,
+  foreignKey,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
   primaryKey,
   unique,
+  uniqueIndex,
   text,
   timestamp,
   uuid,
@@ -24,7 +27,9 @@ export const residentType = pgEnum('resident_type', ['OWNER', 'TENANT'])
 export const societies = pgTable('societies', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: varchar('name', { length: 160 }).notNull(),
+  address: varchar('address', { length: 500 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
 export const users = pgTable(
@@ -112,6 +117,60 @@ export const userPermissions = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.permissionId] })],
 )
 
+/** A block or tower. Names are unique within the society, ignoring case. */
+export const blocks = pgTable(
+  'blocks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    name: varchar('name', { length: 64 }).notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Target of the flats (block_id, society_id) foreign key
+    unique('blocks_id_society_id_unique').on(table.id, table.societyId),
+    uniqueIndex('blocks_society_id_name_unique').on(table.societyId, sql`lower(${table.name})`),
+    check('blocks_name_trimmed', sql`${table.name} = btrim(${table.name}) and ${table.name} <> ''`),
+  ],
+)
+
+/**
+ * A floor in a block. The label is free text (B2, Ground, 1st Floor, Terrace) and is never parsed
+ * as a number; display_order sets the listing order. Labels are stored with whitespace trimmed and
+ * collapsed, and are unique within the block ignoring case.
+ */
+export const floors = pgTable(
+  'floors',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    blockId: uuid('block_id')
+      .notNull()
+      .references(() => blocks.id),
+    label: varchar('label', { length: 40 }).notNull(),
+    displayOrder: integer('display_order'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Target of the flats (floor_id, block_id) foreign key
+    unique('floors_id_block_id_unique').on(table.id, table.blockId),
+    uniqueIndex('floors_block_id_label_unique').on(table.blockId, sql`lower(${table.label})`),
+    check(
+      'floors_label_normalized',
+      sql`${table.label} = btrim(${table.label}) and ${table.label} <> '' and ${table.label} !~ '[[:space:]]{2}'`,
+    ),
+  ],
+)
+
+/**
+ * A flat sits on a floor. block_id and society_id are copied from the floor's hierarchy, and the
+ * composite foreign keys stop them from disagreeing with it.
+ */
 export const flats = pgTable(
   'flats',
   {
@@ -119,11 +178,28 @@ export const flats = pgTable(
     societyId: uuid('society_id')
       .notNull()
       .references(() => societies.id),
-    block: varchar('block', { length: 32 }).notNull(),
+    blockId: uuid('block_id').notNull(),
+    floorId: uuid('floor_id').notNull(),
     number: varchar('number', { length: 16 }).notNull(),
+    isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [unique('flats_society_block_number_unique').on(table.societyId, table.block, table.number)],
+  (table) => [
+    foreignKey({
+      name: 'flats_block_id_society_id_blocks_fk',
+      columns: [table.blockId, table.societyId],
+      foreignColumns: [blocks.id, blocks.societyId],
+    }),
+    foreignKey({
+      name: 'flats_floor_id_block_id_floors_fk',
+      columns: [table.floorId, table.blockId],
+      foreignColumns: [floors.id, floors.blockId],
+    }),
+    unique('flats_block_id_number_unique').on(table.blockId, table.number),
+    index('flats_floor_id_idx').on(table.floorId),
+    check('flats_number_trimmed', sql`${table.number} = btrim(${table.number}) and ${table.number} <> ''`),
+  ],
 )
 
 /** VIEW_ONLY members can read the flat's data but not act on it (pay, approve, create passes). */
