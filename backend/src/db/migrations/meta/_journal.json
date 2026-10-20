@@ -57,6 +57,27 @@
       "when": 1792088831385,
       "tag": "0007_society_structure",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792118473125,
+      "tag": "0008_society_structure_lld",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792479008491,
+      "tag": "0009_flat_sharing_and_resident_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792482076691,
+      "tag": "0010_resident_verification",
+      "breakpoints": true
     }
   ]
 }

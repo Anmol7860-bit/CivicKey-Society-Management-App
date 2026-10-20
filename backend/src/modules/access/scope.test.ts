@@ -33,12 +33,15 @@ async function as(user: { id: string }) {
   return `Bearer ${token}`
 }
 
+/** Verified by default: access follows a verified assignment, which the verify tests override. */
 function link(userId: string, flatId: string, extra: Partial<PgInsertValue<typeof flatResidents>> = {}) {
-  return db.insert(flatResidents).values({ userId, flatId, ...extra })
+  return db
+    .insert(flatResidents)
+    .values({ userId, flatId, residentType: 'OWNER', verificationStatus: 'VERIFIED', verifiedBy: userId, verifiedAt: new Date(), ...extra })
 }
 
 async function admin(...permissions: AdminPermission[]) {
-  const user = await createUser({ phone: '9000000010', email: null, role: 'ADMIN', residentType: 'TENANT' })
+  const user = await createUser({ phone: '9000000010', email: null, role: 'ADMIN', resident: 'TENANT' })
   await grantPermissions(user.id, permissions)
   return user
 }

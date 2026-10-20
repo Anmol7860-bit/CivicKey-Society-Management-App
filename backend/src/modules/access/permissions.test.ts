@@ -2,11 +2,11 @@ import express from 'express'
 import request from 'supertest'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { permissions, rolePermissions, roles, userPermissions, users } from '../../db/schema.js'
+import { flatResidents, permissions, rolePermissions, roles, userPermissions } from '../../db/schema.js'
 import { errorHandler } from '../../middleware/errorHandler.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
-import { createUser, grantPermissions, PASSWORD, postLogin } from '../../test/helpers.js'
+import { addResident, createFlat, createUser, grantPermissions, PASSWORD, postLogin, TEST_SOCIETY_ID } from '../../test/helpers.js'
 import { signAccessToken } from '../auth/tokens.js'
 import { and, eq, isNull } from 'drizzle-orm'
 import {
@@ -138,7 +138,7 @@ describe('permission matrix', () => {
   })
 
   it('uses the role in the database, not the one in a still-valid token', async () => {
-    const admin = await createUser({ role: 'ADMIN', residentType: 'OWNER' })
+    const admin = await createUser({ role: 'ADMIN' })
     await grant(admin.id, 'REPORT_VIEW')
     const token = await signAccessToken({ userId: admin.id, sessionId: 's1', role: 'ADMIN', societyId: null })
     await assignRole(db, admin.id, 'RESIDENT')
@@ -175,7 +175,7 @@ describe('permission matrix', () => {
 
 describe('resident type', () => {
   it('gives Owners and Tenants the same Resident permissions', async () => {
-    const tenant = await createUser({ residentType: 'TENANT' })
+    const tenant = await createUser({ resident: 'TENANT' })
 
     expect((await call(tenant, 'BILL_VIEW_OWN')).status).toBe(200)
     expect((await call(tenant, 'USER_MANAGE')).status).toBe(403)
@@ -189,26 +189,22 @@ describe('committee membership', () => {
   })
 
   it('makes a Resident an Admin with only the chosen committee permissions', async () => {
-    const resident = await createUser({ residentType: 'TENANT' })
+    const resident = await createUser({ resident: 'TENANT' })
 
     await setCommitteeMembership(actor, resident.id, ['BILLING_RATE_SET', 'REPORT_VIEW'])
 
     const res = await postLogin(createApp(), { phone: '9876543210', password: PASSWORD })
-    expect(res.body.data.user).toMatchObject({
-      role: 'ADMIN',
-      residentType: 'TENANT',
-      permissions: ['BILLING_RATE_SET', 'REPORT_VIEW'],
-    })
+    expect(res.body.data.user).toMatchObject({ role: 'ADMIN', permissions: ['BILLING_RATE_SET', 'REPORT_VIEW'] })
   })
 
-  it('removes committee permissions and restores the Resident role and type', async () => {
-    const resident = await createUser({ residentType: 'TENANT' })
+  it('removes committee permissions and restores the Resident role, keeping the flat assignment', async () => {
+    const resident = await createUser({ resident: 'TENANT' })
     await setCommitteeMembership(actor, resident.id, [...COMMITTEE_PERMISSIONS])
 
     await removeCommitteeMembership(actor, resident.id)
 
-    const [user] = await db.select().from(users).where(eq(users.id, resident.id))
-    expect(user!.residentType).toBe('TENANT')
+    const [link] = await db.select().from(flatResidents).where(eq(flatResidents.userId, resident.id))
+    expect(link).toMatchObject({ residentType: 'TENANT', verificationStatus: 'VERIFIED' })
     expect(await loadRole(db, resident.id)).toBe('RESIDENT')
     expect(await activeGrants(resident.id)).toEqual([])
     // Revoked grants stay as history, with who granted them
@@ -218,7 +214,7 @@ describe('committee membership', () => {
   })
 
   it('keeps separately assigned General Admin permissions when committee membership ends', async () => {
-    const resident = await createUser()
+    const resident = await createUser({ resident: 'OWNER' })
     await setCommitteeMembership(actor, resident.id, ['REPORT_VIEW'])
     await grant(resident.id, 'USER_MANAGE')
 
@@ -229,7 +225,7 @@ describe('committee membership', () => {
   })
 
   it('replaces the committee permissions when set again, and can restore a revoked one', async () => {
-    const resident = await createUser()
+    const resident = await createUser({ resident: 'OWNER' })
     await setCommitteeMembership(actor, resident.id, ['REPORT_VIEW', 'BILLING_RATE_SET'])
 
     await setCommitteeMembership(actor, resident.id, ['INVOICE_GENERATE'])
@@ -241,11 +237,22 @@ describe('committee membership', () => {
 
   it.each([
     ['a Guard', { role: 'GUARD' as const }, ['REPORT_VIEW']],
-    ['a General Admin permission', {}, ['USER_MANAGE']],
-    ['no permissions', {}, []],
+    ['a General Admin permission', { resident: 'OWNER' as const }, ['USER_MANAGE']],
+    ['no permissions', { resident: 'OWNER' as const }, []],
   ])('refuses %s', async (_case, overrides, permissions) => {
     const user = await createUser(overrides)
 
     await expect(setCommitteeMembership(actor, user.id, permissions as never)).rejects.toMatchObject({ code: 'COMMITTEE_NOT_ALLOWED' })
+  })
+
+  // Resident identity is a verified assignment, so a registration awaiting approval is not enough
+  it('refuses a user whose flat assignment is still pending', async () => {
+    const user = await createUser()
+    const flat = await createFlat(TEST_SOCIETY_ID, '777')
+    await addResident(flat.id, user.id, { verificationStatus: 'PENDING' })
+
+    await expect(setCommitteeMembership(actor, user.id, ['REPORT_VIEW'])).rejects.toMatchObject({
+      code: 'COMMITTEE_NOT_ALLOWED',
+    })
   })
 })

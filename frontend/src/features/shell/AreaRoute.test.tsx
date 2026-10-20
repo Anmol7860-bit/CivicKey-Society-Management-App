@@ -4,13 +4,12 @@ import { MemoryRouter } from 'react-router'
 import type { AuthUser, Permission } from '../auth/api'
 import { AreaRoute } from './AreaRoute'
 
-const user = (role: AuthUser['role'], permissions: Permission[], residentType: AuthUser['residentType'] = null): AuthUser => ({
+const user = (role: AuthUser['role'], permissions: Permission[]): AuthUser => ({
   id: 'u1',
   name: 'Maya Shah',
   phone: null,
   email: null,
   role,
-  residentType,
   societyId: null,
   permissions,
 })
@@ -34,7 +33,7 @@ function navLabels() {
 
 describe('role destinations', () => {
   it('gives a Resident their navigation, greeting and actions', () => {
-    renderAt('/resident/overview', user('RESIDENT', RESIDENT, 'TENANT'))
+    renderAt('/resident/overview', user('RESIDENT', RESIDENT))
 
     expect(navLabels()).toEqual(['Overview', 'Visitor approval', 'Visitor passes', 'Daily help', 'Bills & payments', 'Notifications', 'My activity'])
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Good (morning|afternoon|evening), Maya$/)
@@ -51,7 +50,7 @@ describe('role destinations', () => {
   })
 
   it('gives a committee member only the committee destinations, with no Add user', () => {
-    renderAt('/admin/overview', user('ADMIN', ['BILLING_RATE_SET', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK', 'REPORT_VIEW'], 'OWNER'))
+    renderAt('/admin/overview', user('ADMIN', ['BILLING_RATE_SET', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK', 'REPORT_VIEW']))
 
     expect(navLabels()).toEqual(['Overview', 'Billing', 'Reports', 'Community tasks'])
     expect(screen.queryByRole('link', { name: 'Add user' })).not.toBeInTheDocument()
@@ -70,8 +69,8 @@ describe('role destinations', () => {
 
 describe('restricted routes', () => {
   it.each([
-    ['another role’s area', '/admin/reports', user('RESIDENT', RESIDENT, 'OWNER')],
-    ['a page the user lacks permission for', '/admin/society', user('ADMIN', ['REPORT_VIEW'], 'OWNER')],
+    ['another role’s area', '/admin/reports', user('RESIDENT', RESIDENT)],
+    ['a page the user lacks permission for', '/admin/society', user('ADMIN', ['REPORT_VIEW'])],
     ['billing, for a Guard', '/admin/billing', user('GUARD', GUARD)],
     ['resident management, for a Guard', '/admin/society', user('GUARD', GUARD)],
     ['a Resident’s bills, for a Guard', '/resident/bills', user('GUARD', GUARD)],
@@ -84,13 +83,13 @@ describe('restricted routes', () => {
   })
 
   it('offers the way back to the user’s own dashboard', () => {
-    renderAt('/guard/operations', user('RESIDENT', RESIDENT, 'OWNER'))
+    renderAt('/guard/operations', user('RESIDENT', RESIDENT))
 
     expect(screen.getByRole('link', { name: 'Back to Resident dashboard' })).toHaveAttribute('href', '/resident/overview')
   })
 
   it('sends unknown pages to the home page', () => {
-    renderAt('/resident/nope', user('RESIDENT', RESIDENT, 'OWNER'))
+    renderAt('/resident/nope', user('RESIDENT', RESIDENT))
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/Maya/)
   })

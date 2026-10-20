@@ -15,8 +15,8 @@ async function getPermissions(user: Pick<User, 'id'>) {
 }
 
 describe('GET /api/v1/auth/permissions', () => {
-  it("returns a Resident's role, type and permissions", async () => {
-    const resident = await createUser({ residentType: 'TENANT' })
+  it("returns a Resident's role and permissions", async () => {
+    const resident = await createUser({ resident: 'TENANT' })
 
     const res = await getPermissions(resident)
 
@@ -25,26 +25,26 @@ describe('GET /api/v1/auth/permissions', () => {
     expect(res.body.data).toEqual({
       userId: resident.id,
       role: 'RESIDENT',
-      residentType: 'TENANT',
       permissions: ['BILL_PAY', 'BILL_VIEW_OWN', 'RECEIPT_VIEW_OWN', 'VISITOR_APPROVE', 'VISITOR_PASS_CREATE', 'VISIT_VIEW_OWN'],
     })
   })
 
   it('returns only the permissions assigned to a committee member', async () => {
-    const committee = await createUser({ role: 'ADMIN', residentType: 'OWNER' })
+    const committee = await createUser({ role: 'ADMIN', resident: 'OWNER' })
     await grantPermissions(committee.id, ['REPORT_VIEW', 'BILLING_RATE_SET'])
 
     const res = await getPermissions(committee)
 
-    expect(res.body.data).toMatchObject({ role: 'ADMIN', residentType: 'OWNER', permissions: ['BILLING_RATE_SET', 'REPORT_VIEW'] })
+    expect(res.body.data).toMatchObject({ role: 'ADMIN', permissions: ['BILLING_RATE_SET', 'REPORT_VIEW'] })
   })
 
-  it('returns a null resident type for a Guard', async () => {
+  it('says nothing about a resident type, which now lives on the assignment', async () => {
     const guard = await createUser({ role: 'GUARD' })
 
     const res = await getPermissions(guard)
 
-    expect(res.body.data).toMatchObject({ role: 'GUARD', residentType: null })
+    expect(res.body.data).toMatchObject({ role: 'GUARD' })
+    expect(res.body.data).not.toHaveProperty('residentType')
   })
 
   it('returns 403 ROLE_NOT_ASSIGNED for a deactivated or deleted user', async () => {

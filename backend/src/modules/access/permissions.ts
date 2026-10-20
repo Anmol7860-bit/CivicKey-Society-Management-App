@@ -1,6 +1,6 @@
-import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNull, lte, notInArray, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { permissions, rolePermissions, roles, userPermissions, userRoles, users, type Role } from '../../db/schema.js'
+import { flatResidents, permissions, rolePermissions, roles, userPermissions, userRoles, users, type Role } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import { recordAuditEvent, type DbExecutor } from '../audit/audit.service.js'
 
@@ -87,10 +87,30 @@ export async function loadPermissions(executor: DbExecutor, userId: string, role
   return ([...codes] as Permission[]).sort()
 }
 
+/**
+ * Whether the user is a Resident: someone with a verified, currently valid flat assignment.
+ * A verified mobile number or an account alone is never enough.
+ */
+export async function isResident(executor: DbExecutor, userId: string) {
+  const [row] = await executor
+    .select({ id: flatResidents.id })
+    .from(flatResidents)
+    .where(
+      and(
+        eq(flatResidents.userId, userId),
+        eq(flatResidents.verificationStatus, 'VERIFIED'),
+        lte(flatResidents.startDate, sql`current_date`),
+        or(isNull(flatResidents.endDate), gte(flatResidents.endDate, sql`current_date`)),
+      ),
+    )
+    .limit(1)
+  return row !== undefined
+}
+
 /** GET /auth/permissions: the role and permissions as stored now, not as the token claims them. */
 export async function getEffectivePermissions(userId: string) {
   const [user] = await db
-    .select({ residentType: users.residentType, isActive: users.isActive, role: roles.name })
+    .select({ isActive: users.isActive, role: roles.name })
     .from(users)
     .leftJoin(userRoles, eq(userRoles.userId, users.id))
     .leftJoin(roles, eq(roles.id, userRoles.roleId))
@@ -101,7 +121,6 @@ export async function getEffectivePermissions(userId: string) {
   return {
     userId,
     role: user.role,
-    residentType: user.residentType,
     permissions: await loadPermissions(db, userId, user.role),
   }
 }
@@ -127,7 +146,7 @@ function revokeGrants(executor: DbExecutor, userId: string, ids: string[]) {
 
 /**
  * Makes a Resident a committee member with exactly the given committee permissions. Their role
- * becomes ADMIN; their Resident Type is kept. Calling it again replaces the committee permissions.
+ * becomes ADMIN; their flat assignments are untouched. Calling it again replaces the committee permissions.
  */
 export async function setCommitteeMembership(
   actorUserId: string,
@@ -141,8 +160,8 @@ export async function setCommitteeMembership(
 
   await db.transaction(async (tx) => {
     const [user] = await tx.select().from(users).where(eq(users.id, userId)).for('update')
-    // residentType marks Resident identity; an ADMIN without it is a staff admin, not a resident
-    if (!user || !user.residentType) throw committeeError('Only Residents can be committee members')
+    // A verified flat assignment is what makes someone a Resident; a staff Admin has none
+    if (!user || !(await isResident(tx, userId))) throw committeeError('Only Residents can be committee members')
 
     const keep = await permissionIds(tx, granted)
     const committee = await permissionIds(tx, COMMITTEE_PERMISSIONS)
@@ -169,7 +188,7 @@ export async function setCommitteeMembership(
 
 /**
  * Revokes the committee permissions. A Resident left with no other active Admin permission goes
- * back to the RESIDENT role with their Resident Type unchanged.
+ * back to the RESIDENT role; their flat assignments are untouched.
  */
 export async function removeCommitteeMembership(actorUserId: string, userId: string) {
   await db.transaction(async (tx) => {
@@ -182,7 +201,7 @@ export async function removeCommitteeMembership(actorUserId: string, userId: str
       .select({ id: userPermissions.permissionId })
       .from(userPermissions)
       .where(and(eq(userPermissions.userId, userId), isNull(userPermissions.revokedAt), notInArray(userPermissions.permissionId, committee)))
-    if (user.residentType && remaining.length === 0) {
+    if (remaining.length === 0 && (await isResident(tx, userId))) {
       await assignRole(tx, userId, 'RESIDENT')
       await tx.update(users).set({ updatedAt: new Date() }).where(eq(users.id, userId))
     }

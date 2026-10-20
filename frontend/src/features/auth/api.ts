@@ -14,8 +14,6 @@ export interface AuthUser {
   phone: string | null
   email: string | null
   role: Role
-  /** OWNER or TENANT for Residents, including a Resident serving on the committee as ADMIN */
-  residentType: 'OWNER' | 'TENANT' | null
   societyId: string | null
   /** Decides what the UI shows; the backend checks each operation itself */
   permissions: Permission[]

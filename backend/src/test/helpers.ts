@@ -2,7 +2,20 @@ import request from 'supertest'
 import type { createApp } from '../app.js'
 import { db } from '../db/client.js'
 import { inArray } from 'drizzle-orm'
-import { blocks, flats, floors, permissions, societies, userPermissions, users, type NewUser, type Role } from '../db/schema.js'
+import type { PgInsertValue } from 'drizzle-orm/pg-core'
+import {
+  blocks,
+  flatResidents,
+  flats,
+  floors,
+  permissions,
+  societies,
+  userPermissions,
+  users,
+  type NewUser,
+  type ResidentType,
+  type Role,
+} from '../db/schema.js'
 import { assignRole, type AdminPermission } from '../modules/access/permissions.js'
 import { hashPassword } from '../modules/auth/password.js'
 
@@ -12,8 +25,17 @@ export const PASSWORD = 'Resident@123'
 
 export const TEST_SOCIETY_ID = '11111111-1111-4111-8111-111111111111'
 
-/** Creates a user with a role in user_roles (default RESIDENT). */
-export async function createUser({ role = 'RESIDENT', ...overrides }: Partial<NewUser> & { role?: Role } = {}) {
+let flatNumber = 900
+
+/**
+ * Creates a user with a role in user_roles (default RESIDENT). `resident` also gives them a
+ * verified assignment on a flat of their own, which is what now makes someone a Resident.
+ */
+export async function createUser({
+  role = 'RESIDENT',
+  resident,
+  ...overrides
+}: Partial<NewUser> & { role?: Role; resident?: ResidentType } = {}) {
   await db.insert(societies).values({ id: TEST_SOCIETY_ID, name: 'Test Society' }).onConflictDoNothing()
   const [user] = await db
     .insert(users)
@@ -21,14 +43,34 @@ export async function createUser({ role = 'RESIDENT', ...overrides }: Partial<Ne
       name: 'Riya Sharma',
       phone: '9876543210',
       email: 'riya@example.com',
-      residentType: role === 'RESIDENT' ? 'OWNER' : null,
       societyId: TEST_SOCIETY_ID,
       passwordHash: await hashPassword(PASSWORD),
       ...overrides,
     })
     .returning()
   await assignRole(db, user!.id, role)
+  if (resident) {
+    const flat = await createFlat(TEST_SOCIETY_ID, String((flatNumber += 1)))
+    await addResident(flat.id, user!.id, { residentType: resident })
+  }
   return { ...user!, role }
+}
+
+/** A flat assignment, verified by default; a tenancy gets a far-off end date unless given one. */
+export async function addResident(flatId: string, userId: string, overrides: Partial<PgInsertValue<typeof flatResidents>> = {}) {
+  const decided = overrides.verificationStatus === 'PENDING' || overrides.verificationStatus === 'REJECTED'
+  const [row] = await db
+    .insert(flatResidents)
+    .values({
+      flatId,
+      userId,
+      residentType: 'OWNER',
+      ...(overrides.residentType === 'TENANT' ? { endDate: '2099-12-31' } : {}),
+      ...(decided ? {} : { verificationStatus: 'VERIFIED', verifiedBy: userId, verifiedAt: new Date() }),
+      ...overrides,
+    })
+    .returning()
+  return row!
 }
 
 /** Grants user-specific permissions; the grantee is recorded as granter unless one is given. */
@@ -41,8 +83,8 @@ export async function grantPermissions(userId: string, codes: AdminPermission[],
 export async function createFlat(societyId = TEST_SOCIETY_ID, number = '101') {
   await db.insert(societies).values({ id: societyId, name: 'Society' }).onConflictDoNothing()
   const [block] = await db.insert(blocks).values({ societyId, name: `A-${number}` }).returning()
-  const [floor] = await db.insert(floors).values({ blockId: block!.id, label: '1st Floor' }).returning()
-  const [flat] = await db.insert(flats).values({ societyId, blockId: block!.id, floorId: floor!.id, number }).returning()
+  const [floor] = await db.insert(floors).values({ blockId: block!.id, floorLabel: '1st Floor' }).returning()
+  const [flat] = await db.insert(flats).values({ blockId: block!.id, floorId: floor!.id, number }).returning()
   return flat!
 }
 

@@ -12,7 +12,6 @@ const guard = {
   phone: null,
   email: null,
   role: 'GUARD' as const,
-  residentType: null,
   societyId: null,
   permissions: ['VISIT_REGISTER' as const],
 }

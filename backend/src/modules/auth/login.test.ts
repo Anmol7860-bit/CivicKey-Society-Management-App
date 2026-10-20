@@ -33,12 +33,11 @@ describe('POST /api/v1/auth/login', () => {
           phone: '9876543210',
           email: 'riya@example.com',
           role: 'RESIDENT',
-          residentType: 'OWNER',
           societyId: user.societyId,
           permissions: ['BILL_PAY', 'BILL_VIEW_OWN', 'RECEIPT_VIEW_OWN', 'VISITOR_APPROVE', 'VISITOR_PASS_CREATE', 'VISIT_VIEW_OWN'],
         },
       })
-      expect(Object.keys(res.body.data.user).sort()).toEqual(['email', 'id', 'name', 'permissions', 'phone', 'residentType', 'role', 'societyId'])
+      expect(Object.keys(res.body.data.user).sort()).toEqual(['email', 'id', 'name', 'permissions', 'phone', 'role', 'societyId'])
     })
 
     it('issues an access token carrying user, role, society and session', async () => {

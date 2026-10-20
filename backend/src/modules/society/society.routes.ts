@@ -29,6 +29,11 @@ export function createSocietyRouter() {
     res.json({ data: await service.updateSociety(req.ctx!, req.params.societyId as string, req.body) })
   })
 
+  /** The selling view: the whole hierarchy with what is sold, occupied and open to sharing */
+  router.get('/societies/:societyId/occupancy', ...manage, async (req, res) => {
+    res.json({ data: await service.getOccupancy(req.ctx!, req.params.societyId as string) })
+  })
+
   router.get('/societies/:societyId/blocks', ...manage, async (req, res) => {
     res.json({ data: await service.listBlocks(req.ctx!, req.params.societyId as string) })
   })

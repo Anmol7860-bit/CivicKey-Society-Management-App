@@ -1,6 +1,6 @@
 import { and, eq, gte, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { flatResidents, flats } from '../../db/schema.js'
+import { blocks, flatResidents, flats } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { recordAuditEvent } from '../audit/audit.service.js'
@@ -63,12 +63,14 @@ export interface FlatAccessOptions {
 
 export async function assertFlatAccess(ctx: AuthContext, flatId: string, { write = false, scopePermission }: FlatAccessOptions = {}) {
   const permissions = permissionsOf(ctx)
-  const [flat] = UUID.test(flatId) ? await db.select({ societyId: flats.societyId }).from(flats).where(eq(flats.id, flatId)) : []
+  const [flat] = UUID.test(flatId) ? await db.select({ societyId: blocks.societyId }).from(flats).innerJoin(blocks, eq(blocks.id, flats.blockId)).where(eq(flats.id, flatId)) : []
   await requireRecord(ctx, flat, 'Flat')
 
   if (scopePermission && permissions.includes(scopePermission)) return
   if (ctx.role !== 'RESIDENT') throw await deny(ctx.userId, permissionDenied(), { flatId })
 
+  // Only a VERIFIED assignment inside its validity period grants access. A verified mobile
+  // number, a PENDING registration or an ended tenancy grant nothing.
   const links = await db
     .select({ accessLevel: flatResidents.accessLevel })
     .from(flatResidents)
@@ -76,6 +78,7 @@ export async function assertFlatAccess(ctx: AuthContext, flatId: string, { write
       and(
         eq(flatResidents.userId, ctx.userId),
         eq(flatResidents.flatId, flatId),
+        eq(flatResidents.verificationStatus, 'VERIFIED'),
         lte(flatResidents.startDate, sql`current_date`),
         or(isNull(flatResidents.endDate), gte(flatResidents.endDate, sql`current_date`)),
       ),

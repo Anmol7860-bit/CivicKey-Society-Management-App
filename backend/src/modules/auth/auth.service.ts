@@ -1,7 +1,7 @@
 import { and, eq, getTableColumns, isNull } from 'drizzle-orm'
 import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
-import { authSessions, refreshTokens, roles, userRoles, users, type ResidentType, type Role, type User } from '../../db/schema.js'
+import { authSessions, refreshTokens, roles, userRoles, users, type Role, type User } from '../../db/schema.js'
 import { loadPermissions, type Permission } from '../access/permissions.js'
 import { AppError } from '../../lib/errors.js'
 import { maskIdentifier, recordAuditEvent, type DbExecutor } from '../audit/audit.service.js'
@@ -21,7 +21,6 @@ export interface SafeUser {
   phone: string | null
   email: string | null
   role: Role
-  residentType: ResidentType | null
   societyId: string | null
   /** What the UI may show; the backend still checks each operation */
   permissions: Permission[]
@@ -49,7 +48,6 @@ export function toSafeUser(user: User & { role: Role }, permissions: Permission[
     phone: user.phone,
     email: user.email,
     role: user.role,
-    residentType: user.residentType,
     societyId: user.societyId,
     permissions,
   }

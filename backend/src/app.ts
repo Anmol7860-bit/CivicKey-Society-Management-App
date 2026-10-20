@@ -10,6 +10,7 @@ import { env } from './config/env.js'
 import { logger as defaultLogger } from './lib/logger.js'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import { createAuthRouter } from './modules/auth/auth.routes.js'
+import { createResidentRouter } from './modules/resident/resident.routes.js'
 import { createSocietyRouter } from './modules/society/society.routes.js'
 
 const REQUEST_ID_PATTERN = /^[\w-]{1,64}$/
@@ -43,6 +44,7 @@ export function createApp({ logger = defaultLogger }: AppOptions = {}) {
   })
   app.use('/api/v1/auth', createAuthRouter())
   app.use('/api/v1', createSocietyRouter())
+  app.use('/api/v1', createResidentRouter())
 
   app.use(notFoundHandler)
   app.use(errorHandler)

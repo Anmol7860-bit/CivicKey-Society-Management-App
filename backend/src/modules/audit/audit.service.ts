@@ -20,6 +20,10 @@ export type AuditEventType =
   | 'FLOOR_UPDATED'
   | 'FLAT_CREATED'
   | 'FLAT_UPDATED'
+  | 'RESIDENT_REGISTERED'
+  | 'RESIDENT_VERIFIED'
+  | 'RESIDENT_REJECTED'
+  | 'RESIDENT_UPDATED'
 
 export interface AuditEvent {
   eventType: AuditEventType

@@ -8,10 +8,13 @@ const blockName = z.string().trim().min(1).max(64)
 const floorLabel = z
   .string()
   .transform((label) => label.trim().replace(/\s+/g, ' '))
-  .pipe(z.string().min(1, 'Floor label is required').max(40))
+  .pipe(z.string().min(1, 'Floor label is required').max(80))
 /** Negative values let basements sort first */
-const displayOrder = z.number().int().min(-1000).max(1000).nullable()
+const sortOrder = z.number().int().min(-1000).max(1000).nullable()
 const flatNumber = z.string().trim().min(1).max(16)
+/** Co-owner/flatmate cap; null means sharing with no cap. Only meaningful while sharing is allowed. */
+const maxOccupants = z.number().int().min(2).max(50).nullable()
+const status = z.enum(['ACTIVE', 'INACTIVE'])
 
 // Strict objects: society, block and floor ids come from the path and the hierarchy, never the body
 export const updateSocietySchema = z
@@ -29,21 +32,27 @@ export const updateSocietySchema = z
 
 export const createBlockSchema = z.strictObject({ name: blockName })
 export const updateBlockSchema = z
-  .strictObject({ name: blockName.optional(), isActive: z.boolean().optional() })
+  .strictObject({ name: blockName.optional(), status: status.optional() })
   .refine(atLeastOneField, noFields)
 
-export const createFloorSchema = z.strictObject({ label: floorLabel, displayOrder: displayOrder.optional() })
+export const createFloorSchema = z.strictObject({ floorLabel, sortOrder: sortOrder.optional() })
 export const updateFloorSchema = z
-  .strictObject({ label: floorLabel.optional(), displayOrder: displayOrder.optional(), isActive: z.boolean().optional() })
+  .strictObject({ floorLabel: floorLabel.optional(), sortOrder: sortOrder.optional(), status: status.optional() })
   .refine(atLeastOneField, noFields)
 
-export const createFlatSchema = z.strictObject({ number: flatNumber })
+export const createFlatSchema = z
+  .strictObject({ number: flatNumber, sharingAllowed: z.boolean().optional(), maxOccupants: maxOccupants.optional() })
+  .refine((body) => body.maxOccupants == null || body.sharingAllowed === true, {
+    message: 'maxOccupants needs sharingAllowed: true',
+  })
 export const updateFlatSchema = z
   .strictObject({
     number: flatNumber.optional(),
     /** Moves the flat; its block and society follow the new floor */
     floorId: z.uuid().optional(),
-    isActive: z.boolean().optional(),
+    status: status.optional(),
+    sharingAllowed: z.boolean().optional(),
+    maxOccupants: maxOccupants.optional(),
   })
   .refine(atLeastOneField, noFields)
 
