@@ -69,7 +69,8 @@ async function seedFlat({ block, floor, number, sharing }: FlatSpec) {
   const [flat] = await db
     .insert(flats)
     .values({ blockId, floorId, number, ...sharingColumns })
-    .onConflictDoUpdate({ target: [flats.blockId, flats.number], set: sharingColumns })
+    // floorId too: a flat left on the legacy "Unassigned" floor moves to the one it belongs on
+    .onConflictDoUpdate({ target: [flats.blockId, flats.number], set: { ...sharingColumns, floorId } })
     .returning()
   return flat!
 }
