@@ -154,6 +154,7 @@ export function createBlock(ctx: AuthContext, societyId: string, body: CreateBlo
 
 /** Renames or (de)activates a block. Its floors and flats are not touched. */
 export function updateBlock(ctx: AuthContext, blockId: string, body: UpdateBlockBody) {
+  const { reason, ...changes } = body
   return db.transaction(async (tx) => {
     const block = await loadBlock(tx, ctx, blockId, 'update')
     if (body.status === INACTIVE && block.status === ACTIVE) {
@@ -162,10 +163,10 @@ export function updateBlock(ctx: AuthContext, blockId: string, body: UpdateBlock
       assertState(activeFloors === 0, 'Deactivate the floors in this block first')
     }
     const [updated] = await unique(
-      tx.update(blocks).set({ ...body, updatedAt: new Date() }).where(eq(blocks.id, blockId)).returning(),
+      tx.update(blocks).set({ ...changes, updatedAt: new Date() }).where(eq(blocks.id, blockId)).returning(),
       duplicateBlock,
     )
-    await audit(tx, ctx, 'BLOCK_UPDATED', { societyId: block.societyId, blockId, changes: body })
+    await audit(tx, ctx, 'BLOCK_UPDATED', { societyId: block.societyId, blockId, changes, reason })
     return updated!
   })
 }
@@ -200,6 +201,7 @@ export function createFloor(ctx: AuthContext, blockId: string, body: CreateFloor
 }
 
 export function updateFloor(ctx: AuthContext, floorId: string, body: UpdateFloorBody) {
+  const { reason, ...changes } = body
   return db.transaction(async (tx) => {
     const floor = await loadFloor(tx, ctx, floorId, 'update')
     if (body.status === INACTIVE && floor.status === ACTIVE) {
@@ -210,10 +212,10 @@ export function updateFloor(ctx: AuthContext, floorId: string, body: UpdateFloor
       assertState((await loadBlock(tx, ctx, floor.blockId, 'share')).status === ACTIVE, inactiveBlock)
     }
     const [updated] = await unique(
-      tx.update(floors).set({ ...body, updatedAt: new Date() }).where(eq(floors.id, floorId)).returning(),
+      tx.update(floors).set({ ...changes, updatedAt: new Date() }).where(eq(floors.id, floorId)).returning(),
       duplicateFloor,
     )
-    await audit(tx, ctx, 'FLOOR_UPDATED', { societyId: floor.societyId, blockId: floor.blockId, floorId, changes: body })
+    await audit(tx, ctx, 'FLOOR_UPDATED', { societyId: floor.societyId, blockId: floor.blockId, floorId, changes, reason })
     return updated!
   })
 }
@@ -271,6 +273,7 @@ export async function getFlat(ctx: AuthContext, flatId: string) {
 }
 
 export function updateFlat(ctx: AuthContext, flatId: string, body: UpdateFlatBody) {
+  const { reason, ...changes } = body
   return db.transaction(async (tx) => {
     const flat = await loadFlat(tx, ctx, flatId, 'update')
     const moving = body.floorId !== undefined && body.floorId !== flat.floorId
@@ -313,7 +316,7 @@ export function updateFlat(ctx: AuthContext, flatId: string, body: UpdateFlatBod
         .returning(),
       duplicateFlat,
     )
-    await audit(tx, ctx, 'FLAT_UPDATED', { societyId: flat.societyId, flatId, changes: body })
+    await audit(tx, ctx, 'FLAT_UPDATED', { societyId: flat.societyId, flatId, changes, reason })
     return { ...updated!, societyId: flat.societyId }
   })
 }

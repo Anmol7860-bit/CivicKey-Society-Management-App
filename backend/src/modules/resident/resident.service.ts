@@ -226,6 +226,10 @@ export function updateResident(ctx: AuthContext, id: string, body: UpdateResiden
     }
     assertState(assignment.residentType !== 'TENANT' || endDate !== null, 'A tenancy must have an end date')
     assertState(endDate === null || endDate >= assignment.startDate, 'The end date cannot be before the start date')
+    // Closing an assignment is recorded with its reason and actor, since billing and visitor
+    // history will lean on these relationships long after the resident has gone
+    const closing = body.endDate !== undefined && endDate !== null && endDate <= today
+    assertState(!closing || body.reason !== undefined, 'Give a reason for closing this assignment')
 
     const [updated] = await conflict(
       tx
@@ -235,7 +239,8 @@ export function updateResident(ctx: AuthContext, id: string, body: UpdateResiden
         .returning(),
       'This period overlaps another assignment of the same person on this flat',
     )
-    await audit(tx, ctx, 'RESIDENT_UPDATED', { societyId, flatId: assignment.flatId, assignmentId: id, changes: body })
+    const { reason, ...changes } = body
+    await audit(tx, ctx, 'RESIDENT_UPDATED', { societyId, flatId: assignment.flatId, assignmentId: id, changes, reason })
     return withoutHash(updated!)
   })
 }

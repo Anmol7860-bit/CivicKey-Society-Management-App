@@ -11,10 +11,14 @@ const MISSING_ID = '44444444-4444-4444-8444-444444444444'
 const app = createApp()
 
 let auth: string
+let adminId: string
 
 async function tokenFor(user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) {
   return `Bearer ${await signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID })}`
 }
+
+/** Deactivating anything needs a reason, which is kept in the audit trail */
+const DEACTIVATE = { status: 'INACTIVE' as const, reason: 'Under renovation' }
 
 const api = {
   get: (path: string, token = auth) => request(app).get(`/api/v1${path}`).set('Authorization', token),
@@ -34,6 +38,7 @@ async function flat(floorId: string, number = '101') {
 
 beforeEach(async () => {
   const admin = await createUser({ phone: '9000000001', email: null, role: 'ADMIN' })
+  adminId = admin.id
   await grantPermissions(admin.id, ['SOCIETY_MANAGE'])
   auth = await tokenFor(admin)
 })
@@ -109,12 +114,12 @@ describe('blocks', () => {
     const a = await block()
     const f = await floor(a.id)
 
-    const refused = await api.put(`/blocks/${a.id}`, { status: 'INACTIVE' })
+    const refused = await api.put(`/blocks/${a.id}`, DEACTIVATE)
     expect(refused.status).toBe(400)
     expect(refused.body.error.code).toBe('INVALID_STATE')
 
-    expect((await api.put(`/floors/${f.id}`, { status: 'INACTIVE' })).status).toBe(200)
-    expect((await api.put(`/blocks/${a.id}`, { status: 'INACTIVE' })).body.data.status).toBe('INACTIVE')
+    expect((await api.put(`/floors/${f.id}`, DEACTIVATE)).status).toBe(200)
+    expect((await api.put(`/blocks/${a.id}`, DEACTIVATE)).body.data.status).toBe('INACTIVE')
     expect((await api.post(`/blocks/${a.id}/floors`, { floorLabel: 'Terrace' })).status).toBe(400)
     // An inactive block cannot regain an active floor either
     expect((await api.put(`/floors/${f.id}`, { status: 'ACTIVE' })).status).toBe(400)
@@ -151,9 +156,9 @@ describe('floors', () => {
     const f = await floor((await block()).id)
     const unit = await flat(f.id)
 
-    expect((await api.put(`/floors/${f.id}`, { status: 'INACTIVE' })).status).toBe(400)
-    await api.put(`/flats/${unit.id}`, { status: 'INACTIVE' })
-    expect((await api.put(`/floors/${f.id}`, { status: 'INACTIVE' })).status).toBe(200)
+    expect((await api.put(`/floors/${f.id}`, DEACTIVATE)).status).toBe(400)
+    await api.put(`/flats/${unit.id}`, DEACTIVATE)
+    expect((await api.put(`/floors/${f.id}`, DEACTIVATE)).status).toBe(200)
     expect((await api.post(`/floors/${f.id}/flats`, { number: '102' })).status).toBe(400)
   })
 })
@@ -200,13 +205,13 @@ describe('flats', () => {
     const resident = await createUser({ phone: '9000000004', email: null })
     await db.insert(flatResidents).values({ flatId: unit.id, userId: resident.id, residentType: 'OWNER' })
 
-    const refused = await api.put(`/flats/${unit.id}`, { status: 'INACTIVE' })
+    const refused = await api.put(`/flats/${unit.id}`, DEACTIVATE)
     expect(refused.status).toBe(400)
     // A physical delete never cascades into resident assignments
     await expect(db.delete(flats).where(eq(flats.id, unit.id))).rejects.toThrow()
 
     await db.update(flatResidents).set({ endDate: '2020-01-01', startDate: '2019-01-01' }).where(eq(flatResidents.flatId, unit.id))
-    expect((await api.put(`/flats/${unit.id}`, { status: 'INACTIVE' })).body.data.status).toBe('INACTIVE')
+    expect((await api.put(`/flats/${unit.id}`, DEACTIVATE)).body.data.status).toBe('INACTIVE')
   })
 })
 
@@ -282,7 +287,7 @@ describe('occupancy', () => {
   it('leaves inactive flats out of the counts and refuses another society', async () => {
     const f = await floor((await block()).id)
     const unit = await flat(f.id)
-    await api.put(`/flats/${unit.id}`, { status: 'INACTIVE' })
+    await api.put(`/flats/${unit.id}`, DEACTIVATE)
 
     const res = await api.get(`/societies/${TEST_SOCIETY_ID}/occupancy`)
     expect(res.body.data.summary).toMatchObject({ flats: 0, inactive: 1 })
@@ -341,5 +346,35 @@ describe('the client is not trusted for ids or scope', () => {
     // Every denial is recorded for investigation
     const denials = await db.select().from(auditLogs).where(eq(auditLogs.eventType, 'AUTHORIZATION_DENIED'))
     expect(denials).toHaveLength(7)
+  })
+})
+
+describe('deactivation is recorded, never a deletion', () => {
+  it('needs a reason, keeps it in the audit trail with the actor, and not on the record', async () => {
+    const a = await block('A')
+
+    const bare = await api.put(`/blocks/${a.id}`, { status: 'INACTIVE' })
+    expect(bare.status).toBe(422)
+    expect(bare.body.error.details.fields).toEqual([
+      { field: 'reason', message: 'Give a reason for deactivating this record' },
+    ])
+
+    const done = await api.put(`/blocks/${a.id}`, DEACTIVATE)
+    expect(done.body.data.status).toBe('INACTIVE')
+    expect(done.body.data).not.toHaveProperty('reason')
+
+    const [event] = await db.select().from(auditLogs).where(eq(auditLogs.eventType, 'BLOCK_UPDATED'))
+    expect(event!.actorUserId).toBe(adminId)
+    expect(event!.metadata).toMatchObject({ blockId: a.id, reason: 'Under renovation', changes: { status: 'INACTIVE' } })
+  })
+
+  it('needs no reason to rename or to reactivate', async () => {
+    const a = await block('A')
+    await api.put(`/blocks/${a.id}`, DEACTIVATE)
+
+    expect((await api.put(`/blocks/${a.id}`, { name: 'Tower A' })).status).toBe(200)
+    expect((await api.put(`/blocks/${a.id}`, { status: 'ACTIVE' })).body.data.status).toBe('ACTIVE')
+    // A reason on its own changes nothing
+    expect((await api.put(`/blocks/${a.id}`, { reason: 'No change' })).status).toBe(422)
   })
 })

@@ -115,7 +115,7 @@ describe('owner registration', () => {
   })
 
   it('refuses an inactive flat', async () => {
-    await api.put(`/flats/${flatId}`, { status: 'INACTIVE' })
+    await api.put(`/flats/${flatId}`, { status: 'INACTIVE', reason: 'Sold and merged' })
 
     const res = await register(owner)
 
@@ -177,10 +177,18 @@ describe('tenant registration', () => {
     const userId = res.body.data.user.id
     await expect(canAccess(userId)).resolves.toBeUndefined()
 
-    await api.put(`/residents/${res.body.data.id}`, { endDate: '2024-06-30' })
+    // Closing an assignment needs a reason, which the audit trail keeps with the actor
+    const bare = await api.put(`/residents/${res.body.data.id}`, { endDate: '2024-06-30' })
+    expect(bare.status).toBe(400)
+    expect(bare.body.error.message).toMatch(/reason for closing/)
+
+    await api.put(`/residents/${res.body.data.id}`, { endDate: '2024-06-30', reason: 'Moved out early' })
 
     await expect(canAccess(userId)).rejects.toMatchObject({ code: 'NOT_YOUR_FLAT' })
     expect((await api.get(`/flats/${flatId}/residents`)).body.data[0]).toMatchObject({ active: false, eligible: false })
+
+    const [event] = await db.select().from(auditLogs).where(eq(auditLogs.eventType, 'RESIDENT_UPDATED'))
+    expect(event!.metadata).toMatchObject({ reason: 'Moved out early', changes: { endDate: '2024-06-30' } })
   })
 })
 

@@ -60,8 +60,13 @@ export const verifyResidentSchema = z.strictObject({ accessLevel: accessLevel.op
 export const rejectResidentSchema = z.strictObject({ reason: z.string().trim().min(3, 'Give a reason').max(200) })
 
 export const updateResidentSchema = z
-  .strictObject({ endDate: isoDate.nullable().optional(), accessLevel: accessLevel.optional() })
-  .refine((body) => Object.keys(body).length > 0, { message: 'Provide at least one field to update' })
+  .strictObject({
+    endDate: isoDate.nullable().optional(),
+    accessLevel: accessLevel.optional(),
+    /** Required when the change closes the assignment; kept in the audit trail with the actor */
+    reason: z.string().trim().min(3, 'Give a reason').max(200).optional(),
+  })
+  .refine((body) => Object.keys(body).some((key) => key !== 'reason'), { message: 'Provide at least one field to update' })
 
 /** Filters for the Admin's resident directory; `active` means verified and inside its period. */
 export const listResidentsSchema = z.strictObject({
