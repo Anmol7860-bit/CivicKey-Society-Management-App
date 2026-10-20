@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { auditLogs, flatResidents, flats, societies } from '../../db/schema.js'
-import { addResident, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
+import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
 import { signAccessToken } from '../auth/tokens.js'
 
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
@@ -290,5 +290,56 @@ describe('occupancy', () => {
 
     await db.insert(societies).values({ id: OTHER_SOCIETY_ID, name: 'Other' })
     expect((await api.get(`/societies/${OTHER_SOCIETY_ID}/occupancy`)).status).toBe(403)
+  })
+})
+
+// The backend is the final authorization boundary: ids and scope come from the path and the
+// database, never from the body.
+describe('the client is not trusted for ids or scope', () => {
+  it('refuses a society, block or floor id sent in a request body', async () => {
+    const a = await block('A')
+    const ground = await floor(a.id)
+    const unit = await flat(ground.id)
+
+    const cases: [string, object][] = [
+      [`/societies/${TEST_SOCIETY_ID}`, { name: 'Renamed', id: OTHER_SOCIETY_ID }],
+      [`/societies/${TEST_SOCIETY_ID}/blocks`, { name: 'B', societyId: OTHER_SOCIETY_ID }],
+      [`/blocks/${a.id}`, { name: 'B', societyId: OTHER_SOCIETY_ID }],
+      [`/blocks/${a.id}/floors`, { floorLabel: 'Terrace', blockId: MISSING_ID }],
+      // A floor cannot be moved to another block, nor a flat to another block directly
+      [`/floors/${ground.id}`, { floorLabel: 'Terrace', blockId: MISSING_ID }],
+      [`/floors/${ground.id}/flats`, { number: '201', blockId: a.id, societyId: TEST_SOCIETY_ID }],
+      [`/flats/${unit.id}`, { number: '201', blockId: a.id }],
+    ]
+
+    for (const [path, body] of cases) {
+      const res = path.endsWith('/blocks') || path.endsWith('/floors') || path.endsWith('/flats')
+        ? await api.post(path, body)
+        : await api.put(path, body)
+      expect([path, res.status]).toEqual([path, 422])
+    }
+  })
+
+  it('rejects cross-society access at every level, including a move into another society', async () => {
+    const mine = await flat((await floor((await block('A')).id)).id)
+    const theirs = await createFlat(OTHER_SOCIETY_ID, '501')
+
+    for (const res of [
+      await api.get(`/flats/${theirs.id}`),
+      await api.put(`/flats/${theirs.id}`, { number: '502' }),
+      await api.get(`/blocks/${theirs.blockId}/floors`),
+      await api.post(`/blocks/${theirs.blockId}/floors`, { floorLabel: 'Ground' }),
+      await api.get(`/floors/${theirs.floorId}/flats`),
+      await api.post(`/floors/${theirs.floorId}/flats`, { number: '503' }),
+      // Moving one of our own flats onto another society's floor
+      await api.put(`/flats/${mine.id}`, { floorId: theirs.floorId }),
+    ]) {
+      expect(res.status).toBe(403)
+      expect(res.body.error.code).toBe('CROSS_SOCIETY_ACCESS')
+    }
+
+    // Every denial is recorded for investigation
+    const denials = await db.select().from(auditLogs).where(eq(auditLogs.eventType, 'AUTHORIZATION_DENIED'))
+    expect(denials).toHaveLength(7)
   })
 })
