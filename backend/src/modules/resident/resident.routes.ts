@@ -1,8 +1,9 @@
 import { Router } from 'express'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
-import { validateBody } from '../../middleware/validateBody.js'
+import { parseOrThrow, validateBody } from '../../middleware/validateBody.js'
 import {
+  listResidentsSchema,
   registerResidentSchema,
   rejectResidentSchema,
   updateResidentSchema,
@@ -22,8 +23,10 @@ export function createResidentRouter() {
     res.status(201).json({ data: await service.registerResident(req.ctx!, req.params.flatId as string, req.body) })
   })
 
-  router.get('/societies/:societyId/residents/pending', ...manage, async (req, res) => {
-    res.json({ data: await service.listPendingResidents(req.ctx!, req.params.societyId as string) })
+  // ?status=PENDING is the approval queue; ?active=true who holds access today
+  router.get('/societies/:societyId/residents', ...manage, async (req, res) => {
+    const query = parseOrThrow(listResidentsSchema, req.query)
+    res.json({ data: await service.listResidents(req.ctx!, req.params.societyId as string, query) })
   })
 
   router.post('/residents/:id/verify', ...manage, validateBody(verifyResidentSchema), async (req, res) => {

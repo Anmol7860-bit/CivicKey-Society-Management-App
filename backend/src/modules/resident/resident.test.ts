@@ -2,7 +2,7 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { auditLogs, users } from '../../db/schema.js'
+import { auditLogs, flatResidents, users } from '../../db/schema.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
 import { assertFlatAccess } from '../access/scope.js'
@@ -26,7 +26,7 @@ const api = {
 }
 
 const owner = { name: 'Riya Sharma', phone: '9811111111', residentType: 'OWNER' as const }
-const tenant = { name: 'Arjun Nair', phone: '9822222222', residentType: 'TENANT' as const, endDate: '2099-12-31' }
+const tenant = { name: 'Arjun Nair', phone: '9822222222', residentType: 'TENANT' as const, startDate: '2025-01-01', endDate: '2099-12-31' }
 
 /** The resident's own view of a flat, as a feature route would see it. */
 function ctxFor(userId: string): AuthContext {
@@ -59,7 +59,7 @@ describe('authorization', () => {
     const other = await createFlat(OTHER_SOCIETY_ID, '501')
 
     expect((await register(owner, other.id)).body.error.code).toBe('CROSS_SOCIETY_ACCESS')
-    expect((await api.get(`/societies/${OTHER_SOCIETY_ID}/residents/pending`)).status).toBe(403)
+    expect((await api.get(`/societies/${OTHER_SOCIETY_ID}/residents`)).status).toBe(403)
     expect((await register(owner, MISSING_ID)).status).toBe(404)
     expect((await api.post(`/residents/${MISSING_ID}/verify`)).status).toBe(404)
     expect((await api.post('/residents/nope/verify')).status).toBe(404)
@@ -125,11 +125,15 @@ describe('owner registration', () => {
 })
 
 describe('tenant registration', () => {
-  it('needs an end date', async () => {
-    const res = await register({ name: 'Arjun Nair', phone: '9822222222', residentType: 'TENANT' })
+  it('needs both a start and an end date', async () => {
+    const { name, phone } = tenant
 
-    expect(res.status).toBe(422)
-    expect(res.body.error.details.fields).toEqual([{ field: 'endDate', message: 'A tenancy must have an end date' }])
+    const noEnd = await register({ name, phone, residentType: 'TENANT', startDate: '2025-01-01' })
+    expect(noEnd.status).toBe(422)
+    expect(noEnd.body.error.details.fields).toEqual([{ field: 'endDate', message: 'A tenancy must have an end date' }])
+
+    const noStart = await register({ name, phone, residentType: 'TENANT', endDate: '2099-12-31' })
+    expect(noStart.body.error.details.fields).toEqual([{ field: 'startDate', message: 'A tenancy must have a start date' }])
   })
 
   it('keeps access only for the tenancy period and keeps the history after it ends', async () => {
@@ -192,15 +196,23 @@ describe('verification', () => {
     expect((await api.post(`/residents/${res.body.data.id}/reject`, { reason: 'Again' })).status).toBe(400)
   })
 
-  it('lists the pending registrations of the society as the approval queue', async () => {
+  it('lists the society directory and filters it by status, type and access', async () => {
     const pending = await register(owner)
-    const decided = await register(tenant)
-    await api.post(`/residents/${decided.body.data.id}/verify`)
+    const live = await register(tenant)
+    await api.post(`/residents/${live.body.data.id}/verify`)
+    const ids = (res: { body: { data: { id: string }[] } }) => res.body.data.map((row) => row.id)
 
-    const queue = await api.get(`/societies/${TEST_SOCIETY_ID}/residents/pending`)
+    const all = await api.get(`/societies/${TEST_SOCIETY_ID}/residents`)
+    expect(all.body.data).toHaveLength(2)
+    expect(all.body.data[0]).toMatchObject({ flat: { number: '101' }, block: { name: 'A-101' } })
 
-    expect(queue.body.data).toHaveLength(1)
-    expect(queue.body.data[0]).toMatchObject({ id: pending.body.data.id, flat: { number: '101' }, active: false })
+    // The approval queue is the directory filtered by status
+    expect(ids(await api.get(`/societies/${TEST_SOCIETY_ID}/residents?status=PENDING`))).toEqual([pending.body.data.id])
+    expect(ids(await api.get(`/societies/${TEST_SOCIETY_ID}/residents?residentType=TENANT&active=true`))).toEqual([
+      live.body.data.id,
+    ])
+    expect(ids(await api.get(`/societies/${TEST_SOCIETY_ID}/residents?active=false`))).toEqual([pending.body.data.id])
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/residents?status=NOPE`)).status).toBe(422)
   })
 
   it('gives a VIEW_ONLY co-owner the flat without the right to act on it', async () => {
@@ -228,6 +240,29 @@ describe('verification', () => {
 
     expect(verified.body.data.accessLevel).toBe('FULL')
     await expect(canAccess(res.body.data.user.id, flatId, true)).resolves.toBeUndefined()
+  })
+})
+
+describe('government ID', () => {
+  it('keeps the type, a keyed hash and the last 4 digits, never the number', async () => {
+    const res = await register({ ...owner, idDocumentType: 'AADHAAR', idNumber: '123456789012' })
+
+    expect(res.status).toBe(201)
+    expect(res.body.data).toMatchObject({ idDocumentType: 'AADHAAR', idDocumentLast4: '9012', idDocumentOnFile: true })
+    expect(res.body.data).not.toHaveProperty('idDocumentHash')
+    expect(JSON.stringify(res.body)).not.toContain('123456789012')
+
+    const [row] = await db.select().from(flatResidents).where(eq(flatResidents.id, res.body.data.id))
+    expect(row!.idDocumentHash).toMatch(/^[0-9a-f]{64}$/)
+    const list = await api.get(`/flats/${flatId}/residents`)
+    expect(list.body.data[0]).toMatchObject({ idDocumentOnFile: true })
+    expect(list.body.data[0]).not.toHaveProperty('idDocumentHash')
+  })
+
+  it('refuses a mismatched last 4 and an ID number with no document type', async () => {
+    const mismatch = await register({ ...owner, idDocumentType: 'PAN', idNumber: 'ABCDE1234F', idDocumentLast4: '9999' })
+    expect(mismatch.status).toBe(422)
+    expect((await register({ ...owner, idNumber: 'ABCDE1234F' })).status).toBe(422)
   })
 })
 

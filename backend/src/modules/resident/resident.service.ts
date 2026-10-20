@@ -1,5 +1,6 @@
-import { randomBytes } from 'node:crypto'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { createHmac, randomBytes } from 'node:crypto'
+import { and, desc, eq, gte, isNull, lte, not, or, sql } from 'drizzle-orm'
+import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
 import { blocks, flatResidents, flats, users } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
@@ -10,6 +11,7 @@ import { hashPassword } from '../auth/password.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import { countOccupants, loadFlat } from '../society/society.service.js'
 import type {
+  ListResidentsQuery,
   RegisterResidentBody,
   RejectResidentBody,
   UpdateResidentBody,
@@ -36,6 +38,31 @@ async function conflict<T>(write: PromiseLike<T>, message: string) {
 
 function audit(tx: DbExecutor, ctx: AuthContext, eventType: AuditEventType, metadata: Record<string, unknown>) {
   return recordAuditEvent(tx, { eventType, actorUserId: ctx.userId, metadata })
+}
+
+/**
+ * Identity is kept as the document type, a keyed hash and the last 4 digits; the number itself is
+ * never stored, returned or logged. Without a configured pepper the server refuses the full number
+ * rather than storing a hash a 12-digit value could be guessed against.
+ */
+function identityOf(body: RegisterResidentBody) {
+  const columns = { idDocumentType: body.idDocumentType ?? null, idDocumentLast4: body.idDocumentLast4 ?? null }
+  if (!body.idNumber) return { ...columns, idDocumentHash: null }
+  assertState(
+    env.ID_HASH_PEPPER !== undefined,
+    'This server cannot accept a full ID number; send only its last 4 characters',
+  )
+  return {
+    ...columns,
+    idDocumentLast4: body.idNumber.slice(-4),
+    idDocumentHash: createHmac('sha256', env.ID_HASH_PEPPER!).update(`${body.idDocumentType}:${body.idNumber}`).digest('hex'),
+  }
+}
+
+/** The ID hash is stored for matching, never served: callers only learn whether one is on file. */
+function withoutHash<T extends { idDocumentHash: string | null }>(row: T) {
+  const { idDocumentHash, ...rest } = row
+  return { ...rest, idDocumentOnFile: idDocumentHash !== null }
 }
 
 /** 404 when missing, 403 CROSS_SOCIETY_ACCESS outside the Admin's society. */
@@ -105,8 +132,7 @@ export function registerResident(ctx: AuthContext, flatId: string, body: Registe
           accessLevel: body.accessLevel ?? 'FULL',
           startDate: body.startDate,
           endDate: body.endDate ?? null,
-          idDocumentType: body.idDocumentType ?? null,
-          idDocumentLast4: body.idDocumentLast4 ?? null,
+          ...identityOf(body),
           proofReference: body.proofReference ?? null,
         })
         .returning(),
@@ -119,7 +145,7 @@ export function registerResident(ctx: AuthContext, flatId: string, body: Registe
       userId: user.id,
       residentType: body.residentType,
     })
-    return { ...assignment!, user }
+    return { ...withoutHash(assignment!), user }
   })
 }
 
@@ -165,7 +191,7 @@ export function verifyResident(ctx: AuthContext, id: string, body: VerifyResiden
       userId: assignment.userId,
       residentType: assignment.residentType,
     })
-    return updated!
+    return withoutHash(updated!)
   })
 }
 
@@ -179,7 +205,7 @@ export function rejectResident(ctx: AuthContext, id: string, body: RejectResiden
       .where(eq(flatResidents.id, id))
       .returning()
     await audit(tx, ctx, 'RESIDENT_REJECTED', { societyId, flatId: assignment.flatId, assignmentId: id, reason: body.reason })
-    return updated!
+    return withoutHash(updated!)
   })
 }
 
@@ -210,7 +236,7 @@ export function updateResident(ctx: AuthContext, id: string, body: UpdateResiden
       'This period overlaps another assignment of the same person on this flat',
     )
     await audit(tx, ctx, 'RESIDENT_UPDATED', { societyId, flatId: assignment.flatId, assignmentId: id, changes: body })
-    return updated!
+    return withoutHash(updated!)
   })
 }
 
@@ -221,7 +247,7 @@ function view(row: { assignment: typeof flatResidents.$inferSelect; user: { id: 
     assignment.verificationStatus === VERIFIED &&
     assignment.startDate <= today &&
     (assignment.endDate === null || assignment.endDate >= today)
-  return { ...assignment, user: row.user, active, eligible: active && assignment.accessLevel === 'FULL' }
+  return { ...withoutHash(assignment), user: row.user, active, eligible: active && assignment.accessLevel === 'FULL' }
 }
 
 /** Every assignment on the flat, current and historical, newest first. */
@@ -236,9 +262,22 @@ export async function listFlatResidents(ctx: AuthContext, flatId: string) {
   return rows.map(view)
 }
 
-/** The Admin's approval queue: registrations awaiting verification across the society. */
-export async function listPendingResidents(ctx: AuthContext, societyId: string) {
+/**
+ * The Admin's resident directory for a society: owners and tenants, current and historical.
+ * `?status=PENDING` is the approval queue, `?active=true` who holds access right now.
+ */
+export async function listResidents(ctx: AuthContext, societyId: string, query: ListResidentsQuery) {
   await assertSameSociety(ctx, societyId)
+  const isActive = and(
+    eq(flatResidents.verificationStatus, VERIFIED),
+    lte(flatResidents.startDate, sql`current_date`),
+    or(isNull(flatResidents.endDate), gte(flatResidents.endDate, sql`current_date`)),
+  )!
+  const filters = [eq(blocks.societyId, societyId)]
+  if (query.status) filters.push(eq(flatResidents.verificationStatus, query.status))
+  if (query.residentType) filters.push(eq(flatResidents.residentType, query.residentType))
+  if (query.active) filters.push(query.active === 'true' ? isActive : not(isActive))
+
   const rows = await db
     .select({
       assignment: flatResidents,
@@ -251,7 +290,7 @@ export async function listPendingResidents(ctx: AuthContext, societyId: string) 
     .innerJoin(flats, eq(flats.id, flatResidents.flatId))
     .innerJoin(blocks, eq(blocks.id, flats.blockId))
     .innerJoin(users, eq(users.id, flatResidents.userId))
-    .where(and(eq(blocks.societyId, societyId), eq(flatResidents.verificationStatus, PENDING)))
+    .where(and(...filters))
     .orderBy(desc(flatResidents.createdAt))
   return rows.map((row) => ({ ...view(row), flat: row.flat, block: row.block }))
 }

@@ -238,6 +238,8 @@ export const flatResidents = pgTable(
     rejectedReason: varchar('rejected_reason', { length: 200 }),
     /** Only the document type and its last 4 characters are kept; the file itself comes with uploads */
     idDocumentType: idDocumentType('id_document_type'),
+    /** Keyed HMAC-SHA256 of the ID number. The number itself is never stored or returned. */
+    idDocumentHash: varchar('id_document_hash', { length: 64 }),
     idDocumentLast4: varchar('id_document_last4', { length: 4 }),
     /** Sale deed, rent agreement or other proof reference recorded by the Admin */
     proofReference: varchar('proof_reference', { length: 200 }),
@@ -249,6 +251,10 @@ export const flatResidents = pgTable(
     index('flat_residents_flat_id_idx').on(table.flatId),
     check('flat_residents_valid_period', sql`${table.endDate} is null or ${table.endDate} >= ${table.startDate}`),
     check('flat_residents_tenant_end_date', sql`${table.residentType} <> 'TENANT' or ${table.endDate} is not null`),
+    check(
+      'flat_residents_id_document_hash_sha256',
+      sql`${table.idDocumentHash} is null or ${table.idDocumentHash} ~ '^[0-9a-f]{64}$'`,
+    ),
     // The verifier and the moment of verification are part of a verified assignment
     check(
       'flat_residents_verified_fields',

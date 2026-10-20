@@ -11,6 +11,11 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(7),
   BCRYPT_COST: z.coerce.number().int().min(4).max(15).default(12),
+  /**
+   * Keyed into the government-ID hash. Without it the API refuses full ID numbers and keeps only
+   * the type and last 4 digits, since an unsalted hash of a 12-digit number is guessable.
+   */
+  ID_HASH_PEPPER: z.string().min(32, 'ID_HASH_PEPPER must be at least 32 characters').optional(),
 
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
