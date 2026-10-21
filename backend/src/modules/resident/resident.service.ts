@@ -44,6 +44,10 @@ function audit(tx: DbExecutor, ctx: AuthContext, eventType: AuditEventType, meta
  * Identity is kept as the document type, a keyed hash and the last 4 digits; the number itself is
  * never stored, returned or logged. Without a configured pepper the server refuses the full number
  * rather than storing a hash a 12-digit value could be guessed against.
+ *
+ * ponytail: retention is decided (2026-10-21) but not enforced - the identity columns are to be
+ * cleared 7 years after end_date, matching how co-operative societies retain member records. Add
+ * the scheduled purge when a job runner exists; the audit log keeps the fact of verification.
  */
 function identityOf(body: RegisterResidentBody) {
   const columns = { idDocumentType: body.idDocumentType ?? null, idDocumentLast4: body.idDocumentLast4 ?? null }
