@@ -32,6 +32,8 @@ export const verificationStatus = pgEnum('verification_status', ['PENDING', 'VER
 
 export const idDocumentType = pgEnum('id_document_type', ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENCE', 'VOTER_ID'])
 
+export const gender = pgEnum('gender', ['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY'])
+
 export const societies = pgTable('societies', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: varchar('name', { length: 160 }).notNull(),
@@ -51,6 +53,15 @@ export const users = pgTable(
     /** Stored lowercase */
     email: varchar('email', { length: 254 }).unique(),
     passwordHash: text('password_hash').notNull(),
+    /** Profile details the Add user form collects; all optional, so earlier accounts simply have none */
+    dateOfBirth: date('date_of_birth'),
+    gender: gender('gender'),
+    /** A language the society can address this person in */
+    preferredLanguage: varchar('preferred_language', { length: 8 }),
+    alternatePhone: varchar('alternate_phone', { length: 15 }),
+    emergencyContactName: varchar('emergency_contact_name', { length: 120 }),
+    emergencyContactRelationship: varchar('emergency_contact_relationship', { length: 60 }),
+    emergencyContactPhone: varchar('emergency_contact_phone', { length: 15 }),
     isActive: boolean('is_active').notNull().default(true),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -59,6 +70,16 @@ export const users = pgTable(
   (table) => [
     check('users_login_identifier_present', sql`${table.phone} is not null or ${table.email} is not null`),
     check('users_email_lowercase', sql`${table.email} = lower(${table.email})`),
+    // Widened when a locale is added; the UI only offers what i18n can render
+    check(
+      'users_preferred_language_supported',
+      sql`${table.preferredLanguage} is null or ${table.preferredLanguage} in ('en', 'hi', 'mr')`,
+    ),
+    // Nobody is their own emergency contact
+    check(
+      'users_emergency_contact_not_self',
+      sql`${table.emergencyContactPhone} is null or ${table.emergencyContactPhone} <> ${table.phone}`,
+    ),
   ],
 )
 
@@ -228,6 +249,9 @@ export const flatResidents = pgTable(
       .references(() => users.id),
     /** Owner or tenant of this flat. Per assignment, not per person: the same user may own one flat and rent another. */
     residentType: residentType('resident_type').notNull(),
+    /** How this person relates to the flat: Self, Spouse, Son, Parent. Free text, since a
+     * household names these in more ways than an enum can hold. */
+    relationship: varchar('relationship', { length: 60 }),
     accessLevel: flatAccess('access_level').notNull().default('FULL'),
     startDate: date('start_date').notNull().default(sql`current_date`),
     /** Last valid day; mandatory for a tenancy, null while an ownership is open-ended */

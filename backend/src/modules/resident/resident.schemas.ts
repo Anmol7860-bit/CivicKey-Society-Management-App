@@ -1,14 +1,27 @@
 import { z } from 'zod'
-import { flatAccess, idDocumentType, residentType, verificationStatus } from '../../db/schema.js'
+import { flatAccess, gender, idDocumentType, residentType, verificationStatus } from '../../db/schema.js'
 
 const isoDate = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD')
 const accessLevel = z.enum(flatAccess.enumValues)
+const mobile = z.string().trim().regex(/^[6-9]\d{9}$/, 'Phone must be a 10-digit Indian mobile number')
+/** The locales the society can address someone in; the check constraint holds the same list. */
+const preferredLanguage = z.enum(['en', 'hi', 'mr'])
 
 export const registerResidentSchema = z
   .strictObject({
     name: z.string().trim().min(2, 'Name is required').max(120),
-    phone: z.string().trim().regex(/^[6-9]\d{9}$/, 'Phone must be a 10-digit Indian mobile number'),
+    phone: mobile,
     email: z.email('Email must be a valid email address').trim().toLowerCase().max(254).optional(),
+    /** Profile details; all optional, and only written when the account is new or has none */
+    dateOfBirth: isoDate.optional(),
+    gender: z.enum(gender.enumValues).optional(),
+    preferredLanguage: preferredLanguage.optional(),
+    alternatePhone: mobile.optional(),
+    emergencyContactName: z.string().trim().min(2).max(120).optional(),
+    emergencyContactRelationship: z.string().trim().min(2).max(60).optional(),
+    emergencyContactPhone: mobile.optional(),
+    /** How this person relates to the flat: Self, Spouse, Son, Parent */
+    relationship: z.string().trim().min(2).max(60).optional(),
     residentType: z.enum(residentType.enumValues),
     /** VIEW_ONLY lets the person see the flat without approving visitors or paying */
     accessLevel: accessLevel.optional(),
@@ -33,6 +46,18 @@ export const registerResidentSchema = z
       .optional(),
     /** Sale deed, rent agreement or other proof reference */
     proofReference: z.string().trim().min(1).max(200).optional(),
+  })
+  .refine((body) => body.dateOfBirth === undefined || body.dateOfBirth < new Date().toISOString().slice(0, 10), {
+    message: 'The date of birth must be in the past',
+    path: ['dateOfBirth'],
+  })
+  .refine((body) => body.alternatePhone === undefined || body.alternatePhone !== body.phone, {
+    message: 'The alternate number must differ from the sign-in number',
+    path: ['alternatePhone'],
+  })
+  .refine((body) => body.emergencyContactPhone === undefined || body.emergencyContactPhone !== body.phone, {
+    message: 'Nobody can be their own emergency contact',
+    path: ['emergencyContactPhone'],
   })
   .refine((body) => body.residentType !== 'TENANT' || body.endDate !== undefined, {
     message: 'A tenancy must have an end date',

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, Navigate, useLocation } from 'react-router'
 import type { AuthUser } from '../auth/api'
 import { Dashboard } from '../dashboard/Dashboard'
+import { AddUserPage } from '../society/AddUserPage'
 import { MyFlatPage } from '../society/MyFlatPage'
 import { SocietyPage } from '../society/SocietyPage'
 import { SyncPage } from '../sync/SyncPage'
@@ -81,6 +82,8 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
       <AccessDenied user={user} path={pathname} />
     ) : item.path === config.home ? (
       <Dashboard user={user} />
+    ) : item.key === 'addUser' ? (
+      <AddUserPage accessToken={accessToken} />
     ) : item.key === 'society' ? (
       <SocietyPage user={user} accessToken={accessToken} />
     ) : item.key === 'myFlat' ? (

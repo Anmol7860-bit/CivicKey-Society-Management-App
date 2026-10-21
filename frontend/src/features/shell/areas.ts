@@ -106,6 +106,7 @@ export const AREAS: Record<Role, AreaConfig> = {
     home: 'overview',
     nav: [
       { key: 'overview', path: 'overview', icon: LayoutDashboard },
+      { key: 'addUser', path: 'add-user', icon: UserPlus, anyOf: ['USER_MANAGE'] },
       { key: 'society', path: 'society', icon: Building2, anyOf: ['SOCIETY_MANAGE', 'USER_MANAGE'] },
       { key: 'staff', path: 'staff', icon: Contact, anyOf: ['GUARD_MANAGE', 'STAFF_MANAGE'] },
       { key: 'security', path: 'security', icon: ShieldCheck, anyOf: ['AUDIT_VIEW'] },
@@ -120,7 +121,7 @@ export const AREAS: Record<Role, AreaConfig> = {
       { key: 'bills', path: 'bills', icon: CreditCard, anyOf: ['BILL_VIEW_OWN', 'BILL_PAY', 'RECEIPT_VIEW_OWN'] },
       { key: 'activity', path: 'activity', icon: History, anyOf: ['VISIT_VIEW_OWN'] },
     ],
-    primaryAction: { key: 'addUser', path: 'society', icon: UserPlus, anyOf: ['USER_MANAGE'] },
+    primaryAction: { key: 'addUser', path: 'add-user', icon: UserPlus, anyOf: ['USER_MANAGE'] },
     stats: [
       { key: 'occupancy', icon: Building2, anyOf: ['SOCIETY_MANAGE'] },
       { key: 'users', icon: Users, anyOf: ['USER_MANAGE', 'GUARD_MANAGE', 'STAFF_MANAGE'] },

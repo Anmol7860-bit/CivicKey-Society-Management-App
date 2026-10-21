@@ -356,3 +356,52 @@ describe('GET /me/flats', () => {
     expect(res.body.data[0]).toMatchObject({ verificationStatus: 'PENDING', active: false, household: [] })
   })
 })
+
+describe('profile details on registration', () => {
+  const profile = {
+    dateOfBirth: '1990-04-17',
+    gender: 'FEMALE' as const,
+    preferredLanguage: 'mr' as const,
+    alternatePhone: '9833333333',
+    emergencyContactName: 'Vikram Joshi',
+    emergencyContactRelationship: 'Brother',
+    emergencyContactPhone: '9844444444',
+    relationship: 'Self',
+  }
+
+  it('stores them on a new account and on the assignment', async () => {
+    const res = await register({ ...owner, ...profile })
+
+    expect(res.status).toBe(201)
+    expect(res.body.data.relationship).toBe('Self')
+    const [created] = await db.select().from(users).where(eq(users.phone, owner.phone))
+    expect(created).toMatchObject({
+      dateOfBirth: '1990-04-17',
+      gender: 'FEMALE',
+      preferredLanguage: 'mr',
+      alternatePhone: '9833333333',
+      emergencyContactName: 'Vikram Joshi',
+      emergencyContactPhone: '9844444444',
+    })
+  })
+
+  it('fills them in for someone who already has an account', async () => {
+    const existing = await createUser({ name: 'Riya Sharma', phone: owner.phone, email: null })
+
+    await register({ ...owner, ...profile })
+
+    const [updated] = await db.select().from(users).where(eq(users.id, existing.id))
+    expect(updated).toMatchObject({ gender: 'FEMALE', emergencyContactName: 'Vikram Joshi' })
+  })
+
+  it('refuses a future birth date, an unsupported language and a self-referencing contact', async () => {
+    const future = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+
+    const fields = async (body: object) => (await register({ ...owner, ...body })).body.error.details.fields[0]
+
+    expect(await fields({ dateOfBirth: future })).toMatchObject({ field: 'dateOfBirth' })
+    expect(await fields({ preferredLanguage: 'fr' })).toMatchObject({ field: 'preferredLanguage' })
+    expect(await fields({ emergencyContactPhone: owner.phone })).toMatchObject({ field: 'emergencyContactPhone' })
+    expect(await fields({ alternatePhone: owner.phone })).toMatchObject({ field: 'alternatePhone' })
+  })
+})

@@ -85,6 +85,13 @@
       "when": 1792483157344,
       "tag": "0011_id_document_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792578863024,
+      "tag": "0012_user_profile_fields",
+      "breakpoints": true
     }
   ]
 }

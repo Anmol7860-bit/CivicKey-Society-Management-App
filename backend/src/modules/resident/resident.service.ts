@@ -84,9 +84,25 @@ async function loadAssignment(executor: DbExecutor, ctx: AuthContext, id: string
   return row!
 }
 
+/** The profile columns the Add user form collects, as given; absent keys are left untouched. */
+function profileOf(body: RegisterResidentBody) {
+  const columns = {
+    dateOfBirth: body.dateOfBirth,
+    gender: body.gender,
+    preferredLanguage: body.preferredLanguage,
+    alternatePhone: body.alternatePhone,
+    emergencyContactName: body.emergencyContactName,
+    emergencyContactRelationship: body.emergencyContactRelationship,
+    emergencyContactPhone: body.emergencyContactPhone,
+  }
+  return Object.fromEntries(Object.entries(columns).filter(([, value]) => value !== undefined))
+}
+
 /**
  * Links the registration to the account that already holds this mobile number, or creates one.
- * An existing account keeps its name, email and role: a committee member may own a flat.
+ * An existing account keeps its name, email and role: a committee member may own a flat. Profile
+ * details given here are written either way, so an Admin filling them in for someone who already
+ * has an account is not silently ignored.
  */
 async function findOrCreateUser(tx: DbExecutor, societyId: string, body: RegisterResidentBody) {
   const [existing] = await tx
@@ -96,6 +112,10 @@ async function findOrCreateUser(tx: DbExecutor, societyId: string, body: Registe
   if (existing) {
     assertState(existing.societyId === societyId, 'This mobile number is registered in another society')
     assertState(existing.isActive, 'This account is deactivated')
+    const profile = profileOf(body)
+    if (Object.keys(profile).length > 0) {
+      await tx.update(users).set({ ...profile, updatedAt: new Date() }).where(eq(users.id, existing.id))
+    }
     return { id: existing.id, name: existing.name, phone: existing.phone, email: existing.email }
   }
   const [created] = await conflict(
@@ -106,6 +126,7 @@ async function findOrCreateUser(tx: DbExecutor, societyId: string, body: Registe
         phone: body.phone,
         email: body.email ?? null,
         societyId,
+        ...profileOf(body),
         // ponytail: an unusable random password. Admin-registered residents cannot log in until
         // OTP or a set-password flow lands; give them one there rather than a shared default.
         passwordHash: await hashPassword(randomBytes(32).toString('hex')),
@@ -133,6 +154,7 @@ export function registerResident(ctx: AuthContext, flatId: string, body: Registe
           flatId,
           userId: user.id,
           residentType: body.residentType,
+          relationship: body.relationship ?? null,
           accessLevel: body.accessLevel ?? 'FULL',
           startDate: body.startDate,
           endDate: body.endDate ?? null,

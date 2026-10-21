@@ -202,6 +202,7 @@ describe('registration review', () => {
     idDocumentType: null,
     idDocumentLast4: null,
     proofReference: null,
+    relationship: null,
     idDocumentOnFile: false,
     user: { id: 'u9', name: 'Arjun Nair', phone: '9876543216', email: null },
     active: false,

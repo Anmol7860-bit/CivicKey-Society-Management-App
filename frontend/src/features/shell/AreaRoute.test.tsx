@@ -62,7 +62,7 @@ describe('role destinations', () => {
   it('gives a General Admin every admin destination and Add user', () => {
     renderAt('/admin/overview', user('ADMIN', ['SOCIETY_MANAGE', 'USER_MANAGE', 'GUARD_MANAGE', 'STAFF_MANAGE', 'AUDIT_VIEW']))
 
-    expect(navLabels()).toEqual(['Overview', 'Society & users', 'Staff management', 'Security activity', 'Community tasks'])
+    expect(navLabels()).toEqual(['Overview', 'Add user', 'Society & users', 'Staff management', 'Security activity', 'Community tasks'])
     expect(screen.getAllByRole('link', { name: 'Add user' })[0]).toBeInTheDocument()
   })
 })

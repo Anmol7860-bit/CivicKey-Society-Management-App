@@ -1,31 +1,28 @@
 import { UserCheck } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router'
 import { Badge, type Tone } from '../../components/ui/Badge'
-import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
-import { EmptyState, ErrorState, Skeleton, SuccessNote } from '../../components/ui/States'
+import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States'
 import { TextField } from '../../components/ui/TextField'
 import {
   listFlatResidents,
   listResidents,
-  registerResident,
   rejectResident,
   updateResident,
   verifyResident,
   type AccessLevel,
   type Flat,
-  type RegisterResidentBody,
   type Resident,
   type ResidentFilters,
   type ResidentType,
   type VerificationStatus,
 } from './api'
-import { FormGrid, Panel, RowButton, useAction, useDeactivate } from './parts'
+import { Panel, RowButton, useAction, useDeactivate } from './parts'
 import { useResource } from './useResource'
 
 const STATUS_TONE: Record<VerificationStatus, Tone> = { PENDING: 'warning', VERIFIED: 'positive', REJECTED: 'danger' }
-const ID_TYPES = ['AADHAAR', 'PASSPORT', 'DRIVING_LICENCE', 'VOTER_ID'] as const
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -140,162 +137,6 @@ function ResidentRow({ resident, token, onChanged, onReject, onClose }: {
   )
 }
 
-function RegisterForm({ token, flat, onRegistered }: { token: string; flat: Flat; onRegistered: () => void }) {
-  const { t } = useTranslation()
-  const [form, setForm] = useState({
-    name: '',
-    phone: '',
-    email: '',
-    residentType: 'OWNER' as RegisterResidentBody['residentType'],
-    accessLevel: 'FULL' as AccessLevel,
-    startDate: today(),
-    endDate: '',
-    idDocumentType: '',
-    idDocumentLast4: '',
-    proofReference: '',
-  })
-  const [registered, setRegistered] = useState<string | null>(null)
-  const action = useAction()
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((previous) => ({ ...previous, [key]: value }))
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault()
-    const body: RegisterResidentBody = {
-      name: form.name.trim(),
-      phone: form.phone.trim(),
-      residentType: form.residentType,
-      accessLevel: form.accessLevel,
-      startDate: form.startDate,
-      ...(form.email.trim() ? { email: form.email.trim() } : {}),
-      ...(form.residentType === 'TENANT' && form.endDate ? { endDate: form.endDate } : {}),
-      ...(form.idDocumentType ? { idDocumentType: form.idDocumentType as RegisterResidentBody['idDocumentType'] } : {}),
-      ...(form.idDocumentLast4.trim() ? { idDocumentLast4: form.idDocumentLast4.trim().toUpperCase() } : {}),
-      ...(form.proofReference.trim() ? { proofReference: form.proofReference.trim() } : {}),
-    }
-    if (await action.run(() => registerResident(token, flat.id, body))) {
-      setRegistered(form.name.trim())
-      setForm({ ...form, name: '', phone: '', email: '', idDocumentLast4: '', proofReference: '' })
-      onRegistered()
-    }
-  }
-
-  return (
-    <Panel title={t('area.admin.society.register.title', { number: flat.number })} description={t('area.admin.society.register.description')}>
-      {registered && <SuccessNote message={t('area.admin.society.register.done', { name: registered })} onDismiss={() => setRegistered(null)} />}
-      <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
-        <FormGrid>
-          <TextField
-            id="resident-name"
-            label={t('area.admin.society.register.name')}
-            value={form.name}
-            onChange={(event) => set('name', event.target.value)}
-            error={action.fieldError('name')}
-            maxLength={120}
-            required
-          />
-          <TextField
-            id="resident-phone"
-            label={t('area.admin.society.register.phone')}
-            inputMode="numeric"
-            value={form.phone}
-            onChange={(event) => set('phone', event.target.value)}
-            error={action.fieldError('phone')}
-            hint={t('area.admin.society.register.phoneHint')}
-            maxLength={10}
-            required
-          />
-          <TextField
-            id="resident-email"
-            label={t('area.admin.society.register.email')}
-            type="email"
-            value={form.email}
-            onChange={(event) => set('email', event.target.value)}
-            error={action.fieldError('email')}
-          />
-          <Select
-            id="resident-type"
-            label={t('area.admin.society.register.type')}
-            options={[
-              { value: 'OWNER', label: t('area.admin.society.residents.type.OWNER') },
-              { value: 'TENANT', label: t('area.admin.society.residents.type.TENANT') },
-            ]}
-            value={form.residentType}
-            onChange={(event) => set('residentType', event.target.value as RegisterResidentBody['residentType'])}
-            error={action.fieldError('residentType')}
-            required
-          />
-          <Select
-            id="resident-access"
-            label={t('area.admin.society.residents.accessLabel')}
-            options={[
-              { value: 'FULL', label: t('area.admin.society.residents.access.FULL') },
-              { value: 'VIEW_ONLY', label: t('area.admin.society.residents.access.VIEW_ONLY') },
-            ]}
-            value={form.accessLevel}
-            onChange={(event) => set('accessLevel', event.target.value as AccessLevel)}
-            hint={t('area.admin.society.register.accessHint')}
-          />
-          <TextField
-            id="resident-start"
-            label={t('area.admin.society.register.startDate')}
-            type="date"
-            value={form.startDate}
-            onChange={(event) => set('startDate', event.target.value)}
-            error={action.fieldError('startDate')}
-            required
-          />
-          {form.residentType === 'TENANT' && (
-            <TextField
-              id="resident-end"
-              label={t('area.admin.society.register.endDate')}
-              type="date"
-              value={form.endDate}
-              onChange={(event) => set('endDate', event.target.value)}
-              error={action.fieldError('endDate')}
-              hint={t('area.admin.society.register.endDateHint')}
-              required
-            />
-          )}
-          <Select
-            id="resident-id-type"
-            label={t('area.admin.society.register.idType')}
-            options={ID_TYPES.map((type) => ({ value: type, label: t(`area.admin.society.residents.idType.${type}`) }))}
-            placeholder={t('area.admin.society.register.noId')}
-            value={form.idDocumentType}
-            onChange={(event) => set('idDocumentType', event.target.value)}
-            error={action.fieldError('idDocumentType')}
-          />
-          <TextField
-            id="resident-id-last4"
-            label={t('area.admin.society.register.idLast4')}
-            value={form.idDocumentLast4}
-            onChange={(event) => set('idDocumentLast4', event.target.value)}
-            error={action.fieldError('idDocumentLast4')}
-            hint={t('area.admin.society.register.idLast4Hint')}
-            maxLength={4}
-            disabled={!form.idDocumentType}
-          />
-          <TextField
-            id="resident-proof"
-            label={t('area.admin.society.register.proof')}
-            value={form.proofReference}
-            onChange={(event) => set('proofReference', event.target.value)}
-            error={action.fieldError('proofReference')}
-            hint={t('area.admin.society.register.proofHint')}
-            maxLength={200}
-          />
-        </FormGrid>
-        {action.error && <ErrorState message={action.error} />}
-        <div className="sm:w-[220px]">
-          <Button type="submit" disabled={action.pending || !form.name.trim() || !form.phone.trim()}>
-            {action.pending ? t('shell.saving') : t('area.admin.society.register.action')}
-          </Button>
-        </div>
-      </form>
-    </Panel>
-  )
-}
-
 /**
  * The resident directory: owners and tenants, their verification state and the whole assignment
  * lifecycle. `?status=PENDING` is the registration review queue. With a flat chosen from Flats,
@@ -344,12 +185,22 @@ export function ResidentsTab({ token, societyId, flat, onClearFlat, initialStatu
 
   return (
     <div className="flex flex-col gap-4">
-      {flat && <RegisterForm token={token} flat={flat} onRegistered={residents.reload} />}
-
       <Panel
         title={flat ? t('area.admin.society.residents.flatTitle', { number: flat.number }) : t('area.admin.society.residents.title')}
         description={flat ? t('area.admin.society.residents.flatDescription') : t('area.admin.society.residents.description')}
-        action={flat ? <RowButton onClick={onClearFlat}>{t('area.admin.society.residents.showAll')}</RowButton> : undefined}
+        action={
+          flat ? (
+            <div className="flex gap-2">
+              <Link
+                to={`/admin/add-user?flat=${flat.id}`}
+                className="flex h-9 items-center rounded-lg bg-brand px-3 text-[13px] font-semibold text-white hover:bg-[#125a52]"
+              >
+                {t('area.admin.society.residents.addToFlat')}
+              </Link>
+              <RowButton onClick={onClearFlat}>{t('area.admin.society.residents.showAll')}</RowButton>
+            </div>
+          ) : undefined
+        }
       >
         {!flat && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

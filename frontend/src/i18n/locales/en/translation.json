@@ -184,6 +184,7 @@
       "title": "Community overview",
       "nav": {
         "overview": "Overview",
+        "addUser": "Add user",
         "society": "Society & users",
         "staff": "Staff management",
         "security": "Security activity",
@@ -368,7 +369,8 @@
             "AADHAAR": "Aadhaar",
             "PASSPORT": "Passport",
             "DRIVING_LICENCE": "Driving licence",
-            "VOTER_ID": "Voter ID"
+            "VOTER_ID": "Voter ID",
+            "PAN": "PAN"
           },
           "idOnFile": "{{type}} ····{{last4}} on file",
           "period": "{{start}} to {{end}}",
@@ -393,7 +395,8 @@
           "empty": {
             "title": "No residents match",
             "description": "Change the filters, or register a resident from the Flats tab."
-          }
+          },
+          "addToFlat": "Add a resident"
         },
         "register": {
           "title": "Register a resident for flat {{number}}",
@@ -416,6 +419,102 @@
           "proofHint": "Sale deed or rent agreement reference.",
           "done": "{{name}} registered and waiting for verification."
         }
+      },
+      "addUser": {
+        "breadcrumb": "Admin / Society & users / Add user",
+        "intro": "Creates the account and the flat registration. The admin never sets or sees a password.",
+        "role": {
+          "title": "Role",
+          "description": "The role decides which dashboard this person gets. Owner and tenant are chosen below, under the flat.",
+          "RESIDENT": {
+            "label": "Resident",
+            "description": "Owner or tenant of a flat"
+          },
+          "GUARD": {
+            "label": "Guard",
+            "description": "Gate and security staff"
+          },
+          "ADMIN": {
+            "label": "Admin",
+            "description": "Manager or committee member"
+          }
+        },
+        "notYet": {
+          "title": "{{role}} accounts are not created here yet",
+          "GUARD": "Guards are added under Staff management, which has no API yet. This form only creates residents.",
+          "ADMIN": "An Admin account is created by another Admin, and a committee member is a resident given committee permissions. Neither has an endpoint yet."
+        },
+        "personal": {
+          "title": "Personal details",
+          "dateOfBirth": "Date of birth",
+          "gender": "Gender",
+          "notGiven": "Not given",
+          "genders": {
+            "MALE": "Male",
+            "FEMALE": "Female",
+            "OTHER": "Other",
+            "PREFER_NOT_TO_SAY": "Prefer not to say"
+          },
+          "language": "Preferred language",
+          "languageHint": "Used for notices sent to this person.",
+          "languages": {
+            "en": "English",
+            "hi": "Hindi",
+            "mr": "Marathi"
+          }
+        },
+        "signIn": {
+          "title": "Sign-in and contact",
+          "description": "The mobile number is the sign-in ID.",
+          "phoneHint": "10 digits. Must not already belong to another society.",
+          "emailHint": "Optional. Can also be used to sign in.",
+          "alternatePhone": "Alternate mobile"
+        },
+        "flat": {
+          "title": "Flat and household",
+          "description": "Links the person to a flat. Residents only see their own flat.",
+          "flat": "Flat",
+          "chooseFlat": "Choose a flat",
+          "relationship": "Relationship to flat",
+          "relationshipHint": "Self, Spouse, Son, Parent.",
+          "moveIn": "Move-in date"
+        },
+        "identity": {
+          "title": "Identity verification",
+          "description": "Used by the society to verify who lives at the premises.",
+          "aadhaar": "Never type the full Aadhaar number. Only the document type and its last 4 characters are kept, and the number itself never reaches the database.",
+          "consent": "The person agreed to share this ID for society verification, and was told why it is collected and who can see it."
+        },
+        "emergency": {
+          "title": "Emergency contact",
+          "description": "Who the society calls if something happens to this person.",
+          "name": "Name",
+          "relationship": "Relationship",
+          "phone": "Mobile"
+        },
+        "required": {
+          "title": "Required for a resident",
+          "name": "Full name",
+          "phone": "Mobile number",
+          "flat": "Block and flat",
+          "type": "Owner or tenant",
+          "moveIn": "Move-in date"
+        },
+        "onSave": {
+          "title": "What happens on save",
+          "account": "The account is created if the mobile number is new, and the resident role is assigned.",
+          "pending": "The registration starts pending. It gives no access until an Admin verifies it under Approvals.",
+          "audit": "The action is recorded in the audit log with your name."
+        },
+        "notStored": {
+          "title": "Not collected yet",
+          "description": "On the printed form but with nowhere to store it, so these are left out rather than silently dropped:",
+          "photo": "Profile photo",
+          "documents": "ID copies, rental agreement and police verification",
+          "draft": "Save as draft",
+          "invite": "The SMS invite and OTP, so a resident cannot sign in until that ticket lands"
+        },
+        "noFlats": "There are no flats yet. Add a block, a floor and a flat under Society & users first."
       }
     }
   },

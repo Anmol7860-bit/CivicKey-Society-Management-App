@@ -20,6 +20,7 @@ const assignment = (overrides: Partial<MyAssignment> = {}): MyAssignment => ({
   idDocumentType: 'AADHAAR',
   idDocumentLast4: '4321',
   proofReference: null,
+  relationship: null,
   idDocumentOnFile: true,
   user: { id: 'u1', name: 'Arjun Nair', phone: '9876543216', email: null },
   active: true,

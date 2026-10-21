@@ -4,7 +4,10 @@ export type Status = 'ACTIVE' | 'INACTIVE'
 export type ResidentType = 'OWNER' | 'TENANT'
 export type AccessLevel = 'FULL' | 'VIEW_ONLY'
 export type VerificationStatus = 'PENDING' | 'VERIFIED' | 'REJECTED'
-export type IdDocumentType = 'AADHAAR' | 'PASSPORT' | 'DRIVING_LICENCE' | 'VOTER_ID'
+export type IdDocumentType = 'AADHAAR' | 'PAN' | 'PASSPORT' | 'DRIVING_LICENCE' | 'VOTER_ID'
+export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY'
+/** The locales the society can address someone in; the database holds the same list */
+export type PreferredLanguage = 'en' | 'hi' | 'mr'
 
 export interface Society {
   id: string
@@ -75,6 +78,7 @@ export interface Resident {
   idDocumentType: IdDocumentType | null
   idDocumentLast4: string | null
   proofReference: string | null
+  relationship: string | null
   idDocumentOnFile: boolean
   user: { id: string; name: string; phone: string | null; email: string | null }
   /** Verified and inside its dates */
@@ -104,6 +108,15 @@ export interface RegisterResidentBody {
   name: string
   phone: string
   email?: string
+  dateOfBirth?: string
+  gender?: Gender
+  preferredLanguage?: PreferredLanguage
+  alternatePhone?: string
+  emergencyContactName?: string
+  emergencyContactRelationship?: string
+  emergencyContactPhone?: string
+  /** How this person relates to the flat: Self, Spouse, Son, Parent */
+  relationship?: string
   residentType: ResidentType
   accessLevel?: AccessLevel
   startDate?: string
