@@ -1,7 +1,7 @@
 import { and, asc, count, eq, gte, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
 import { blocks, flatResidents, flats, floors, societies } from '../../db/schema.js'
-import { AppError } from '../../lib/errors.js'
+import { AppError, type ErrorCode } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assertState, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
@@ -23,14 +23,19 @@ const INACTIVE = 'INACTIVE'
 type Lock = 'update' | 'share'
 
 /** Maps a unique-constraint violation, including one lost to a concurrent insert, to 409. */
-async function unique<T>(write: PromiseLike<T>, message: string) {
+async function unique<T>(write: PromiseLike<T>, [code, message]: readonly [ErrorCode, string]) {
   try {
     return await write
   } catch (error) {
     const pgError = error as { code?: string; cause?: { code?: string } }
-    if ((pgError.code ?? pgError.cause?.code) === '23505') throw new AppError(409, 'ALREADY_EXISTS', message)
+    if ((pgError.code ?? pgError.cause?.code) === '23505') throw new AppError(409, code, message)
     throw error
   }
+}
+
+/** 409 when deactivating would leave active children behind. */
+function assertNoChildren(none: boolean, message: string) {
+  if (!none) throw new AppError(409, 'RESOURCE_HAS_CHILDREN', message)
 }
 
 function audit(tx: DbExecutor, ctx: AuthContext, eventType: AuditEventType, metadata: Record<string, unknown>) {
@@ -136,7 +141,7 @@ export function updateSociety(ctx: AuthContext, id: string, body: UpdateSocietyB
 // Blocks
 // ---------------------------------------------------------------------------
 
-const duplicateBlock = 'A block with this name already exists in this society'
+const duplicateBlock = ['DUPLICATE_BLOCK', 'A block with this name already exists in this society'] as const
 
 export async function listBlocks(ctx: AuthContext, societyId: string) {
   await loadSociety(db, ctx, societyId)
@@ -160,7 +165,7 @@ export function updateBlock(ctx: AuthContext, blockId: string, body: UpdateBlock
     if (body.status === INACTIVE && block.status === ACTIVE) {
       // An active flat always sits on an active floor, so checking floors covers flats too
       const activeFloors = await tx.$count(floors, and(eq(floors.blockId, blockId), eq(floors.status, ACTIVE)))
-      assertState(activeFloors === 0, 'Deactivate the floors in this block first')
+      assertNoChildren(activeFloors === 0, 'Deactivate the floors in this block first')
     }
     const [updated] = await unique(
       tx.update(blocks).set({ ...changes, updatedAt: new Date() }).where(eq(blocks.id, blockId)).returning(),
@@ -175,7 +180,7 @@ export function updateBlock(ctx: AuthContext, blockId: string, body: UpdateBlock
 // Floors
 // ---------------------------------------------------------------------------
 
-const duplicateFloor = 'A floor with this label already exists in this block'
+const duplicateFloor = ['DUPLICATE_FLOOR_LABEL', 'A floor with this label already exists in this block'] as const
 const inactiveBlock = 'This block is inactive, so it cannot have active floors'
 
 export async function listFloors(ctx: AuthContext, blockId: string) {
@@ -206,7 +211,7 @@ export function updateFloor(ctx: AuthContext, floorId: string, body: UpdateFloor
     const floor = await loadFloor(tx, ctx, floorId, 'update')
     if (body.status === INACTIVE && floor.status === ACTIVE) {
       const activeFlats = await tx.$count(flats, and(eq(flats.floorId, floorId), eq(flats.status, ACTIVE)))
-      assertState(activeFlats === 0, 'Deactivate or move the flats on this floor first')
+      assertNoChildren(activeFlats === 0, 'Deactivate or move the flats on this floor first')
     }
     if (body.status === ACTIVE && floor.status === INACTIVE) {
       assertState((await loadBlock(tx, ctx, floor.blockId, 'share')).status === ACTIVE, inactiveBlock)
@@ -224,7 +229,7 @@ export function updateFloor(ctx: AuthContext, floorId: string, body: UpdateFloor
 // Flats
 // ---------------------------------------------------------------------------
 
-const duplicateFlat = 'A flat with this number already exists in this block'
+const duplicateFlat = ['DUPLICATE_FLAT_NUMBER', 'A flat with this number already exists in this block'] as const
 const inactiveFloor = 'This floor is inactive, so it cannot have active flats'
 
 export async function listFlats(ctx: AuthContext, floorId: string) {
@@ -294,7 +299,7 @@ export function updateFlat(ctx: AuthContext, flatId: string, body: UpdateFlatBod
     }
 
     if (body.status === INACTIVE && flat.status === ACTIVE) {
-      assertState((await countResidents(tx, flatId)) === 0, 'End the current and upcoming resident links for this flat first')
+      assertNoChildren((await countResidents(tx, flatId)) === 0, 'End the current and upcoming resident links for this flat first')
     }
     if (body.status === ACTIVE && flat.status === INACTIVE && !target) {
       assertState((await loadFloor(tx, ctx, flat.floorId, 'share')).status === ACTIVE, inactiveFloor)

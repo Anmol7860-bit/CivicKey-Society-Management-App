@@ -103,7 +103,7 @@ describe('blocks', () => {
 
     const dup = await api.post(`/societies/${TEST_SOCIETY_ID}/blocks`, { name: ' tower a ' })
     expect(dup.status).toBe(409)
-    expect(dup.body.error.code).toBe('ALREADY_EXISTS')
+    expect(dup.body.error.code).toBe('DUPLICATE_BLOCK')
     expect((await api.put(`/blocks/${a.id}`, { name: 'TOWER B' })).status).toBe(409)
 
     const list = await api.get(`/societies/${TEST_SOCIETY_ID}/blocks`)
@@ -115,8 +115,8 @@ describe('blocks', () => {
     const f = await floor(a.id)
 
     const refused = await api.put(`/blocks/${a.id}`, DEACTIVATE)
-    expect(refused.status).toBe(400)
-    expect(refused.body.error.code).toBe('INVALID_STATE')
+    expect(refused.status).toBe(409)
+    expect(refused.body.error.code).toBe('RESOURCE_HAS_CHILDREN')
 
     expect((await api.put(`/floors/${f.id}`, DEACTIVATE)).status).toBe(200)
     expect((await api.put(`/blocks/${a.id}`, DEACTIVATE)).body.data.status).toBe('INACTIVE')
@@ -148,7 +148,9 @@ describe('floors', () => {
     expect((await api.post(`/blocks/${a.id}/floors`, { floorLabel: '   ' })).status).toBe(422)
     expect((await api.post(`/blocks/${a.id}/floors`, { floorLabel: 'x'.repeat(81) })).status).toBe(422)
     expect((await api.post(`/blocks/${a.id}/floors`, { floorLabel: 'x'.repeat(80) })).status).toBe(201)
-    expect((await api.post(`/blocks/${a.id}/floors`, { floorLabel: ' 1ST  floor' })).status).toBe(409)
+    const dup = await api.post(`/blocks/${a.id}/floors`, { floorLabel: ' 1ST  floor' })
+    expect(dup.status).toBe(409)
+    expect(dup.body.error.code).toBe('DUPLICATE_FLOOR_LABEL')
     expect((await api.post(`/blocks/${b.id}/floors`, { floorLabel: '1st Floor' })).status).toBe(201)
   })
 
@@ -156,7 +158,9 @@ describe('floors', () => {
     const f = await floor((await block()).id)
     const unit = await flat(f.id)
 
-    expect((await api.put(`/floors/${f.id}`, DEACTIVATE)).status).toBe(400)
+    const refused = await api.put(`/floors/${f.id}`, DEACTIVATE)
+    expect(refused.status).toBe(409)
+    expect(refused.body.error.code).toBe('RESOURCE_HAS_CHILDREN')
     await api.put(`/flats/${unit.id}`, DEACTIVATE)
     expect((await api.put(`/floors/${f.id}`, DEACTIVATE)).status).toBe(200)
     expect((await api.post(`/floors/${f.id}/flats`, { number: '102' })).status).toBe(400)
@@ -185,7 +189,9 @@ describe('flats', () => {
     const other = await floor((await block('B')).id, '1st Floor')
     await flat(first.id, '101')
 
-    expect((await api.post(`/floors/${second.id}/flats`, { number: '101' })).status).toBe(409)
+    const dup = await api.post(`/floors/${second.id}/flats`, { number: '101' })
+    expect(dup.status).toBe(409)
+    expect(dup.body.error.code).toBe('DUPLICATE_FLAT_NUMBER')
     expect((await api.post(`/floors/${other.id}/flats`, { number: '101' })).status).toBe(201)
   })
 
@@ -206,7 +212,8 @@ describe('flats', () => {
     await db.insert(flatResidents).values({ flatId: unit.id, userId: resident.id, residentType: 'OWNER' })
 
     const refused = await api.put(`/flats/${unit.id}`, DEACTIVATE)
-    expect(refused.status).toBe(400)
+    expect(refused.status).toBe(409)
+    expect(refused.body.error.code).toBe('RESOURCE_HAS_CHILDREN')
     // A physical delete never cascades into resident assignments
     await expect(db.delete(flats).where(eq(flats.id, unit.id))).rejects.toThrow()
 

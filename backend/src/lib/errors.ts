@@ -17,6 +17,10 @@ export type ErrorCode =
   | 'COMMITTEE_NOT_ALLOWED'
   | 'NOT_FOUND'
   | 'ALREADY_EXISTS'
+  | 'DUPLICATE_BLOCK'
+  | 'DUPLICATE_FLOOR_LABEL'
+  | 'DUPLICATE_FLAT_NUMBER'
+  | 'RESOURCE_HAS_CHILDREN'
   | 'INTERNAL_ERROR'
 
 interface AppErrorOptions {
