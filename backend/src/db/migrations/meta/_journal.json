@@ -92,6 +92,13 @@
       "when": 1792578863024,
       "tag": "0012_user_profile_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792578863025,
+      "tag": "0013_floor_management_permission",
+      "breakpoints": true
     }
   ]
 }
