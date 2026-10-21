@@ -35,7 +35,7 @@ describe('role destinations', () => {
   it('gives a Resident their navigation, greeting and actions', () => {
     renderAt('/resident/overview', user('RESIDENT', RESIDENT))
 
-    expect(navLabels()).toEqual(['Overview', 'Visitor approval', 'Visitor passes', 'Daily help', 'Bills & payments', 'Notifications', 'My activity'])
+    expect(navLabels()).toEqual(['Overview', 'My flat', 'Visitor approval', 'Visitor passes', 'Daily help', 'Bills & payments', 'Notifications', 'My activity'])
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Good (morning|afternoon|evening), Maya$/)
     expect(screen.getAllByRole('link', { name: 'Approve visitor' })[0]).toHaveAttribute('href', '/resident/visitor-approval')
     expect(screen.getByRole('heading', { name: 'Own activity & history' })).toBeInTheDocument()

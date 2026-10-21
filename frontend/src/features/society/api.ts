@@ -1,0 +1,175 @@
+import { send } from '../auth/api'
+
+export type Status = 'ACTIVE' | 'INACTIVE'
+export type ResidentType = 'OWNER' | 'TENANT'
+export type AccessLevel = 'FULL' | 'VIEW_ONLY'
+export type VerificationStatus = 'PENDING' | 'VERIFIED' | 'REJECTED'
+export type IdDocumentType = 'AADHAAR' | 'PASSPORT' | 'DRIVING_LICENCE' | 'VOTER_ID'
+
+export interface Society {
+  id: string
+  name: string
+  address: string | null
+}
+
+export interface Block {
+  id: string
+  societyId: string
+  name: string
+  status: Status
+}
+
+export interface Floor {
+  id: string
+  blockId: string
+  floorLabel: string
+  sortOrder: number | null
+  status: Status
+}
+
+export interface Flat {
+  id: string
+  blockId: string
+  floorId: string
+  number: string
+  status: Status
+  sharingAllowed: boolean
+  maxOccupants: number | null
+}
+
+/** A flat as the occupancy view reports it: what is sold, who lives there and how many may still join. */
+export interface OccupancyFlat extends Flat {
+  owners: number
+  tenants: number
+  occupants: number
+  slotsLeft: number | null
+  ownership: 'UNSOLD' | 'OWNED'
+  occupancy: 'VACANT' | 'SHARING' | 'FULL'
+}
+
+export interface Occupancy {
+  society: { id: string; name: string }
+  summary: {
+    flats: number
+    inactive: number
+    unsold: number
+    owned: number
+    vacant: number
+    occupied: number
+    sharingAvailable: number
+  }
+  blocks: (Block & { floors: (Floor & { flats: OccupancyFlat[] })[] })[]
+}
+
+export interface Resident {
+  id: string
+  flatId: string
+  userId: string
+  residentType: ResidentType
+  accessLevel: AccessLevel
+  startDate: string
+  endDate: string | null
+  verificationStatus: VerificationStatus
+  verifiedAt: string | null
+  rejectedReason: string | null
+  idDocumentType: IdDocumentType | null
+  idDocumentLast4: string | null
+  proofReference: string | null
+  idDocumentOnFile: boolean
+  user: { id: string; name: string; phone: string | null; email: string | null }
+  /** Verified and inside its dates */
+  active: boolean
+  /** Active with FULL access, so visitor approvals route here */
+  eligible: boolean
+  flat?: { id: string; number: string }
+  block?: { id: string; name: string }
+}
+
+/** One of the signed-in person's own assignments, with the household they may see. */
+export interface MyAssignment extends Resident {
+  flat: { id: string; number: string; sharingAllowed: boolean; maxOccupants: number | null }
+  floor: { id: string; floorLabel: string }
+  block: { id: string; name: string }
+  society: { id: string; name: string }
+  household: { name: string; residentType: ResidentType; accessLevel: AccessLevel }[]
+}
+
+export interface ResidentFilters {
+  status?: VerificationStatus
+  residentType?: ResidentType
+  active?: 'true' | 'false'
+}
+
+export interface RegisterResidentBody {
+  name: string
+  phone: string
+  email?: string
+  residentType: ResidentType
+  accessLevel?: AccessLevel
+  startDate?: string
+  endDate?: string
+  idDocumentType?: IdDocumentType
+  idDocumentLast4?: string
+  proofReference?: string
+}
+
+/** Every call carries the access token; the server decides scope from it, never from the request. */
+function call<T>(token: string, method: string, path: string, body?: unknown) {
+  return send<T>(`/api/v1${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+}
+
+export const listSocieties = (token: string) => call<Society[]>(token, 'GET', '/societies')
+export const updateSociety = (token: string, id: string, body: { name?: string; address?: string | null }) =>
+  call<Society>(token, 'PUT', `/societies/${id}`, body)
+export const getOccupancy = (token: string, societyId: string) => call<Occupancy>(token, 'GET', `/societies/${societyId}/occupancy`)
+
+export const listBlocks = (token: string, societyId: string) => call<Block[]>(token, 'GET', `/societies/${societyId}/blocks`)
+export const createBlock = (token: string, societyId: string, body: { name: string }) =>
+  call<Block>(token, 'POST', `/societies/${societyId}/blocks`, body)
+export const updateBlock = (token: string, id: string, body: { name?: string; status?: Status; reason?: string }) =>
+  call<Block>(token, 'PUT', `/blocks/${id}`, body)
+
+export const listFloors = (token: string, blockId: string) => call<Floor[]>(token, 'GET', `/blocks/${blockId}/floors`)
+export const createFloor = (token: string, blockId: string, body: { floorLabel: string; sortOrder?: number | null }) =>
+  call<Floor>(token, 'POST', `/blocks/${blockId}/floors`, body)
+export const updateFloor = (
+  token: string,
+  id: string,
+  body: { floorLabel?: string; sortOrder?: number | null; status?: Status; reason?: string },
+) => call<Floor>(token, 'PUT', `/floors/${id}`, body)
+
+export const listFlats = (token: string, floorId: string) => call<Flat[]>(token, 'GET', `/floors/${floorId}/flats`)
+export const createFlat = (
+  token: string,
+  floorId: string,
+  body: { number: string; sharingAllowed?: boolean; maxOccupants?: number | null },
+) => call<Flat>(token, 'POST', `/floors/${floorId}/flats`, body)
+export const updateFlat = (
+  token: string,
+  id: string,
+  body: { number?: string; floorId?: string; status?: Status; sharingAllowed?: boolean; maxOccupants?: number | null; reason?: string },
+) => call<Flat>(token, 'PUT', `/flats/${id}`, body)
+
+export function listResidents(token: string, societyId: string, filters: ResidentFilters = {}) {
+  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString()
+  return call<Resident[]>(token, 'GET', `/societies/${societyId}/residents${query ? `?${query}` : ''}`)
+}
+export const listFlatResidents = (token: string, flatId: string) => call<Resident[]>(token, 'GET', `/flats/${flatId}/residents`)
+export const registerResident = (token: string, flatId: string, body: RegisterResidentBody) =>
+  call<Resident>(token, 'POST', `/flats/${flatId}/residents`, body)
+export const verifyResident = (token: string, id: string, body: { accessLevel?: AccessLevel } = {}) =>
+  call<Resident>(token, 'POST', `/residents/${id}/verify`, body)
+export const rejectResident = (token: string, id: string, body: { reason: string }) =>
+  call<Resident>(token, 'POST', `/residents/${id}/reject`, body)
+export const updateResident = (
+  token: string,
+  id: string,
+  body: { endDate?: string | null; accessLevel?: AccessLevel; reason?: string },
+) => call<Resident>(token, 'PUT', `/residents/${id}`, body)
+
+/** The signed-in person's own assignments. No management permission; the server returns only their rows. */
+export const listMyFlats = (token: string) => call<MyAssignment[]>(token, 'GET', '/me/flats')

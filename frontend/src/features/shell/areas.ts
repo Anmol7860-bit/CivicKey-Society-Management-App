@@ -10,6 +10,7 @@ import {
   FileChartColumn,
   HeartHandshake,
   History,
+  Home,
   LayoutDashboard,
   ListChecks,
   MapPin,
@@ -57,6 +58,7 @@ export const AREAS: Record<Role, AreaConfig> = {
     home: 'overview',
     nav: [
       { key: 'overview', path: 'overview', icon: LayoutDashboard },
+      { key: 'myFlat', path: 'my-flat', icon: Home, anyOf: ['VISIT_VIEW_OWN'] },
       { key: 'visitorApproval', path: 'visitor-approval', icon: UserCheck, anyOf: ['VISITOR_APPROVE'] },
       { key: 'visitorPasses', path: 'visitor-passes', icon: QrCode, anyOf: ['VISITOR_PASS_CREATE'] },
       { key: 'dailyHelp', path: 'daily-help', icon: HeartHandshake },
@@ -112,6 +114,7 @@ export const AREAS: Record<Role, AreaConfig> = {
       { key: 'tasks', path: 'tasks', icon: ListChecks },
       // A committee member is a Resident first. These carry the RESIDENT role's permissions, so a
       // staff Admin — who holds none of them — never sees them.
+      { key: 'myFlat', path: 'my-flat', icon: Home, anyOf: ['VISIT_VIEW_OWN'] },
       { key: 'visitorApproval', path: 'visitor-approval', icon: UserCheck, anyOf: ['VISITOR_APPROVE'] },
       { key: 'visitorPasses', path: 'visitor-passes', icon: QrCode, anyOf: ['VISITOR_PASS_CREATE'] },
       { key: 'bills', path: 'bills', icon: CreditCard, anyOf: ['BILL_VIEW_OWN', 'BILL_PAY', 'RECEIPT_VIEW_OWN'] },

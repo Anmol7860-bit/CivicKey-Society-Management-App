@@ -78,7 +78,16 @@
       "description": "Your {{role}} role cannot open this page. Return to an allowed area, or contact your society administrator if you think this is a mistake.",
       "blocked": "blocked for {{role}}",
       "back": "Back to {{role}} dashboard"
-    }
+    },
+    "loading": "Loading…",
+    "retry": "Try again",
+    "dismiss": "Dismiss",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "edit": "Edit",
+    "rename": "Rename",
+    "deactivate": "Deactivate"
   },
   "area": {
     "resident": {
@@ -91,7 +100,8 @@
         "dailyHelp": "Daily help",
         "bills": "Bills & payments",
         "notifications": "Notifications",
-        "activity": "My activity"
+        "activity": "My activity",
+        "myFlat": "My flat"
       },
       "primary": {
         "approveVisitor": "Approve visitor"
@@ -115,7 +125,24 @@
           "description": "View dues and payment history"
         }
       },
-      "activity": "Own activity & history"
+      "activity": "Own activity & history",
+      "myFlat": {
+        "intro": "The flat the society office has assigned to you.",
+        "place": "Block {{block}} · {{floor}} · Flat {{number}}",
+        "from": "From",
+        "until": "Until",
+        "idOnFile": "ID on file",
+        "sharing": "Sharing",
+        "household": "Household",
+        "ceased": "Access ceased",
+        "ceasedNote": "This assignment has ended, so it no longer gives you access to the flat. Ask the society office to register you again.",
+        "waiting": "The society office has not verified this registration yet. You get access once it is approved.",
+        "viewOnly": "You have view-only access, so you can see the flat but not approve visitors or pay bills.",
+        "empty": {
+          "title": "No flat assigned yet",
+          "description": "The society office assigns your flat. Contact them if you think this is wrong."
+        }
+      }
     },
     "guard": {
       "workspace": "Guard workspace",
@@ -166,7 +193,8 @@
         "visitorApproval": "Visitor approval",
         "visitorPasses": "Visitor passes",
         "bills": "Bills & payments",
-        "activity": "My activity"
+        "activity": "My activity",
+        "myFlat": "My flat"
       },
       "primary": {
         "addUser": "Add user"
@@ -190,7 +218,205 @@
           "description": "Collections and exports"
         }
       },
-      "activity": "Security & community activity"
+      "activity": "Security & community activity",
+      "society": {
+        "intro": "Managing {{name}}.",
+        "tabs": {
+          "structure": "Structure",
+          "blocks": "Blocks",
+          "floors": "Floors",
+          "flats": "Flats",
+          "residents": "Residents",
+          "approvals": "Approvals"
+        },
+        "noSociety": {
+          "title": "No society yet",
+          "description": "Your account is not linked to a society. Contact your administrator."
+        },
+        "status": {
+          "ACTIVE": "Active",
+          "INACTIVE": "Inactive"
+        },
+        "ownership": {
+          "UNSOLD": "Unsold",
+          "OWNED": "Owned"
+        },
+        "occupancy": {
+          "VACANT": "Vacant",
+          "SHARING": "Sharing",
+          "FULL": "Full"
+        },
+        "reason": {
+          "label": "Reason",
+          "hint": "Kept in the audit trail with your name. At least 3 characters."
+        },
+        "summary": {
+          "flats": "Flats",
+          "owned": "Owned",
+          "unsold": "Unsold",
+          "occupied": "Occupied",
+          "vacant": "Vacant",
+          "sharingAvailable": "Sharing open"
+        },
+        "details": {
+          "title": "Society details",
+          "description": "The name and address shown to residents and guards.",
+          "name": "Society name",
+          "address": "Address",
+          "saved": "Society details saved."
+        },
+        "structure": {
+          "title": "Blocks, floors and flats",
+          "description": "The whole hierarchy, with what is sold and who lives there.",
+          "block": "Block {{name}}",
+          "noFlats": "No flats on this floor yet.",
+          "counts": "{{owners}} owner(s) · {{tenants}} tenant(s)",
+          "slotsLeft_one": "{{count}} slot left",
+          "slotsLeft_other": "{{count}} slots left"
+        },
+        "blocks": {
+          "one": "Block",
+          "title": "Blocks",
+          "add": "Add a block",
+          "addDescription": "Every floor belongs to a block, so the first block comes before anything else.",
+          "addAction": "Add block",
+          "name": "Block name",
+          "namePlaceholder": "A",
+          "created": "Block {{name}} created.",
+          "empty": {
+            "title": "No blocks yet",
+            "description": "Add the first block to start building the society structure."
+          },
+          "deactivate": {
+            "title": "Deactivate this block?",
+            "description": "Block {{name}} stops being available for new floors and flats. Nothing already recorded is deleted."
+          }
+        },
+        "floors": {
+          "one": "Floor",
+          "title": "Floors in this block",
+          "add": "Add a floor",
+          "addDescription": "Choose the block first; a floor always belongs to one block.",
+          "addAction": "Add floor",
+          "label": "Floor label",
+          "labelHint": "Free text: B2, Ground, 1st Floor, Terrace.",
+          "labelPlaceholder": "1st Floor",
+          "order": "Display order",
+          "orderHint": "Optional. Negative values sort basements first.",
+          "orderShown": "Order {{order}}",
+          "chooseBlock": "Choose a block",
+          "chooseFirst": "Choose a block",
+          "chooseFirstDescription": "Pick a block above to see and manage its floors.",
+          "created": "Floor {{label}} created.",
+          "empty": {
+            "title": "No floors in this block",
+            "description": "Add a floor before adding flats to it."
+          },
+          "deactivate": {
+            "title": "Deactivate this floor?",
+            "description": "{{label}} stops being available for new flats. Nothing already recorded is deleted."
+          }
+        },
+        "flats": {
+          "title": "Flats on this floor",
+          "add": "Add a flat",
+          "addDescription": "Choose the block and then one of its floors. Only floors of the chosen block are listed.",
+          "addAction": "Add flat",
+          "number": "Flat number",
+          "numberPlaceholder": "101",
+          "chooseFloor": "Choose a floor",
+          "chooseBlockFirst": "Choose a block first",
+          "chooseFirst": "Choose a block and floor",
+          "chooseFirstDescription": "A flat belongs to a floor, so pick the block and floor above first.",
+          "sharing": "Sharing allowed",
+          "maxOccupants": "Maximum occupants",
+          "maxOccupantsHint": "Tenants only; owners never take a slot.",
+          "sharingUncapped": "Sharing, no cap",
+          "sharingCapped": "Sharing, up to {{count}}",
+          "manageResidents": "Manage residents",
+          "created": "Flat {{number}} created.",
+          "empty": {
+            "title": "No flats on this floor",
+            "description": "Add the first flat to this floor."
+          },
+          "deactivate": {
+            "title": "Deactivate this flat?",
+            "description": "Flat {{number}} stops being available for new residents. Nothing already recorded is deleted."
+          }
+        },
+        "residents": {
+          "title": "Residents and tenants",
+          "description": "Owners and tenants of this society, current and past.",
+          "flatTitle": "Residents of flat {{number}}",
+          "flatDescription": "Everyone registered to this flat, current and past.",
+          "showAll": "Show the whole society",
+          "type": {
+            "OWNER": "Owner",
+            "TENANT": "Tenant"
+          },
+          "status": {
+            "PENDING": "Pending",
+            "VERIFIED": "Verified",
+            "REJECTED": "Rejected"
+          },
+          "access": {
+            "FULL": "Full access",
+            "VIEW_ONLY": "View only"
+          },
+          "accessLabel": "Flat access",
+          "idType": {
+            "AADHAAR": "Aadhaar",
+            "PASSPORT": "Passport",
+            "DRIVING_LICENCE": "Driving licence",
+            "VOTER_ID": "Voter ID"
+          },
+          "idOnFile": "{{type}} ····{{last4}} on file",
+          "period": "{{start}} to {{end}}",
+          "noEnd": "no end date",
+          "ended": "Ended",
+          "rejectedFor": "Rejected: {{reason}}",
+          "verify": "Verify",
+          "reject": "Reject",
+          "rejectTitle": "Reject this registration?",
+          "rejectDescription": "{{name}} is not given access to the flat. The reason is kept in the audit trail.",
+          "extend": "Extend",
+          "newEndDate": "New end date",
+          "close": "Close assignment",
+          "closeTitle": "Close this assignment?",
+          "closeDescription": "{{name}} loses access to the flat from today. A new registration is needed to bring them back.",
+          "filterStatus": "Verification status",
+          "filterType": "Resident type",
+          "filterActive": "Access now",
+          "any": "Any",
+          "activeNow": "Has access",
+          "notActive": "No access",
+          "empty": {
+            "title": "No residents match",
+            "description": "Change the filters, or register a resident from the Flats tab."
+          }
+        },
+        "register": {
+          "title": "Register a resident for flat {{number}}",
+          "description": "Creates the account if the mobile number is new. The registration waits for verification before it gives access.",
+          "action": "Register resident",
+          "name": "Full name",
+          "phone": "Mobile number",
+          "phoneHint": "10 digits, the sign-in ID.",
+          "email": "Email",
+          "type": "Resident type",
+          "accessHint": "View only is for children and other family members.",
+          "startDate": "Start date",
+          "endDate": "Lease end date",
+          "endDateHint": "Access ends automatically on this date.",
+          "idType": "ID type",
+          "noId": "No ID recorded",
+          "idLast4": "Last 4 of ID",
+          "idLast4Hint": "Never the full number; only the last 4 characters are stored.",
+          "proof": "Proof reference",
+          "proofHint": "Sale deed or rent agreement reference.",
+          "done": "{{name}} registered and waiting for verification."
+        }
+      }
     }
   },
   "sync": {

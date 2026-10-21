@@ -25,25 +25,34 @@ export interface AuthSession {
   user: AuthUser
 }
 
+/** A field path and message from a 422, e.g. { field: 'endDate', message: 'A tenancy must have an end date' } */
+export interface FieldError {
+  field: string
+  message: string
+}
+
 export class ApiError extends Error {
   readonly code: string
   readonly retryAfterSeconds?: number
+  /** Present on VALIDATION_ERROR: which field each message belongs beside */
+  readonly fields: FieldError[]
 
-  constructor(code: string, message: string, retryAfterSeconds?: number) {
+  constructor(code: string, message: string, retryAfterSeconds?: number, fields: FieldError[] = []) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.retryAfterSeconds = retryAfterSeconds
+    this.fields = fields
   }
 }
 
 /** Sends a request and returns `data`, or throws ApiError for an API error. Network failures throw as-is. */
-async function send<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function send<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, { method: 'POST', ...init })
   const body = await res.json().catch(() => null)
   if (!res.ok) {
     const error = body?.error
-    throw new ApiError(error?.code ?? 'INTERNAL_ERROR', error?.message ?? res.statusText, error?.retryAfterSeconds)
+    throw new ApiError(error?.code ?? 'INTERNAL_ERROR', error?.message ?? res.statusText, error?.retryAfterSeconds, error?.details?.fields ?? [])
   }
   return body?.data
 }
