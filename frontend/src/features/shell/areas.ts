@@ -110,6 +110,12 @@ export const AREAS: Record<Role, AreaConfig> = {
       { key: 'billing', path: 'billing', icon: Receipt, anyOf: BILLING },
       { key: 'reports', path: 'reports', icon: ChartNoAxesCombined, anyOf: ['REPORT_VIEW'] },
       { key: 'tasks', path: 'tasks', icon: ListChecks },
+      // A committee member is a Resident first. These carry the RESIDENT role's permissions, so a
+      // staff Admin — who holds none of them — never sees them.
+      { key: 'visitorApproval', path: 'visitor-approval', icon: UserCheck, anyOf: ['VISITOR_APPROVE'] },
+      { key: 'visitorPasses', path: 'visitor-passes', icon: QrCode, anyOf: ['VISITOR_PASS_CREATE'] },
+      { key: 'bills', path: 'bills', icon: CreditCard, anyOf: ['BILL_VIEW_OWN', 'BILL_PAY', 'RECEIPT_VIEW_OWN'] },
+      { key: 'activity', path: 'activity', icon: History, anyOf: ['VISIT_VIEW_OWN'] },
     ],
     primaryAction: { key: 'addUser', path: 'society', icon: UserPlus, anyOf: ['USER_MANAGE'] },
     stats: [

@@ -4,6 +4,7 @@ import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { users, type User } from '../../db/schema.js'
 import { createUser, grantPermissions } from '../../test/helpers.js'
+import { RESIDENT_PERMISSIONS } from '../access/permissions.js'
 import { signAccessToken } from './tokens.js'
 
 const app = createApp()
@@ -29,13 +30,16 @@ describe('GET /api/v1/auth/permissions', () => {
     })
   })
 
-  it('returns only the permissions assigned to a committee member', async () => {
+  it('returns a committee member their resident permissions as well as the assigned ones', async () => {
     const committee = await createUser({ role: 'ADMIN', resident: 'OWNER' })
     await grantPermissions(committee.id, ['REPORT_VIEW', 'BILLING_RATE_SET'])
 
     const res = await getPermissions(committee)
 
-    expect(res.body.data).toMatchObject({ role: 'ADMIN', permissions: ['BILLING_RATE_SET', 'REPORT_VIEW'] })
+    expect(res.body.data).toMatchObject({
+      role: 'ADMIN',
+      permissions: [...RESIDENT_PERMISSIONS, 'BILLING_RATE_SET', 'REPORT_VIEW'].sort(),
+    })
   })
 
   it('says nothing about a resident type, which now lives on the assignment', async () => {

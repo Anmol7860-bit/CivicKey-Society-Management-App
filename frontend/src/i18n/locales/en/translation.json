@@ -162,7 +162,11 @@
         "security": "Security activity",
         "billing": "Billing",
         "reports": "Reports",
-        "tasks": "Community tasks"
+        "tasks": "Community tasks",
+        "visitorApproval": "Visitor approval",
+        "visitorPasses": "Visitor passes",
+        "bills": "Bills & payments",
+        "activity": "My activity"
       },
       "primary": {
         "addUser": "Add user"

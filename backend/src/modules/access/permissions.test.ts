@@ -188,13 +188,24 @@ describe('committee membership', () => {
     actor = (await createUser({ name: 'Anita Rao', phone: '9111111111', email: null, role: 'ADMIN' })).id
   })
 
-  it('makes a Resident an Admin with only the chosen committee permissions', async () => {
+  it('adds the chosen committee permissions without taking away the resident ones', async () => {
     const resident = await createUser({ resident: 'TENANT' })
 
     await setCommitteeMembership(actor, resident.id, ['BILLING_RATE_SET', 'REPORT_VIEW'])
 
     const res = await postLogin(createApp(), { phone: '9876543210', password: PASSWORD })
-    expect(res.body.data.user).toMatchObject({ role: 'ADMIN', permissions: ['BILLING_RATE_SET', 'REPORT_VIEW'] })
+    expect(res.body.data.user).toMatchObject({
+      role: 'ADMIN',
+      permissions: [...RESIDENT_PERMISSIONS, 'BILLING_RATE_SET', 'REPORT_VIEW'].sort(),
+    })
+  })
+
+  it('gives an Admin with no flat assignment nothing a Resident has', async () => {
+    const staff = await createUser({ name: 'Mahesh Patil', phone: '9222222222', email: null, role: 'ADMIN' })
+    await grantPermissions(staff.id, ['USER_MANAGE'])
+
+    const res = await postLogin(createApp(), { phone: '9222222222', password: PASSWORD })
+    expect(res.body.data.user).toMatchObject({ role: 'ADMIN', permissions: ['USER_MANAGE'] })
   })
 
   it('removes committee permissions and restores the Resident role, keeping the flat assignment', async () => {

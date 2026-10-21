@@ -63,12 +63,16 @@ export async function assignRole(executor: DbExecutor, userId: string, role: Rol
  * ADMIN role, and permissions stored for a Guard or Resident are ignored.
  */
 export async function loadPermissions(executor: DbExecutor, userId: string, role: Role): Promise<Permission[]> {
+  // A Resident put on the committee keeps their resident functions: the ADMIN role is added to
+  // their flat, it never replaces it. A verified flat assignment is the only thing that says so,
+  // so a staff Admin or Guard with no assignment gains nothing here.
+  const fromRoles: Role[] = role !== 'RESIDENT' && (await isResident(executor, userId)) ? [role, 'RESIDENT'] : [role]
   const fromRole = await executor
     .select({ code: permissions.code })
     .from(rolePermissions)
     .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
     .innerJoin(roles, eq(roles.id, rolePermissions.roleId))
-    .where(eq(roles.name, role))
+    .where(inArray(roles.name, fromRoles))
   const assigned =
     role === 'ADMIN'
       ? await executor
