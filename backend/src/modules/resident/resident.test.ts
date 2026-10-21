@@ -308,3 +308,51 @@ describe('multiple residents per flat', () => {
     expect(refused.body.error.message).toMatch(/does not allow sharing/)
   })
 })
+
+describe('GET /me/flats', () => {
+  it('returns the signed-in person their own assignment with the household, and nobody else', async () => {
+    const resident = await createUser({ phone: '9000000010', email: null })
+    const spouse = await createUser({ name: 'Meera Sharma', phone: '9000000011', email: null })
+    await addResident(flatId, resident.id, { verificationStatus: 'VERIFIED' })
+    await addResident(flatId, spouse.id, { verificationStatus: 'VERIFIED', accessLevel: 'VIEW_ONLY' })
+
+    const res = await api.get('/me/flats', await tokenFor(resident))
+
+    expect(res.status).toBe(200)
+    expect(res.body.data).toHaveLength(1)
+    expect(res.body.data[0]).toMatchObject({
+      active: true,
+      eligible: true,
+      flat: { number: '101' },
+      block: { name: 'A-101' },
+      household: [{ name: 'Meera Sharma', accessLevel: 'VIEW_ONLY' }, { name: 'Riya Sharma', accessLevel: 'FULL' }],
+    })
+    expect(res.body.data[0].idDocumentHash).toBeUndefined()
+  })
+
+  it('stops showing the household the day a tenancy ends, without changing anything stored', async () => {
+    const past = await createUser({ phone: '9000000012', email: null })
+    await addResident(flatId, past.id, {
+      verificationStatus: 'VERIFIED',
+      residentType: 'TENANT',
+      startDate: '2020-01-01',
+      endDate: '2020-12-31',
+    })
+
+    const res = await api.get('/me/flats', await tokenFor(past))
+
+    expect(res.body.data[0]).toMatchObject({ active: false, eligible: false, household: [], verificationStatus: 'VERIFIED' })
+  })
+
+  it('shows a pending registration as not active and keeps the household private', async () => {
+    const waiting = await createUser({ phone: '9000000013', email: null })
+    const neighbour = await createUser({ name: 'Vikram Joshi', phone: '9000000014', email: null })
+    await addResident(flatId, neighbour.id, { verificationStatus: 'VERIFIED' })
+    await addResident(flatId, waiting.id, { verificationStatus: 'PENDING' })
+
+    const res = await api.get('/me/flats', await tokenFor(waiting))
+
+    expect(res.body.data).toHaveLength(1)
+    expect(res.body.data[0]).toMatchObject({ verificationStatus: 'PENDING', active: false, household: [] })
+  })
+})

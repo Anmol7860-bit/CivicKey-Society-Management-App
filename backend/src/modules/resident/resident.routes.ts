@@ -16,6 +16,11 @@ export function createResidentRouter() {
   const router = Router()
   const manage = [requireAuth, requirePermission('USER_MANAGE')]
 
+  /** The signed-in person's own assignments; no management permission, and only their own rows */
+  router.get('/me/flats', requireAuth, async (req, res) => {
+    res.json({ data: await service.listMyAssignments(req.ctx!) })
+  })
+
   router.get('/flats/:flatId/residents', ...manage, async (req, res) => {
     res.json({ data: await service.listFlatResidents(req.ctx!, req.params.flatId as string) })
   })

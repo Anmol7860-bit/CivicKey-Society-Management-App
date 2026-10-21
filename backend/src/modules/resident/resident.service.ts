@@ -1,8 +1,8 @@
 import { createHmac, randomBytes } from 'node:crypto'
-import { and, desc, eq, gte, isNull, lte, not, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, lte, not, or, sql } from 'drizzle-orm'
 import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
-import { blocks, flatResidents, flats, users } from '../../db/schema.js'
+import { blocks, flatResidents, flats, floors, societies, users } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assignRole } from '../access/permissions.js'
@@ -302,4 +302,54 @@ export async function listResidents(ctx: AuthContext, societyId: string, query: 
     .where(and(...filters))
     .orderBy(desc(flatResidents.createdAt))
   return rows.map((row) => ({ ...view(row), flat: row.flat, block: row.block }))
+}
+
+/**
+ * The signed-in person's own assignments, current and historical. Access is derived from the
+ * stored dates, so a tenancy stops being `active` the day it expires with nothing to run.
+ * Household members are returned only for an assignment that is active and has FULL access;
+ * a VIEW_ONLY member or an expired tenancy sees their own row and nothing else.
+ */
+export async function listMyAssignments(ctx: AuthContext) {
+  const rows = await db
+    .select({
+      assignment: flatResidents,
+      user: userColumns,
+      today: sql<string>`current_date`,
+      flat: { id: flats.id, number: flats.number, sharingAllowed: flats.sharingAllowed, maxOccupants: flats.maxOccupants },
+      floor: { id: floors.id, floorLabel: floors.floorLabel },
+      block: { id: blocks.id, name: blocks.name },
+      society: { id: societies.id, name: societies.name },
+    })
+    .from(flatResidents)
+    .innerJoin(flats, eq(flats.id, flatResidents.flatId))
+    .innerJoin(floors, eq(floors.id, flats.floorId))
+    .innerJoin(blocks, eq(blocks.id, flats.blockId))
+    .innerJoin(societies, eq(societies.id, blocks.societyId))
+    .innerJoin(users, eq(users.id, flatResidents.userId))
+    .where(eq(flatResidents.userId, ctx.userId))
+    .orderBy(desc(flatResidents.startDate))
+
+  const mine = rows.map((row) => ({ ...view(row), flat: row.flat, floor: row.floor, block: row.block, society: row.society }))
+  const shared = mine.filter((row) => row.eligible).map((row) => row.flatId)
+  const household = shared.length
+    ? await db
+        .select({ flatId: flatResidents.flatId, name: users.name, residentType: flatResidents.residentType, accessLevel: flatResidents.accessLevel })
+        .from(flatResidents)
+        .innerJoin(users, eq(users.id, flatResidents.userId))
+        .where(
+          and(
+            inArray(flatResidents.flatId, shared),
+            eq(flatResidents.verificationStatus, VERIFIED),
+            lte(flatResidents.startDate, sql`current_date`),
+            or(isNull(flatResidents.endDate), gte(flatResidents.endDate, sql`current_date`)),
+          ),
+        )
+        .orderBy(users.name)
+    : []
+
+  return mine.map((row) => ({
+    ...row,
+    household: row.eligible ? household.filter((member) => member.flatId === row.flatId).map(({ flatId, ...member }) => member) : [],
+  }))
 }
