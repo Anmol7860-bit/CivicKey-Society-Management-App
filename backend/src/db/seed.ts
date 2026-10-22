@@ -8,11 +8,14 @@ import {
   flatResidents,
   flats,
   floors,
+  flatVehicles,
   gates,
   permissions as permissionTable,
   societies,
   staff,
   staffFlats,
+  visitorPasses,
+  visits,
   userPermissions,
   users,
   type NewUser,
@@ -162,6 +165,49 @@ try {
     const [firstFlat] = await db.select().from(flats).limit(1)
     if (staffId && firstFlat) {
       await db.insert(staffFlats).values({ staffId, flatId: firstFlat.id, timeWindow: '7-9 am' }).onConflictDoNothing()
+    }
+  }
+
+  // Something at the gate on first run: a visitor waiting, a pass in hand and a registered car
+  const [firstFlatForGate] = await db.select().from(flats).limit(1)
+  if (gateId && firstFlatForGate) {
+    const [guard] = await db.select().from(users).where(eq(users.phone, '9876543213'))
+    const [owner] = await db.select().from(users).where(eq(users.phone, '9876543210'))
+    await db
+      .insert(visits)
+      .values({
+        societyId: SOCIETY_ID,
+        gateId,
+        flatId: firstFlatForGate.id,
+        visitorName: 'Amit Kulkarni',
+        visitorPhone: '9822222222',
+        purpose: 'GUEST',
+        people: 2,
+        vehicleNumber: 'MH 12 AB 3344',
+        registeredBy: guard?.id ?? null,
+      })
+      .onConflictDoNothing()
+    if (owner) {
+      await db
+        .insert(visitorPasses)
+        .values({
+          societyId: SOCIETY_ID,
+          flatId: firstFlatForGate.id,
+          createdBy: owner.id,
+          visitorName: 'Mahesh the plumber',
+          visitorPhone: '9844444444',
+          purpose: 'SERVICE',
+          validOn: new Date().toISOString().slice(0, 10),
+          validFrom: '08:00',
+          validUntil: '20:00',
+          note: 'Fixing the kitchen tap',
+          entryCode: '482913',
+        })
+        .onConflictDoNothing()
+      await db
+        .insert(flatVehicles)
+        .values({ societyId: SOCIETY_ID, flatId: firstFlatForGate.id, number: 'MH 12 CK 0101', vehicleType: 'CAR', makeColour: 'Swift, white', addedBy: owner.id })
+        .onConflictDoNothing()
     }
   }
 

@@ -32,6 +32,11 @@ export function createBillingRouter() {
     })
   })
 
+  /** The resident's own bills, with the receipts behind each one */
+  router.get('/me/invoices', requireAuth, requirePermission('BILL_VIEW_OWN'), async (req, res) => {
+    res.json({ data: await service.listMyInvoices(req.ctx!) })
+  })
+
   router.get('/societies/:societyId/invoices', ...read, async (req, res) => {
     const query = parseOrThrow(listInvoicesSchema, req.query)
     res.json({

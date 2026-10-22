@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import {
   boolean,
+  time,
   check,
   date,
   foreignKey,
@@ -613,6 +614,215 @@ export const payments = pgTable(
   ],
 )
 
+
+// ---------------------------------------------------------------------------
+// The gate: passes a resident issues, the visits a guard records, and who is inside
+// ---------------------------------------------------------------------------
+
+export const visitPurpose = pgEnum('visit_purpose', ['GUEST', 'DELIVERY', 'CAB', 'SERVICE', 'OTHER'])
+
+/** One entry closes the pass on first use; a day pass lets the same person come and go. */
+export const visitorPassType = pgEnum('visitor_pass_type', ['ONE_ENTRY', 'MULTI_ENTRY'])
+
+export const visitorPassStatus = pgEnum('visitor_pass_status', ['ACTIVE', 'USED', 'CANCELLED'])
+
+/**
+ * A visit's whole life: WAITING on the resident, their decision, then what the gate did.
+ * LEAVE_AT_GATE is a delivery the resident will not let upstairs.
+ */
+export const visitStatus = pgEnum('visit_status', ['WAITING', 'APPROVED', 'LEAVE_AT_GATE', 'DENIED', 'INSIDE', 'LEFT'])
+
+export const vehicleType = pgEnum('vehicle_type', ['CAR', 'BIKE', 'SCOOTER', 'BICYCLE', 'OTHER'])
+
+export const accessRequestKind = pgEnum('access_request_kind', ['HOUSEHOLD_MEMBER', 'DAILY_HELP'])
+
+export const accessRequestStatus = pgEnum('access_request_status', ['PENDING', 'APPROVED', 'REJECTED'])
+
+/** A resident pre-approves someone: the entry code is what the guard checks at the gate. */
+export const visitorPasses = pgTable(
+  'visitor_passes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    flatId: uuid('flat_id')
+      .notNull()
+      .references(() => flats.id),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    visitorName: varchar('visitor_name', { length: 120 }).notNull(),
+    visitorPhone: varchar('visitor_phone', { length: 15 }).notNull(),
+    purpose: visitPurpose('purpose').notNull().default('GUEST'),
+    people: integer('people').notNull().default(1),
+    validOn: date('valid_on').notNull(),
+    validFrom: time('valid_from').notNull(),
+    validUntil: time('valid_until').notNull(),
+    vehicleNumber: varchar('vehicle_number', { length: 16 }),
+    passType: visitorPassType('pass_type').notNull().default('ONE_ENTRY'),
+    /** Shown to the guard when the code is checked: "Parcel can be left with security" */
+    note: varchar('note', { length: 200 }),
+    /** Six digits the visitor reads out, unique inside the society */
+    entryCode: varchar('entry_code', { length: 6 }).notNull(),
+    status: visitorPassStatus('status').notNull().default('ACTIVE'),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('visitor_passes_society_id_entry_code_unique').on(table.societyId, table.entryCode),
+    index('visitor_passes_flat_id_valid_on_idx').on(table.flatId, table.validOn),
+    check('visitor_passes_entry_code_digits', sql`${table.entryCode} ~ '^[0-9]{6}$'`),
+    check('visitor_passes_phone_digits', sql`${table.visitorPhone} ~ '^[6-9][0-9]{9}$'`),
+    check('visitor_passes_people_range', sql`${table.people} between 1 and 50`),
+    check('visitor_passes_window', sql`${table.validUntil} > ${table.validFrom}`),
+    check('visitor_passes_name_trimmed', sql`${table.visitorName} = btrim(${table.visitorName}) and ${table.visitorName} <> ''`),
+  ],
+)
+
+/** One person at the gate, from the guard's form to the exit stamp. */
+export const visits = pgTable(
+  'visits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    gateId: uuid('gate_id').references(() => gates.id),
+    flatId: uuid('flat_id')
+      .notNull()
+      .references(() => flats.id),
+    /** Set when the visitor arrived with a pass, so the pass can be closed on entry */
+    passId: uuid('pass_id').references(() => visitorPasses.id),
+    visitorName: varchar('visitor_name', { length: 120 }).notNull(),
+    visitorPhone: varchar('visitor_phone', { length: 15 }).notNull(),
+    purpose: visitPurpose('purpose').notNull(),
+    company: varchar('company', { length: 120 }),
+    people: integer('people').notNull().default(1),
+    vehicleNumber: varchar('vehicle_number', { length: 16 }),
+    note: varchar('note', { length: 200 }),
+    /** Where the gate photo is filed until this deployment stores files */
+    photoReference: varchar('photo_reference', { length: 200 }),
+    status: visitStatus('status').notNull().default('WAITING'),
+    registeredBy: uuid('registered_by').references(() => users.id),
+    /** The resident who answered, or the guard who decided after the intercom call */
+    decidedBy: uuid('decided_by').references(() => users.id),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionReason: varchar('decision_reason', { length: 200 }),
+    enteredAt: timestamp('entered_at', { withTimezone: true }),
+    entryBy: uuid('entry_by').references(() => users.id),
+    exitedAt: timestamp('exited_at', { withTimezone: true }),
+    exitBy: uuid('exit_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('visits_society_id_status_idx').on(table.societyId, table.status),
+    index('visits_flat_id_created_at_idx').on(table.flatId, table.createdAt),
+    check('visits_phone_digits', sql`${table.visitorPhone} ~ '^[6-9][0-9]{9}$'`),
+    check('visits_people_range', sql`${table.people} between 1 and 50`),
+    check('visits_decision_recorded', sql`(${table.decidedAt} is null) or (${table.status} <> 'WAITING')`),
+    check('visits_exit_after_entry', sql`${table.exitedAt} is null or (${table.enteredAt} is not null and ${table.exitedAt} >= ${table.enteredAt})`),
+  ],
+)
+
+/** A staff member through the gate: one row per visit, open until the exit is recorded. */
+export const staffAttendance = pgTable(
+  'staff_attendance',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    staffId: uuid('staff_id')
+      .notNull()
+      .references(() => staff.id),
+    gateId: uuid('gate_id').references(() => gates.id),
+    enteredAt: timestamp('entered_at', { withTimezone: true }).notNull().defaultNow(),
+    entryBy: uuid('entry_by').references(() => users.id),
+    exitedAt: timestamp('exited_at', { withTimezone: true }),
+    exitBy: uuid('exit_by').references(() => users.id),
+  },
+  (table) => [
+    index('staff_attendance_staff_id_entered_at_idx').on(table.staffId, table.enteredAt),
+    check('staff_attendance_exit_after_entry', sql`${table.exitedAt} is null or ${table.exitedAt} >= ${table.enteredAt}`),
+  ],
+)
+
+/** "Not coming today", set by the flat the staff member works for. */
+export const staffLeave = pgTable(
+  'staff_leave',
+  {
+    staffId: uuid('staff_id')
+      .notNull()
+      .references(() => staff.id, { onDelete: 'cascade' }),
+    onDate: date('on_date').notNull(),
+    markedBy: uuid('marked_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.staffId, table.onDate] })],
+)
+
+/** A resident's vehicles, so the guard lets them in without stopping them. */
+export const flatVehicles = pgTable(
+  'flat_vehicles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    flatId: uuid('flat_id')
+      .notNull()
+      .references(() => flats.id),
+    number: varchar('number', { length: 16 }).notNull(),
+    vehicleType: vehicleType('vehicle_type').notNull().default('CAR'),
+    makeColour: varchar('make_colour', { length: 60 }),
+    addedBy: uuid('added_by').references(() => users.id),
+    status: recordStatus('status').notNull().default('ACTIVE'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('flat_vehicles_society_id_number_unique').on(table.societyId, sql`upper(${table.number})`),
+    index('flat_vehicles_flat_id_idx').on(table.flatId),
+    check('flat_vehicles_number_trimmed', sql`${table.number} = btrim(${table.number}) and ${table.number} <> ''`),
+  ],
+)
+
+/** A resident asking the office for a household account or a new daily help. */
+export const accessRequests = pgTable(
+  'access_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    flatId: uuid('flat_id')
+      .notNull()
+      .references(() => flats.id),
+    kind: accessRequestKind('kind').notNull(),
+    name: varchar('name', { length: 120 }).notNull(),
+    phone: varchar('phone', { length: 15 }).notNull(),
+    /** Spouse, Son, Parent for a household member; Maid, Cook, Driver for daily help */
+    relationship: varchar('relationship', { length: 60 }),
+    accessLevel: flatAccess('access_level'),
+    /** "7-9 am", as the resident writes it */
+    timings: varchar('timings', { length: 40 }),
+    requestedBy: uuid('requested_by')
+      .notNull()
+      .references(() => users.id),
+    status: accessRequestStatus('status').notNull().default('PENDING'),
+    decidedBy: uuid('decided_by').references(() => users.id),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionReason: varchar('decision_reason', { length: 200 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('access_requests_society_id_status_idx').on(table.societyId, table.status),
+    index('access_requests_flat_id_idx').on(table.flatId),
+    check('access_requests_phone_digits', sql`${table.phone} ~ '^[6-9][0-9]{9}$'`),
+    check('access_requests_name_trimmed', sql`${table.name} = btrim(${table.name}) and ${table.name} <> ''`),
+  ],
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Role = (typeof userRole.enumValues)[number]
@@ -623,3 +833,7 @@ export type Staff = typeof staff.$inferSelect
 export type BillingRate = typeof billingRates.$inferSelect
 export type Invoice = typeof invoices.$inferSelect
 export type Payment = typeof payments.$inferSelect
+export type Visit = typeof visits.$inferSelect
+export type VisitorPass = typeof visitorPasses.$inferSelect
+export type FlatVehicle = typeof flatVehicles.$inferSelect
+export type AccessRequest = typeof accessRequests.$inferSelect

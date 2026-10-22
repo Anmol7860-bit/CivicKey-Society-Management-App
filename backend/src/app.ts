@@ -12,6 +12,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import { createAuditRouter } from './modules/audit/audit.routes.js'
 import { createAuthRouter } from './modules/auth/auth.routes.js'
 import { createBillingRouter } from './modules/billing/billing.routes.js'
+import { createGateRouter } from './modules/gate/gate.routes.js'
 import { createResidentRouter } from './modules/resident/resident.routes.js'
 import { createSocietyRouter } from './modules/society/society.routes.js'
 import { createStaffRouter } from './modules/staff/staff.routes.js'
@@ -50,6 +51,7 @@ export function createApp({ logger = defaultLogger }: AppOptions = {}) {
   app.use('/api/v1', createResidentRouter())
   app.use('/api/v1', createStaffRouter())
   app.use('/api/v1', createBillingRouter())
+  app.use('/api/v1', createGateRouter())
   app.use('/api/v1', createAuditRouter())
 
   app.use(notFoundHandler)

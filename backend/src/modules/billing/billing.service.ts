@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lte, or, sql, sum } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql, sum } from 'drizzle-orm'
 import { db } from '../../db/client.js'
 import { billingRates, blocks, flatResidents, flats, floors, invoices, payments, societies } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
@@ -471,6 +471,54 @@ export async function listPayments(ctx: AuthContext, invoiceId: string) {
     .where(eq(payments.invoiceId, invoiceId))
     .orderBy(desc(payments.receivedOn), desc(payments.createdAt))
   return rows.map((row) => ({ ...row, amount: amount(row.amount) }))
+}
+
+
+/**
+ * The resident's own bills: every invoice for the flats they hold, with the receipts behind
+ * each one, so the Bills page needs a single call.
+ */
+export async function listMyInvoices(ctx: AuthContext) {
+  const mine = await db
+    .select({ flatId: flatResidents.flatId })
+    .from(flatResidents)
+    .where(
+      and(
+        eq(flatResidents.userId, ctx.userId),
+        eq(flatResidents.verificationStatus, 'VERIFIED'),
+        lte(flatResidents.startDate, sql`current_date`),
+        or(isNull(flatResidents.endDate), gte(flatResidents.endDate, sql`current_date`)),
+      ),
+    )
+  const flatIds = mine.map((row) => row.flatId)
+  if (flatIds.length === 0) return []
+
+  const rows = await db
+    .select({ invoice: invoices, flatNumber: flats.number, blockName: blocks.name, floorLabel: floors.floorLabel })
+    .from(invoices)
+    .innerJoin(flats, eq(flats.id, invoices.flatId))
+    .innerJoin(blocks, eq(blocks.id, flats.blockId))
+    .innerJoin(floors, eq(floors.id, flats.floorId))
+    .where(inArray(invoices.flatId, flatIds))
+    .orderBy(desc(invoices.period))
+    .limit(36)
+
+  const received = rows.length
+    ? await db
+        .select()
+        .from(payments)
+        .where(inArray(payments.invoiceId, rows.map((row) => row.invoice.id)))
+        .orderBy(desc(payments.receivedOn))
+    : []
+
+  return rows.map((row) => {
+    const mineOnly = received.filter((payment) => payment.invoiceId === row.invoice.id)
+    const settled = mineOnly.filter((payment) => payment.reversedAt === null)
+    return {
+      ...serializeInvoice(row.invoice, row, amount(settled.reduce((total, payment) => total + amount(payment.amount), 0).toFixed(2))),
+      payments: mineOnly.map((payment) => ({ ...payment, amount: amount(payment.amount) })),
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------
