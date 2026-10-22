@@ -1,5 +1,5 @@
 import { Contact, Plus, Trash2 } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Badge, type Tone } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -166,6 +166,12 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
   const [open, setOpen] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
   const action = useAction()
+  const formPanel = useRef<HTMLElement>(null)
+
+  // Opening the form puts it below the list, so bring it into view instead of leaving the click silent
+  useEffect(() => {
+    if (open) formPanel.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }, [open])
 
   const societies = useResource(() => listSocieties(accessToken), [accessToken])
   const societyId = societies.data?.[0]?.id
@@ -345,6 +351,7 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
 
       {open && (
         <Panel
+          ref={formPanel}
           title={editing ? t('area.admin.staff.editTitle', { name: editing.name }) : t(`area.admin.staff.addTitle.${activeKind}`)}
           description={t(`area.admin.staff.addDescription.${activeKind}`)}
         >

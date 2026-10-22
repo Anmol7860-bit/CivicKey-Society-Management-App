@@ -1,16 +1,18 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useState, type ReactNode, type Ref } from 'react'
 import { ApiError } from '../auth/api'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 
 /** White card used for every section of the Society & users page. */
-export function Panel({ title, description, action, children }: {
+export function Panel({ title, description, action, children, ref }: {
   title?: string
   description?: string
   action?: ReactNode
   children: ReactNode
+  /** React 19 passes ref straight through, so a caller can scroll the card into view */
+  ref?: Ref<HTMLElement>
 }) {
   return (
-    <section className="flex flex-col gap-4 rounded-2xl border border-line bg-white p-5 shadow-card">
+    <section ref={ref} className="flex flex-col gap-4 rounded-2xl border border-line bg-white p-5 shadow-card">
       {(title || action) && (
         <div className="flex flex-wrap items-start gap-3">
           <div className="flex min-w-0 flex-1 flex-col gap-1">

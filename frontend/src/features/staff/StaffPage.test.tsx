@@ -183,3 +183,14 @@ it('collects a reason before deactivating someone', async () => {
     expect(mocked.updateStaff).toHaveBeenCalledWith('token', 'st1', { status: 'INACTIVE', reason: 'Left the agency' }),
   )
 })
+
+it('scrolls the form into view when Add staff is pressed', async () => {
+  const scrollIntoView = vi.fn()
+  Element.prototype.scrollIntoView = scrollIntoView
+  show()
+
+  await userEvent.click(await screen.findByRole('button', { name: /Add staff/ }))
+
+  await screen.findByLabelText(/Full name/)
+  expect(scrollIntoView).toHaveBeenCalled()
+})
