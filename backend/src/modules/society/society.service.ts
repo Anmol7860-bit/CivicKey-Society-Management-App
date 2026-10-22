@@ -1,6 +1,6 @@
 import { and, asc, count, eq, gte, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { blocks, flatResidents, flats, floors, societies } from '../../db/schema.js'
+import { blocks, flatResidents, flats, floors, gates, societies, users } from '../../db/schema.js'
 import { AppError, type ErrorCode } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assertState, requireRecord, UUID } from '../access/scope.js'
@@ -9,6 +9,8 @@ import type {
   CreateBlockBody,
   CreateFlatBody,
   CreateFloorBody,
+  CreateGateBody,
+  UpdateGateBody,
   UpdateBlockBody,
   UpdateFlatBody,
   UpdateFloorBody,
@@ -138,6 +140,47 @@ export function updateSociety(ctx: AuthContext, id: string, body: UpdateSocietyB
 }
 
 // ---------------------------------------------------------------------------
+// Gates
+// ---------------------------------------------------------------------------
+
+const duplicateGate = ['ALREADY_EXISTS', 'A gate with this name already exists in this society'] as const
+
+async function loadGate(executor: DbExecutor, ctx: AuthContext, id: string, lock?: Lock) {
+  let query = executor.select().from(gates).where(eq(gates.id, id)).$dynamic()
+  if (lock) query = query.for(lock)
+  const [row] = UUID.test(id) ? await query : []
+  return requireRecord(ctx, row, 'Gate')
+}
+
+export async function listGates(ctx: AuthContext, societyId: string) {
+  await loadSociety(db, ctx, societyId)
+  return db.select().from(gates).where(eq(gates.societyId, societyId)).orderBy(sql`lower(${gates.name})`)
+}
+
+export function createGate(ctx: AuthContext, societyId: string, body: CreateGateBody) {
+  return db.transaction(async (tx) => {
+    await loadSociety(tx, ctx, societyId, 'share')
+    const [gate] = await unique(tx.insert(gates).values({ societyId, ...body }).returning(), duplicateGate)
+    await audit(tx, ctx, 'GATE_CREATED', { societyId, gateId: gate!.id, name: gate!.name })
+    return gate!
+  })
+}
+
+/** Renames, repurposes or (de)activates a gate. Guards posted to it keep their record. */
+export function updateGate(ctx: AuthContext, gateId: string, body: UpdateGateBody) {
+  const { reason, ...changes } = body
+  return db.transaction(async (tx) => {
+    const gate = await loadGate(tx, ctx, gateId, 'update')
+    const [updated] = await unique(
+      tx.update(gates).set({ ...changes, updatedAt: new Date() }).where(eq(gates.id, gateId)).returning(),
+      duplicateGate,
+    )
+    await audit(tx, ctx, 'GATE_UPDATED', { societyId: gate.societyId, gateId, changes, reason })
+    return updated!
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Blocks
 // ---------------------------------------------------------------------------
 
@@ -251,6 +294,10 @@ export function createFlat(ctx: AuthContext, floorId: string, body: CreateFlatBo
           number: body.number,
           sharingAllowed: body.sharingAllowed ?? false,
           maxOccupants: body.maxOccupants ?? null,
+          flatType: body.flatType ?? null,
+          carpetAreaSqft: body.carpetAreaSqft ?? null,
+          parkingSlots: body.parkingSlots ?? null,
+          intercom: body.intercom ?? null,
         })
         .returning(),
       duplicateFlat,
@@ -315,6 +362,10 @@ export function updateFlat(ctx: AuthContext, flatId: string, body: UpdateFlatBod
           blockId: target?.blockId,
           sharingAllowed,
           maxOccupants,
+          flatType: body.flatType,
+          carpetAreaSqft: body.carpetAreaSqft,
+          parkingSlots: body.parkingSlots,
+          intercom: body.intercom,
           updatedAt: new Date(),
         })
         .where(eq(flats.id, flatId))
@@ -331,6 +382,8 @@ export function updateFlat(ctx: AuthContext, flatId: string, body: UpdateFlatBod
 // ---------------------------------------------------------------------------
 
 type Status = 'ACTIVE' | 'INACTIVE'
+type FlatType = (typeof flats.$inferSelect)['flatType']
+type ResidentTypeValue = (typeof flatResidents.$inferSelect)['residentType']
 
 interface FlatOccupancy {
   id: string
@@ -338,6 +391,13 @@ interface FlatOccupancy {
   status: Status
   sharingAllowed: boolean
   maxOccupants: number | null
+  flatType: FlatType | null
+  carpetAreaSqft: number | null
+  parkingSlots: string | null
+  parkingSlotCount: number
+  intercom: string | null
+  /** Who holds the flat today, for the flats table: owners first, then tenants */
+  residents: { name: string; residentType: ResidentTypeValue }[]
   owners: number
   tenants: number
   occupants: number
@@ -372,6 +432,12 @@ function flatOccupancy(row: {
   flatStatus: Status
   sharingAllowed: boolean
   maxOccupants: number | null
+  flatType: FlatType | null
+  carpetAreaSqft: number | null
+  parkingSlots: string | null
+  parkingSlotCount: number | null
+  intercom: string | null
+  residents: { name: string; residentType: ResidentTypeValue }[] | null
   owners: number | string | null
   occupants: number | string | null
 }): FlatOccupancy {
@@ -392,6 +458,12 @@ function flatOccupancy(row: {
     status: row.flatStatus,
     sharingAllowed: row.sharingAllowed,
     maxOccupants: row.maxOccupants,
+    flatType: row.flatType,
+    carpetAreaSqft: row.carpetAreaSqft,
+    parkingSlots: row.parkingSlots,
+    parkingSlotCount: row.parkingSlotCount ?? 0,
+    intercom: row.intercom,
+    residents: row.residents ?? [],
     owners,
     tenants,
     occupants,
@@ -425,8 +497,14 @@ export async function getOccupancy(ctx: AuthContext, societyId: string) {
       flatId: flatResidents.flatId,
       owners: count(sql`case when ${flatResidents.residentType} = 'OWNER' then 1 end`).as('owners'),
       occupants: count().as('occupants'),
+      // Owners first, so the flats table can show the owner and the tenant in their own columns
+      residents: sql<{ name: string; residentType: ResidentTypeValue }[]>`json_agg(
+        json_build_object('name', ${users.name}, 'residentType', ${flatResidents.residentType})
+        order by ${flatResidents.residentType}, ${users.name}
+      )`.as('residents'),
     })
     .from(flatResidents)
+    .innerJoin(users, eq(users.id, flatResidents.userId))
     .where(
       and(
         eq(flatResidents.verificationStatus, 'VERIFIED'),
@@ -452,6 +530,12 @@ export async function getOccupancy(ctx: AuthContext, societyId: string) {
       flatStatus: flats.status,
       sharingAllowed: flats.sharingAllowed,
       maxOccupants: flats.maxOccupants,
+      flatType: flats.flatType,
+      carpetAreaSqft: flats.carpetAreaSqft,
+      parkingSlots: flats.parkingSlots,
+      parkingSlotCount: flats.parkingSlotCount,
+      intercom: flats.intercom,
+      residents: links.residents,
       owners: links.owners,
       occupants: links.occupants,
     })
@@ -493,7 +577,14 @@ export async function getOccupancy(ctx: AuthContext, societyId: string) {
       block.floors.push(floor)
     }
     if (!row.flatId) continue
-    const flat = flatOccupancy({ ...row, flatId: row.flatId, number: row.number!, flatStatus: row.flatStatus!, sharingAllowed: row.sharingAllowed!, maxOccupants: row.maxOccupants })
+    const flat = flatOccupancy({
+      ...row,
+      flatId: row.flatId,
+      number: row.number!,
+      flatStatus: row.flatStatus!,
+      sharingAllowed: row.sharingAllowed!,
+      maxOccupants: row.maxOccupants,
+    })
     floor.flats.push(flat)
     everyFlat.push(flat)
   }

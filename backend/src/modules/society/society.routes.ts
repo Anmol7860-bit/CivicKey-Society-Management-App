@@ -6,6 +6,8 @@ import {
   createBlockSchema,
   createFlatSchema,
   createFloorSchema,
+  createGateSchema,
+  updateGateSchema,
   updateBlockSchema,
   updateFlatSchema,
   updateFloorSchema,
@@ -32,6 +34,16 @@ export function createSocietyRouter() {
   /** The selling view: the whole hierarchy with what is sold, occupied and open to sharing */
   router.get('/societies/:societyId/occupancy', ...manage, async (req, res) => {
     res.json({ data: await service.getOccupancy(req.ctx!, req.params.societyId as string) })
+  })
+
+  router.get('/societies/:societyId/gates', ...manage, async (req, res) => {
+    res.json({ data: await service.listGates(req.ctx!, req.params.societyId as string) })
+  })
+  router.post('/societies/:societyId/gates', ...manage, validateBody(createGateSchema), async (req, res) => {
+    res.status(201).json({ data: await service.createGate(req.ctx!, req.params.societyId as string, req.body) })
+  })
+  router.put('/gates/:gateId', ...manage, validateBody(updateGateSchema), async (req, res) => {
+    res.json({ data: await service.updateGate(req.ctx!, req.params.gateId as string, req.body) })
   })
 
   router.get('/societies/:societyId/blocks', ...manage, async (req, res) => {

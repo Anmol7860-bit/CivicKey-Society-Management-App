@@ -1,10 +1,10 @@
-import { createHmac, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { and, desc, eq, gte, inArray, isNull, lte, not, or, sql } from 'drizzle-orm'
-import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
 import { blocks, flatResidents, flats, floors, societies, users } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
+import { identityOf, withoutHash } from '../access/identity.js'
 import { assignRole } from '../access/permissions.js'
 import { assertSameSociety, assertState, requireRecord, UUID } from '../access/scope.js'
 import { hashPassword } from '../auth/password.js'
@@ -41,33 +41,10 @@ function audit(tx: DbExecutor, ctx: AuthContext, eventType: AuditEventType, meta
 }
 
 /**
- * Identity is kept as the document type, a keyed hash and the last 4 digits; the number itself is
- * never stored, returned or logged. Without a configured pepper the server refuses the full number
- * rather than storing a hash a 12-digit value could be guessed against.
- *
  * ponytail: retention is decided (2026-10-21) but not enforced - the identity columns are to be
  * cleared 7 years after end_date, matching how co-operative societies retain member records. Add
  * the scheduled purge when a job runner exists; the audit log keeps the fact of verification.
  */
-function identityOf(body: RegisterResidentBody) {
-  const columns = { idDocumentType: body.idDocumentType ?? null, idDocumentLast4: body.idDocumentLast4 ?? null }
-  if (!body.idNumber) return { ...columns, idDocumentHash: null }
-  assertState(
-    env.ID_HASH_PEPPER !== undefined,
-    'This server cannot accept a full ID number; send only its last 4 characters',
-  )
-  return {
-    ...columns,
-    idDocumentLast4: body.idNumber.slice(-4),
-    idDocumentHash: createHmac('sha256', env.ID_HASH_PEPPER!).update(`${body.idDocumentType}:${body.idNumber}`).digest('hex'),
-  }
-}
-
-/** The ID hash is stored for matching, never served: callers only learn whether one is on file. */
-function withoutHash<T extends { idDocumentHash: string | null }>(row: T) {
-  const { idDocumentHash, ...rest } = row
-  return { ...rest, idDocumentOnFile: idDocumentHash !== null }
-}
 
 /** 404 when missing, 403 CROSS_SOCIETY_ACCESS outside the Admin's society. */
 async function loadAssignment(executor: DbExecutor, ctx: AuthContext, id: string, lock?: 'update') {

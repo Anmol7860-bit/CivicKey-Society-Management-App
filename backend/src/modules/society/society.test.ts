@@ -385,3 +385,83 @@ describe('deactivation is recorded, never a deletion', () => {
     expect((await api.put(`/blocks/${a.id}`, { reason: 'No change' })).status).toBe(422)
   })
 })
+
+describe('society details', () => {
+  it('stores the registration, GST and address fields, and checks their shape', async () => {
+    const res = await api.put(`/societies/${TEST_SOCIETY_ID}`, {
+      registrationNumber: 'MUM/WEST/HSG/1234/2008',
+      gstin: '27AABCU9603R1ZM',
+      address: '12 Hill Road',
+      pinCode: '400050',
+      city: 'Mumbai',
+      state: 'Maharashtra',
+      officePhone: '02226551234',
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.body.data).toMatchObject({ gstin: '27AABCU9603R1ZM', pinCode: '400050', city: 'Mumbai' })
+    expect((await api.put(`/societies/${TEST_SOCIETY_ID}`, { gstin: 'NOT-A-GSTIN' })).status).toBe(422)
+    expect((await api.put(`/societies/${TEST_SOCIETY_ID}`, { pinCode: '0400050' })).status).toBe(422)
+  })
+})
+
+describe('gates', () => {
+  it('creates, lists and renames a gate, rejecting a duplicate name ignoring case', async () => {
+    const created = await api.post(`/societies/${TEST_SOCIETY_ID}/gates`, { name: 'Main gate' })
+    expect(created.status).toBe(201)
+    expect(created.body.data).toMatchObject({ name: 'Main gate', usedFor: 'VISITORS_AND_RESIDENTS', status: 'ACTIVE' })
+
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/gates`, { name: ' MAIN GATE ' })).status).toBe(409)
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/gates`, { name: 'Gate 2', usedFor: 'SERVICE_AND_DELIVERY' })).status).toBe(201)
+
+    const renamed = await api.put(`/gates/${created.body.data.id}`, { name: 'North gate' })
+    expect(renamed.body.data.name).toBe('North gate')
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/gates`)).body.data).toHaveLength(2)
+  })
+
+  it('needs a reason to close a gate, and refuses one from another society', async () => {
+    const created = await api.post(`/societies/${TEST_SOCIETY_ID}/gates`, { name: 'Main gate' })
+
+    expect((await api.put(`/gates/${created.body.data.id}`, { status: 'INACTIVE' })).status).toBe(422)
+    expect((await api.put(`/gates/${created.body.data.id}`, DEACTIVATE)).body.data.status).toBe('INACTIVE')
+
+    await db.insert(societies).values({ id: OTHER_SOCIETY_ID, name: 'Other' })
+    expect((await api.post(`/societies/${OTHER_SOCIETY_ID}/gates`, { name: 'Theirs' })).status).toBe(403)
+  })
+})
+
+describe('flat billing details', () => {
+  it('keeps the type, area and intercom, and counts the parking slots itself', async () => {
+    const f = await floor((await block()).id)
+
+    const created = await api.post(`/floors/${f.id}/flats`, {
+      number: '101',
+      flatType: 'TWO_BHK',
+      carpetAreaSqft: 950,
+      parkingSlots: 'P-12, P-13',
+      intercom: '2101',
+    })
+
+    expect(created.status).toBe(201)
+    expect(created.body.data).toMatchObject({ flatType: 'TWO_BHK', carpetAreaSqft: 950, parkingSlotCount: 2, intercom: '2101' })
+
+    const cleared = await api.put(`/flats/${created.body.data.id}`, { parkingSlots: '' })
+    expect(cleared.body.data).toMatchObject({ parkingSlots: null, parkingSlotCount: 0 })
+    expect((await api.post(`/floors/${f.id}/flats`, { number: '102', carpetAreaSqft: 0 })).status).toBe(422)
+  })
+
+  it('reports the type, area and who lives there in the occupancy view', async () => {
+    const f = await floor((await block()).id)
+    const created = await api.post(`/floors/${f.id}/flats`, { number: '101', flatType: 'THREE_BHK', carpetAreaSqft: 1200 })
+    const resident = await createUser({ phone: '9811111111', email: null, name: 'Riya Sharma' })
+    await addResident(created.body.data.id, resident.id)
+
+    const res = await api.get(`/societies/${TEST_SOCIETY_ID}/occupancy`)
+
+    expect(res.body.data.blocks[0].floors[0].flats[0]).toMatchObject({
+      flatType: 'THREE_BHK',
+      carpetAreaSqft: 1200,
+      residents: [{ name: 'Riya Sharma', residentType: 'OWNER' }],
+    })
+  })
+})

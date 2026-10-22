@@ -7,6 +7,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -34,13 +35,72 @@ export const idDocumentType = pgEnum('id_document_type', ['AADHAAR', 'PAN', 'PAS
 
 export const gender = pgEnum('gender', ['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY'])
 
-export const societies = pgTable('societies', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: varchar('name', { length: 160 }).notNull(),
-  address: varchar('address', { length: 500 }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-})
+/** Lifecycle of society structure records. Nothing is physically deleted. */
+export const recordStatus = pgEnum('record_status', ['ACTIVE', 'INACTIVE'])
+
+export const gateUse = pgEnum('gate_use', ['VISITORS_AND_RESIDENTS', 'VISITORS_ONLY', 'RESIDENTS_ONLY', 'SERVICE_AND_DELIVERY'])
+
+/** What a flat is, as the society sells it. Used with the carpet area for maintenance billing. */
+export const flatType = pgEnum('flat_type', ['STUDIO', 'ONE_BHK', 'TWO_BHK', 'THREE_BHK', 'FOUR_BHK', 'PENTHOUSE', 'SHOP'])
+
+/** A guard, someone's daily help, or a vendor working for the society */
+export const staffKind = pgEnum('staff_kind', ['GUARD', 'DAILY_HELP', 'VENDOR'])
+
+export const staffShift = pgEnum('staff_shift', ['MORNING', 'EVENING', 'NIGHT', 'FULL_DAY'])
+
+export const policeVerification = pgEnum('police_verification', ['NOT_STARTED', 'SUBMITTED', 'VERIFIED', 'REJECTED'])
+
+/** How the monthly maintenance charge is worked out */
+export const chargeBasis = pgEnum('charge_basis', ['PER_SQFT', 'PER_FLAT'])
+
+export const invoiceStatus = pgEnum('invoice_status', ['UNPAID', 'PARTIALLY_PAID', 'PAID', 'CANCELLED'])
+
+export const societies = pgTable(
+  'societies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 160 }).notNull(),
+    address: varchar('address', { length: 500 }),
+    /** Co-operative housing society registration number, as printed on the registration certificate */
+    registrationNumber: varchar('registration_number', { length: 64 }),
+    /** Only societies that charge GST on maintenance have one */
+    gstin: varchar('gstin', { length: 15 }),
+    pinCode: varchar('pin_code', { length: 6 }),
+    city: varchar('city', { length: 80 }),
+    state: varchar('state', { length: 80 }),
+    officePhone: varchar('office_phone', { length: 15 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check('societies_pin_code_format', sql`${table.pinCode} is null or ${table.pinCode} ~ '^[1-9][0-9]{5}$'`),
+    // The standard GSTIN shape: state code, PAN, entity number, 'Z', checksum character
+    check(
+      'societies_gstin_format',
+      sql`${table.gstin} is null or ${table.gstin} ~ '^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$'`,
+    ),
+  ],
+)
+
+/** Where people enter and leave. A guard works a gate, and every entry and exit records one. */
+export const gates = pgTable(
+  'gates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    name: varchar('name', { length: 64 }).notNull(),
+    usedFor: gateUse('used_for').notNull().default('VISITORS_AND_RESIDENTS'),
+    status: recordStatus('status').notNull().default('ACTIVE'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('gates_society_id_name_unique').on(table.societyId, sql`lower(${table.name})`),
+    check('gates_name_trimmed', sql`${table.name} = btrim(${table.name}) and ${table.name} <> ''`),
+  ],
+)
 
 export const users = pgTable(
   'users',
@@ -145,8 +205,6 @@ export const userPermissions = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.permissionId] })],
 )
 
-/** Lifecycle of society structure records. Nothing is physically deleted. */
-export const recordStatus = pgEnum('record_status', ['ACTIVE', 'INACTIVE'])
 
 /** A block or tower. Names are unique within the society, ignoring case. */
 export const blocks = pgTable(
@@ -209,6 +267,17 @@ export const flats = pgTable(
     floorId: uuid('floor_id').notNull(),
     number: varchar('number', { length: 16 }).notNull(),
     status: recordStatus('status').notNull().default('ACTIVE'),
+    /** What the flat is, and its carpet area in square feet: both feed the maintenance charge */
+    flatType: flatType('flat_type'),
+    carpetAreaSqft: integer('carpet_area_sqft'),
+    /** Slot labels as the society writes them, e.g. "P-12, P-13"; the count is derived below */
+    parkingSlots: varchar('parking_slots', { length: 64 }),
+    /** Counted from the labels so the parking charge has a number to multiply, never a second field to keep in step */
+    parkingSlotCount: integer('parking_slot_count').generatedAlwaysAs(
+      sql`case when btrim(coalesce(parking_slots, '')) = '' then 0 else array_length(string_to_array(parking_slots, ','), 1) end`,
+    ),
+    /** The intercom extension a guard calls to confirm a visitor */
+    intercom: varchar('intercom', { length: 20 }),
     /** Co-owners or flatmates are allowed on this flat */
     sharingAllowed: boolean('sharing_allowed').notNull().default(false),
     /** Caps the active resident assignments while sharing is allowed; null means no cap */
@@ -225,6 +294,7 @@ export const flats = pgTable(
     unique('flats_block_id_number_unique').on(table.blockId, table.number),
     index('flats_floor_id_idx').on(table.floorId),
     check('flats_number_trimmed', sql`${table.number} = btrim(${table.number}) and ${table.number} <> ''`),
+    check('flats_carpet_area_positive', sql`${table.carpetAreaSqft} is null or ${table.carpetAreaSqft} > 0`),
     check(
       'flats_sharing_capacity',
       sql`case when ${table.sharingAllowed} then ${table.maxOccupants} is null or ${table.maxOccupants} >= 2 else ${table.maxOccupants} is null end`,
@@ -363,8 +433,193 @@ export const auditLogs = pgTable(
   ],
 )
 
+// ---------------------------------------------------------------------------
+// Staff: guards on a gate, daily help working for flats, and society vendors
+// ---------------------------------------------------------------------------
+
+/**
+ * Anyone who works at the society without living there. A guard belongs to a gate and a shift;
+ * daily help belongs to the flats it serves. Everyone gets a pass code the guard checks at the
+ * gate, valid between the pass dates.
+ */
+export const staff = pgTable(
+  'staff',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    kind: staffKind('kind').notNull(),
+    name: varchar('name', { length: 120 }).notNull(),
+    phone: varchar('phone', { length: 15 }).notNull(),
+    /** Maid, Cook, Driver, Plumber: free text, since a society hires in more ways than an enum holds */
+    workType: varchar('work_type', { length: 60 }),
+    agency: varchar('agency', { length: 120 }),
+    gateId: uuid('gate_id').references(() => gates.id),
+    shift: staffShift('shift'),
+    policeVerification: policeVerification('police_verification').notNull().default('NOT_STARTED'),
+    gender: gender('gender'),
+    homeAddress: varchar('home_address', { length: 500 }),
+    /** Days of the week worked, as 'MON,TUE,WED'; empty means no fixed days */
+    workingDays: varchar('working_days', { length: 27 }),
+    /** Identity is kept exactly as a resident's is: type, keyed hash and last 4, never the number */
+    idDocumentType: idDocumentType('id_document_type'),
+    idDocumentHash: varchar('id_document_hash', { length: 64 }),
+    idDocumentLast4: varchar('id_document_last4', { length: 4 }),
+    /** Where the photo and the masked ID copy are filed until this deployment stores files */
+    photoReference: varchar('photo_reference', { length: 200 }),
+    /** What the guard scans or types at the gate; issued on save and never reused */
+    passCode: varchar('pass_code', { length: 16 }).notNull().unique(),
+    passValidFrom: date('pass_valid_from').notNull().default(sql`current_date`),
+    /** Null while the engagement is open-ended */
+    passValidUntil: date('pass_valid_until'),
+    status: recordStatus('status').notNull().default('ACTIVE'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('staff_society_id_phone_unique').on(table.societyId, table.phone),
+    index('staff_society_id_kind_idx').on(table.societyId, table.kind),
+    check('staff_phone_digits', sql`${table.phone} ~ '^[6-9][0-9]{9}$'`),
+    check('staff_name_trimmed', sql`${table.name} = btrim(${table.name}) and ${table.name} <> ''`),
+    check('staff_pass_period', sql`${table.passValidUntil} is null or ${table.passValidUntil} >= ${table.passValidFrom}`),
+    check('staff_id_document_hash_sha256', sql`${table.idDocumentHash} is null or ${table.idDocumentHash} ~ '^[0-9a-f]{64}$'`),
+    check('staff_working_days', sql`${table.workingDays} is null or ${table.workingDays} ~ '^(MON|TUE|WED|THU|FRI|SAT|SUN)(,(MON|TUE|WED|THU|FRI|SAT|SUN))*$'`),
+  ],
+)
+
+/** Which flats a staff member works for, and when they are expected. */
+export const staffFlats = pgTable(
+  'staff_flats',
+  {
+    staffId: uuid('staff_id')
+      .notNull()
+      .references(() => staff.id, { onDelete: 'cascade' }),
+    flatId: uuid('flat_id')
+      .notNull()
+      .references(() => flats.id),
+    /** Free text as the resident gives it: "7-9 am", "Mornings" */
+    timeWindow: varchar('time_window', { length: 40 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.staffId, table.flatId] }), index('staff_flats_flat_id_idx').on(table.flatId)],
+)
+
+// ---------------------------------------------------------------------------
+// Billing: the rates in force, the invoices they produced, and payments against them
+// ---------------------------------------------------------------------------
+
+/**
+ * What the society charges, from a date. A change inserts a new row rather than editing the old
+ * one, so an invoice can always be read back against the rate that produced it.
+ */
+export const billingRates = pgTable(
+  'billing_rates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    chargeBasis: chargeBasis('charge_basis').notNull(),
+    /** Rupees per sq ft of carpet area, or per flat, depending on the basis */
+    rate: numeric('rate', { precision: 10, scale: 2 }).notNull(),
+    sinkingFund: numeric('sinking_fund', { precision: 10, scale: 2 }).notNull().default('0'),
+    parkingCharge: numeric('parking_charge', { precision: 10, scale: 2 }).notNull().default('0'),
+    /** Day of the month an invoice falls due; capped at 28 so every month has one */
+    dueDay: integer('due_day').notNull(),
+    lateFeePerDay: numeric('late_fee_per_day', { precision: 10, scale: 2 }),
+    effectiveFrom: date('effective_from').notNull(),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('billing_rates_society_id_effective_from_unique').on(table.societyId, table.effectiveFrom),
+    check('billing_rates_due_day', sql`${table.dueDay} between 1 and 28`),
+    check('billing_rates_amounts_positive', sql`${table.rate} > 0 and ${table.sinkingFund} >= 0 and ${table.parkingCharge} >= 0`),
+    check('billing_rates_late_fee', sql`${table.lateFeePerDay} is null or ${table.lateFeePerDay} >= 0`),
+  ],
+)
+
+/** One invoice per flat per month. The total is derived, so the parts can never disagree with it. */
+export const invoices = pgTable(
+  'invoices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    flatId: uuid('flat_id')
+      .notNull()
+      .references(() => flats.id),
+    /** The first day of the month billed */
+    period: date('period').notNull(),
+    rateId: uuid('rate_id').references(() => billingRates.id),
+    maintenance: numeric('maintenance', { precision: 10, scale: 2 }).notNull(),
+    sinkingFund: numeric('sinking_fund', { precision: 10, scale: 2 }).notNull().default('0'),
+    parkingCharge: numeric('parking_charge', { precision: 10, scale: 2 }).notNull().default('0'),
+    oneTimeDescription: varchar('one_time_description', { length: 120 }),
+    oneTimeAmount: numeric('one_time_amount', { precision: 10, scale: 2 }).notNull().default('0'),
+    total: numeric('total', { precision: 10, scale: 2 }).generatedAlwaysAs(
+      sql`maintenance + sinking_fund + parking_charge + one_time_amount`,
+    ),
+    dueDate: date('due_date').notNull(),
+    status: invoiceStatus('status').notNull().default('UNPAID'),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('invoices_flat_id_period_unique').on(table.flatId, table.period),
+    index('invoices_society_id_period_idx').on(table.societyId, table.period),
+    check('invoices_period_is_month_start', sql`date_trunc('month', ${table.period}) = ${table.period}`),
+    check(
+      'invoices_amounts_not_negative',
+      sql`${table.maintenance} >= 0 and ${table.sinkingFund} >= 0 and ${table.parkingCharge} >= 0 and ${table.oneTimeAmount} >= 0`,
+    ),
+    check('invoices_one_time_described', sql`${table.oneTimeAmount} = 0 or ${table.oneTimeDescription} is not null`),
+  ],
+)
+
+/**
+ * Money received against an invoice. A payment is never deleted: it is reversed, and both the
+ * payment and its reversal stay on the record with the receipt number they were issued under.
+ */
+export const payments = pgTable(
+  'payments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
+    receivedOn: date('received_on').notNull(),
+    paidBy: varchar('paid_by', { length: 120 }),
+    note: varchar('note', { length: 200 }),
+    /** Issued by the database, so two admins recording at once can never share a number */
+    receiptNumber: varchar('receipt_number', { length: 24 })
+      .notNull()
+      .unique()
+      .default(sql`'RCT-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('receipt_number_seq')::text, 6, '0')`),
+    recordedBy: uuid('recorded_by').references(() => users.id),
+    reversedAt: timestamp('reversed_at', { withTimezone: true }),
+    reversedBy: uuid('reversed_by').references(() => users.id),
+    reversalReason: varchar('reversal_reason', { length: 200 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('payments_invoice_id_idx').on(table.invoiceId),
+    check('payments_amount_positive', sql`${table.amount} > 0`),
+    check('payments_reversal_fields', sql`(${table.reversedAt} is null) = (${table.reversedBy} is null)`),
+  ],
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Role = (typeof userRole.enumValues)[number]
 export type ResidentType = (typeof residentType.enumValues)[number]
 export type FlatResident = typeof flatResidents.$inferSelect
+export type Gate = typeof gates.$inferSelect
+export type Staff = typeof staff.$inferSelect
+export type BillingRate = typeof billingRates.$inferSelect
+export type Invoice = typeof invoices.$inferSelect
+export type Payment = typeof payments.$inferSelect
