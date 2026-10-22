@@ -1,34 +1,10 @@
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  inArray,
-  isNull,
-  lte,
-  or,
-  sql,
-  sum,
-} from "drizzle-orm";
-import { db } from "../../db/client.js";
-import {
-  billingRates,
-  blocks,
-  flatResidents,
-  flats,
-  floors,
-  invoices,
-  payments,
-  societies,
-} from "../../db/schema.js";
-import { AppError } from "../../lib/errors.js";
-import type { AuthContext } from "../../middleware/requireAuth.js";
-import { assertState, requireRecord, UUID } from "../access/scope.js";
-import {
-  recordAuditEvent,
-  type AuditEventType,
-  type DbExecutor,
-} from "../audit/audit.service.js";
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql, sum } from 'drizzle-orm'
+import { db } from '../../db/client.js'
+import { billingRates, blocks, flatResidents, flats, floors, invoices, payments, societies } from '../../db/schema.js'
+import { AppError } from '../../lib/errors.js'
+import type { AuthContext } from '../../middleware/requireAuth.js'
+import { assertState, requireRecord, UUID } from '../access/scope.js'
+import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import type {
   GenerateInvoicesBody,
   ListInvoicesQuery,
@@ -36,48 +12,32 @@ import type {
   ReportQuery,
   ReversePaymentBody,
   SetRatesBody,
-} from "./billing.schemas.js";
+} from './billing.schemas.js'
 
 // Money is held in paise while it is being worked out, so a rate per sq ft never drifts by a
 // fraction of a rupee, and written to the numeric columns as a fixed two-decimal string.
-const toPaise = (rupees: number) => Math.round(rupees * 100);
-const fromPaise = (paise: number) => paise / 100;
-const asAmount = (paise: number) => (paise / 100).toFixed(2);
+const toPaise = (rupees: number) => Math.round(rupees * 100)
+const fromPaise = (paise: number) => paise / 100
+const asAmount = (paise: number) => (paise / 100).toFixed(2)
 /** numeric columns come back as strings; responses carry them as numbers */
-const amount = (value: string | null) => Number(value ?? 0);
+const amount = (value: string | null) => Number(value ?? 0)
 
-function audit(
-  tx: DbExecutor,
-  ctx: AuthContext,
-  eventType: AuditEventType,
-  metadata: Record<string, unknown>,
-) {
-  return recordAuditEvent(tx, { eventType, actorUserId: ctx.userId, metadata });
+function audit(tx: DbExecutor, ctx: AuthContext, eventType: AuditEventType, metadata: Record<string, unknown>) {
+  return recordAuditEvent(tx, { eventType, actorUserId: ctx.userId, metadata })
 }
 
 async function loadSociety(executor: DbExecutor, ctx: AuthContext, id: string) {
-  const [row] = UUID.test(id)
-    ? await executor.select().from(societies).where(eq(societies.id, id))
-    : [];
-  await requireRecord(ctx, row && { societyId: row.id }, "Society");
-  return row!;
+  const [row] = UUID.test(id) ? await executor.select().from(societies).where(eq(societies.id, id)) : []
+  await requireRecord(ctx, row && { societyId: row.id }, 'Society')
+  return row!
 }
 
 /** 404 when missing, 403 CROSS_SOCIETY_ACCESS outside the Admin's society. */
-async function loadInvoice(
-  executor: DbExecutor,
-  ctx: AuthContext,
-  id: string,
-  lock?: "update",
-) {
-  let query = executor
-    .select()
-    .from(invoices)
-    .where(eq(invoices.id, id))
-    .$dynamic();
-  if (lock) query = query.for(lock);
-  const [row] = UUID.test(id) ? await query : [];
-  return requireRecord(ctx, row, "Invoice");
+async function loadInvoice(executor: DbExecutor, ctx: AuthContext, id: string, lock?: 'update') {
+  let query = executor.select().from(invoices).where(eq(invoices.id, id)).$dynamic()
+  if (lock) query = query.for(lock)
+  const [row] = UUID.test(id) ? await query : []
+  return requireRecord(ctx, row, 'Invoice')
 }
 
 // ---------------------------------------------------------------------------
@@ -86,13 +46,13 @@ async function loadInvoice(
 
 /** Every rate the society has set, newest first. Old rates stay: an invoice names the one it used. */
 export async function listRates(ctx: AuthContext, societyId: string) {
-  await loadSociety(db, ctx, societyId);
+  await loadSociety(db, ctx, societyId)
   const rows = await db
     .select()
     .from(billingRates)
     .where(eq(billingRates.societyId, societyId))
-    .orderBy(desc(billingRates.effectiveFrom));
-  return rows.map(serializeRate);
+    .orderBy(desc(billingRates.effectiveFrom))
+  return rows.map(serializeRate)
 }
 
 const serializeRate = (rate: typeof billingRates.$inferSelect) => ({
@@ -100,34 +60,24 @@ const serializeRate = (rate: typeof billingRates.$inferSelect) => ({
   rate: amount(rate.rate),
   sinkingFund: amount(rate.sinkingFund),
   parkingCharge: amount(rate.parkingCharge),
-  lateFeePerDay:
-    rate.lateFeePerDay === null ? null : amount(rate.lateFeePerDay),
-});
+  lateFeePerDay: rate.lateFeePerDay === null ? null : amount(rate.lateFeePerDay),
+})
 
 /** The rate in force on a date: the newest one that had already taken effect. */
 async function rateOn(tx: DbExecutor, societyId: string, date: string) {
   const [row] = await tx
     .select()
     .from(billingRates)
-    .where(
-      and(
-        eq(billingRates.societyId, societyId),
-        lte(billingRates.effectiveFrom, date),
-      ),
-    )
+    .where(and(eq(billingRates.societyId, societyId), lte(billingRates.effectiveFrom, date)))
     .orderBy(desc(billingRates.effectiveFrom))
-    .limit(1);
-  return row;
+    .limit(1)
+  return row
 }
 
 /** Sets the rates from a date. A change inserts a new row, so bills already generated keep theirs. */
-export function setRates(
-  ctx: AuthContext,
-  societyId: string,
-  body: SetRatesBody,
-) {
+export function setRates(ctx: AuthContext, societyId: string, body: SetRatesBody) {
   return db.transaction(async (tx) => {
-    await loadSociety(tx, ctx, societyId);
+    await loadSociety(tx, ctx, societyId)
     try {
       const [created] = await tx
         .insert(billingRates)
@@ -138,76 +88,60 @@ export function setRates(
           sinkingFund: asAmount(toPaise(body.sinkingFund ?? 0)),
           parkingCharge: asAmount(toPaise(body.parkingCharge ?? 0)),
           dueDay: body.dueDay,
-          lateFeePerDay:
-            body.lateFeePerDay == null
-              ? null
-              : asAmount(toPaise(body.lateFeePerDay)),
+          lateFeePerDay: body.lateFeePerDay == null ? null : asAmount(toPaise(body.lateFeePerDay)),
           effectiveFrom: body.effectiveFrom,
           createdBy: ctx.userId,
         })
-        .returning();
-      await audit(tx, ctx, "BILLING_RATE_SET", {
+        .returning()
+      await audit(tx, ctx, 'BILLING_RATE_SET', {
         societyId,
         rateId: created!.id,
         effectiveFrom: body.effectiveFrom,
-      });
-      return serializeRate(created!);
+      })
+      return serializeRate(created!)
     } catch (error) {
       const code =
-        (error as { code?: string; cause?: { code?: string } }).code ??
-        (error as { cause?: { code?: string } }).cause?.code;
-      if (code === "23505")
-        throw new AppError(
-          409,
-          "ALREADY_EXISTS",
-          "Rates are already set from this date",
-        );
-      throw error;
+        (error as { code?: string; cause?: { code?: string } }).code ?? (error as { cause?: { code?: string } }).cause?.code
+      if (code === '23505') throw new AppError(409, 'ALREADY_EXISTS', 'Rates are already set from this date')
+      throw error
     }
-  });
+  })
 }
 
 // ---------------------------------------------------------------------------
 // Invoices
 // ---------------------------------------------------------------------------
 
-const firstOfMonth = (period: string) => `${period}-01`;
+const firstOfMonth = (period: string) => `${period}-01`
 /** The due date is the rate's due day in the month billed */
-const dueDate = (period: string, dueDay: number) =>
-  `${period}-${String(dueDay).padStart(2, "0")}`;
+const dueDate = (period: string, dueDay: number) => `${period}-${String(dueDay).padStart(2, '0')}`
 
 interface BillableFlat {
-  id: string;
-  number: string;
-  blockName: string;
-  carpetAreaSqft: number | null;
-  parkingSlotCount: number | null;
-  occupants: number;
+  id: string
+  number: string
+  blockName: string
+  carpetAreaSqft: number | null
+  parkingSlotCount: number | null
+  occupants: number
 }
 
 /** Active flats with what the charge is worked out from, and whether anyone lives there today. */
-async function billableFlats(
-  tx: DbExecutor,
-  societyId: string,
-): Promise<BillableFlat[]> {
+async function billableFlats(tx: DbExecutor, societyId: string): Promise<BillableFlat[]> {
   const occupants = tx
     .select({
       flatId: flatResidents.flatId,
-      occupants: sql<number>`count(*)`.as("occupants"),
+      occupants: sql<number>`count(*)`.as('occupants'),
     })
     .from(flatResidents)
     .where(
       and(
-        eq(flatResidents.verificationStatus, "VERIFIED"),
+        eq(flatResidents.verificationStatus, 'VERIFIED'),
         lte(flatResidents.startDate, sql`current_date`),
-        or(
-          isNull(flatResidents.endDate),
-          sql`${flatResidents.endDate} >= current_date`,
-        ),
+        or(isNull(flatResidents.endDate), sql`${flatResidents.endDate} >= current_date`),
       ),
     )
     .groupBy(flatResidents.flatId)
-    .as("occupants");
+    .as('occupants')
 
   const rows = await tx
     .select({
@@ -221,20 +155,20 @@ async function billableFlats(
     .from(flats)
     .innerJoin(blocks, eq(blocks.id, flats.blockId))
     .leftJoin(occupants, eq(occupants.flatId, flats.id))
-    .where(and(eq(blocks.societyId, societyId), eq(flats.status, "ACTIVE")))
-    .orderBy(asc(blocks.name), asc(flats.number));
+    .where(and(eq(blocks.societyId, societyId), eq(flats.status, 'ACTIVE')))
+    .orderBy(asc(blocks.name), asc(flats.number))
 
-  return rows.map((row) => ({ ...row, occupants: Number(row.occupants ?? 0) }));
+  return rows.map((row) => ({ ...row, occupants: Number(row.occupants ?? 0) }))
 }
 
 interface InvoiceLine {
-  flatId: string;
-  flat: string;
-  maintenance: number;
-  sinkingFund: number;
-  parkingCharge: number;
-  oneTimeAmount: number;
-  total: number;
+  flatId: string
+  flat: string
+  maintenance: number
+  sinkingFund: number
+  parkingCharge: number
+  oneTimeAmount: number
+  total: number
 }
 
 /**
@@ -242,21 +176,13 @@ interface InvoiceLine {
  * needs a carpet area on the flat, so a flat without one is listed rather than silently billed at
  * zero.
  */
-async function priceInvoices(
-  tx: DbExecutor,
-  societyId: string,
-  body: GenerateInvoicesBody,
-) {
-  const period = firstOfMonth(body.period);
-  const rate = await rateOn(tx, societyId, period);
-  assertState(
-    rate !== undefined,
-    "Set the maintenance rates before generating invoices",
-  );
+async function priceInvoices(tx: DbExecutor, societyId: string, body: GenerateInvoicesBody) {
+  const period = firstOfMonth(body.period)
+  const rate = await rateOn(tx, societyId, period)
+  assertState(rate !== undefined, 'Set the maintenance rates before generating invoices')
 
-  const all = await billableFlats(tx, societyId);
-  const wanted =
-    body.flats === "ALL" ? all : all.filter((flat) => flat.occupants > 0);
+  const all = await billableFlats(tx, societyId)
+  const wanted = body.flats === 'ALL' ? all : all.filter((flat) => flat.occupants > 0)
   const already = wanted.length
     ? await tx
         .select({ flatId: invoices.flatId })
@@ -270,30 +196,27 @@ async function priceInvoices(
             ),
           ),
         )
-    : [];
-  const invoiced = new Set(already.map((row) => row.flatId));
+    : []
+  const invoiced = new Set(already.map((row) => row.flatId))
 
-  const lines: InvoiceLine[] = [];
-  const skipped: { flat: string; reason: string }[] = [];
-  const oneTime = toPaise(body.oneTimeAmount ?? 0);
+  const lines: InvoiceLine[] = []
+  const skipped: { flat: string; reason: string }[] = []
+  const oneTime = toPaise(body.oneTimeAmount ?? 0)
 
   for (const flat of wanted) {
-    const name = `${flat.blockName}-${flat.number}`;
+    const name = `${flat.blockName}-${flat.number}`
     if (invoiced.has(flat.id)) {
-      skipped.push({ flat: name, reason: "Already invoiced for this month" });
-      continue;
+      skipped.push({ flat: name, reason: 'Already invoiced for this month' })
+      continue
     }
-    if (rate!.chargeBasis === "PER_SQFT" && !flat.carpetAreaSqft) {
-      skipped.push({ flat: name, reason: "No carpet area on the flat" });
-      continue;
+    if (rate!.chargeBasis === 'PER_SQFT' && !flat.carpetAreaSqft) {
+      skipped.push({ flat: name, reason: 'No carpet area on the flat' })
+      continue
     }
     const maintenance =
-      rate!.chargeBasis === "PER_SQFT"
-        ? toPaise(amount(rate!.rate)) * flat.carpetAreaSqft!
-        : toPaise(amount(rate!.rate));
-    const parking =
-      toPaise(amount(rate!.parkingCharge)) * (flat.parkingSlotCount ?? 0);
-    const sinking = toPaise(amount(rate!.sinkingFund));
+      rate!.chargeBasis === 'PER_SQFT' ? toPaise(amount(rate!.rate)) * flat.carpetAreaSqft! : toPaise(amount(rate!.rate))
+    const parking = toPaise(amount(rate!.parkingCharge)) * (flat.parkingSlotCount ?? 0)
+    const sinking = toPaise(amount(rate!.sinkingFund))
     lines.push({
       flatId: flat.id,
       flat: name,
@@ -302,7 +225,7 @@ async function priceInvoices(
       parkingCharge: fromPaise(parking),
       oneTimeAmount: fromPaise(oneTime),
       total: fromPaise(maintenance + sinking + parking + oneTime),
-    });
+    })
   }
 
   return {
@@ -311,35 +234,24 @@ async function priceInvoices(
     dueDate: dueDate(body.period, rate!.dueDay),
     lines,
     skipped,
-  };
+  }
 }
 
 /** The Preview button: the same arithmetic as Generate, writing nothing. */
-export async function previewInvoices(
-  ctx: AuthContext,
-  societyId: string,
-  body: GenerateInvoicesBody,
-) {
-  await loadSociety(db, ctx, societyId);
-  const priced = await priceInvoices(db, societyId, body);
+export async function previewInvoices(ctx: AuthContext, societyId: string, body: GenerateInvoicesBody) {
+  await loadSociety(db, ctx, societyId)
+  const priced = await priceInvoices(db, societyId, body)
   return {
     ...priced,
     total: priced.lines.reduce((sum, line) => sum + line.total, 0),
-  };
+  }
 }
 
-export function generateInvoices(
-  ctx: AuthContext,
-  societyId: string,
-  body: GenerateInvoicesBody,
-) {
+export function generateInvoices(ctx: AuthContext, societyId: string, body: GenerateInvoicesBody) {
   return db.transaction(async (tx) => {
-    await loadSociety(tx, ctx, societyId);
-    const priced = await priceInvoices(tx, societyId, body);
-    assertState(
-      priced.lines.length > 0,
-      "There is nothing to invoice for this month",
-    );
+    await loadSociety(tx, ctx, societyId)
+    const priced = await priceInvoices(tx, societyId, body)
+    assertState(priced.lines.length > 0, 'There is nothing to invoice for this month')
 
     const created = await tx
       .insert(invoices)
@@ -364,40 +276,36 @@ export function generateInvoices(
       )
       // A flat already invoiced for the month keeps the invoice it has
       .onConflictDoNothing({ target: [invoices.flatId, invoices.period] })
-      .returning();
+      .returning()
 
-    await audit(tx, ctx, "INVOICES_GENERATED", {
+    await audit(tx, ctx, 'INVOICES_GENERATED', {
       societyId,
       period: priced.period,
       generated: created.length,
       skipped: priced.skipped.length,
       oneTime: body.oneTimeDescription ?? null,
-    });
+    })
     return {
       period: priced.period,
       dueDate: priced.dueDate,
       generated: created.length,
       skipped: priced.skipped,
-    };
-  });
+    }
+  })
 }
 
 /** The invoices of one society, newest period first, with what has been paid against each. */
-export async function listInvoices(
-  ctx: AuthContext,
-  societyId: string,
-  query: ListInvoicesQuery,
-) {
-  await loadSociety(db, ctx, societyId);
+export async function listInvoices(ctx: AuthContext, societyId: string, query: ListInvoicesQuery) {
+  await loadSociety(db, ctx, societyId)
   const paid = db
     .select({
       invoiceId: payments.invoiceId,
-      paid: sum(payments.amount).as("paid"),
+      paid: sum(payments.amount).as('paid'),
     })
     .from(payments)
     .where(isNull(payments.reversedAt))
     .groupBy(payments.invoiceId)
-    .as("paid");
+    .as('paid')
 
   const rows = await db
     .select({
@@ -416,22 +324,15 @@ export async function listInvoices(
       and(
         eq(invoices.societyId, societyId),
         ...[
-          query.period
-            ? eq(invoices.period, firstOfMonth(query.period))
-            : undefined,
+          query.period ? eq(invoices.period, firstOfMonth(query.period)) : undefined,
           query.flatId ? eq(invoices.flatId, query.flatId) : undefined,
           query.status ? eq(invoices.status, query.status) : undefined,
-        ].filter(
-          (condition): condition is Exclude<typeof condition, undefined> =>
-            condition !== undefined,
-        ),
+        ].filter((condition): condition is Exclude<typeof condition, undefined> => condition !== undefined),
       ),
     )
-    .orderBy(desc(invoices.period), asc(blocks.name), asc(flats.number));
+    .orderBy(desc(invoices.period), asc(blocks.name), asc(flats.number))
 
-  return rows.map((row) =>
-    serializeInvoice(row.invoice, row, amount(row.paid)),
-  );
+  return rows.map((row) => serializeInvoice(row.invoice, row, amount(row.paid)))
 }
 
 function serializeInvoice(
@@ -439,7 +340,7 @@ function serializeInvoice(
   place: { flatNumber: string; blockName: string; floorLabel?: string },
   paid: number,
 ) {
-  const total = amount(invoice.total);
+  const total = amount(invoice.total)
   return {
     ...invoice,
     maintenance: amount(invoice.maintenance),
@@ -455,7 +356,7 @@ function serializeInvoice(
       blockName: place.blockName,
       floorLabel: place.floorLabel,
     },
-  };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -467,52 +368,34 @@ async function paidPaise(tx: DbExecutor, invoiceId: string) {
   const [row] = await tx
     .select({ paid: sum(payments.amount) })
     .from(payments)
-    .where(and(eq(payments.invoiceId, invoiceId), isNull(payments.reversedAt)));
-  return toPaise(amount(row?.paid ?? null));
+    .where(and(eq(payments.invoiceId, invoiceId), isNull(payments.reversedAt)))
+  return toPaise(amount(row?.paid ?? null))
 }
 
 /** The status always follows the money received, so it can never disagree with the payments. */
-async function settleInvoice(
-  tx: DbExecutor,
-  invoiceId: string,
-  totalPaise: number,
-) {
-  const paid = await paidPaise(tx, invoiceId);
-  const status =
-    paid >= totalPaise ? "PAID" : paid > 0 ? "PARTIALLY_PAID" : "UNPAID";
-  await tx
-    .update(invoices)
-    .set({ status, updatedAt: new Date() })
-    .where(eq(invoices.id, invoiceId));
+async function settleInvoice(tx: DbExecutor, invoiceId: string, totalPaise: number) {
+  const paid = await paidPaise(tx, invoiceId)
+  const status = paid >= totalPaise ? 'PAID' : paid > 0 ? 'PARTIALLY_PAID' : 'UNPAID'
+  await tx.update(invoices).set({ status, updatedAt: new Date() }).where(eq(invoices.id, invoiceId))
   return {
     status,
     paid: fromPaise(paid),
     outstanding: fromPaise(Math.max(0, totalPaise - paid)),
-  };
+  }
 }
 
 /**
  * Records money received against an invoice and issues the receipt number the resident sees. The
  * number comes from the database, so two admins recording at the same moment cannot share one.
  */
-export function recordPayment(
-  ctx: AuthContext,
-  invoiceId: string,
-  body: RecordPaymentBody,
-) {
+export function recordPayment(ctx: AuthContext, invoiceId: string, body: RecordPaymentBody) {
   return db.transaction(async (tx) => {
-    const invoice = await loadInvoice(tx, ctx, invoiceId, "update");
-    assertState(
-      invoice.status !== "CANCELLED",
-      "This invoice has been cancelled",
-    );
-    const totalPaise = toPaise(amount(invoice.total));
-    const outstanding = totalPaise - (await paidPaise(tx, invoiceId));
-    assertState(outstanding > 0, "This invoice is already paid in full");
-    assertState(
-      toPaise(body.amount) <= outstanding,
-      `That is more than the ₹${asAmount(outstanding)} still due on this invoice`,
-    );
+    const invoice = await loadInvoice(tx, ctx, invoiceId, 'update')
+    assertState(invoice.status !== 'CANCELLED', 'This invoice has been cancelled')
+    const totalPaise = toPaise(amount(invoice.total))
+    const outstanding = totalPaise - (await paidPaise(tx, invoiceId))
+    assertState(outstanding > 0, 'This invoice is already paid in full')
+    assertState(toPaise(body.amount) <= outstanding, `That is more than the ₹${asAmount(outstanding)} still due on this invoice`)
 
     const [payment] = await tx
       .insert(payments)
@@ -524,28 +407,24 @@ export function recordPayment(
         note: body.note ?? null,
         recordedBy: ctx.userId,
       })
-      .returning();
-    const settled = await settleInvoice(tx, invoiceId, totalPaise);
-    await audit(tx, ctx, "PAYMENT_RECORDED", {
+      .returning()
+    const settled = await settleInvoice(tx, invoiceId, totalPaise)
+    await audit(tx, ctx, 'PAYMENT_RECORDED', {
       societyId: invoice.societyId,
       invoiceId,
       paymentId: payment!.id,
       receiptNumber: payment!.receiptNumber,
       amount: body.amount,
-    });
-    return { ...payment!, amount: amount(payment!.amount), invoice: settled };
-  });
+    })
+    return { ...payment!, amount: amount(payment!.amount), invoice: settled }
+  })
 }
 
 /**
  * A cash entry is never deleted. Reversing it leaves both the payment and the reversal on the
  * record, and puts the money back on the invoice.
  */
-export function reversePayment(
-  ctx: AuthContext,
-  paymentId: string,
-  body: ReversePaymentBody,
-) {
+export function reversePayment(ctx: AuthContext, paymentId: string, body: ReversePaymentBody) {
   return db.transaction(async (tx) => {
     const [row] = UUID.test(paymentId)
       ? await tx
@@ -557,13 +436,10 @@ export function reversePayment(
           .from(payments)
           .innerJoin(invoices, eq(invoices.id, payments.invoiceId))
           .where(eq(payments.id, paymentId))
-          .for("update", { of: payments })
-      : [];
-    await requireRecord(ctx, row && { societyId: row.societyId }, "Payment");
-    assertState(
-      row!.payment.reversedAt === null,
-      "This payment has already been reversed",
-    );
+          .for('update', { of: payments })
+      : []
+    await requireRecord(ctx, row && { societyId: row.societyId }, 'Payment')
+    assertState(row!.payment.reversedAt === null, 'This payment has already been reversed')
 
     const [reversed] = await tx
       .update(payments)
@@ -573,32 +449,28 @@ export function reversePayment(
         reversalReason: body.reason,
       })
       .where(eq(payments.id, paymentId))
-      .returning();
-    const settled = await settleInvoice(
-      tx,
-      row!.payment.invoiceId,
-      toPaise(amount(row!.total)),
-    );
-    await audit(tx, ctx, "PAYMENT_REVERSED", {
+      .returning()
+    const settled = await settleInvoice(tx, row!.payment.invoiceId, toPaise(amount(row!.total)))
+    await audit(tx, ctx, 'PAYMENT_REVERSED', {
       societyId: row!.societyId,
       invoiceId: row!.payment.invoiceId,
       paymentId,
       receiptNumber: row!.payment.receiptNumber,
       reason: body.reason,
-    });
-    return { ...reversed!, amount: amount(reversed!.amount), invoice: settled };
-  });
+    })
+    return { ...reversed!, amount: amount(reversed!.amount), invoice: settled }
+  })
 }
 
 /** Receipts against one invoice, including reversed ones: the trail is never edited away. */
 export async function listPayments(ctx: AuthContext, invoiceId: string) {
-  await loadInvoice(db, ctx, invoiceId);
+  await loadInvoice(db, ctx, invoiceId)
   const rows = await db
     .select()
     .from(payments)
     .where(eq(payments.invoiceId, invoiceId))
-    .orderBy(desc(payments.receivedOn), desc(payments.createdAt));
-  return rows.map((row) => ({ ...row, amount: amount(row.amount) }));
+    .orderBy(desc(payments.receivedOn), desc(payments.createdAt))
+  return rows.map((row) => ({ ...row, amount: amount(row.amount) }))
 }
 
 // ---------------------------------------------------------------------------
@@ -609,27 +481,22 @@ export async function listPayments(ctx: AuthContext, invoiceId: string) {
  * Collections and dues, or occupancy, as rows the panel renders and the CSV download writes.
  * Both are read back from the invoices and assignments themselves; nothing is cached.
  */
-export async function runReport(
-  ctx: AuthContext,
-  societyId: string,
-  query: ReportQuery,
-) {
-  await loadSociety(db, ctx, societyId);
-  if (query.report === "COLLECTIONS")
-    return collections(societyId, query.period);
-  return occupancyReport(societyId);
+export async function runReport(ctx: AuthContext, societyId: string, query: ReportQuery) {
+  await loadSociety(db, ctx, societyId)
+  if (query.report === 'COLLECTIONS') return collections(societyId, query.period)
+  return occupancyReport(societyId)
 }
 
 async function collections(societyId: string, period?: string) {
   const paid = db
     .select({
       invoiceId: payments.invoiceId,
-      paid: sum(payments.amount).as("paid"),
+      paid: sum(payments.amount).as('paid'),
     })
     .from(payments)
     .where(isNull(payments.reversedAt))
     .groupBy(payments.invoiceId)
-    .as("paid");
+    .as('paid')
 
   const rows = await db
     .select({
@@ -644,13 +511,8 @@ async function collections(societyId: string, period?: string) {
     .innerJoin(flats, eq(flats.id, invoices.flatId))
     .innerJoin(blocks, eq(blocks.id, flats.blockId))
     .leftJoin(paid, eq(paid.invoiceId, invoices.id))
-    .where(
-      and(
-        eq(invoices.societyId, societyId),
-        ...(period ? [eq(invoices.period, firstOfMonth(period))] : []),
-      ),
-    )
-    .orderBy(desc(invoices.period), asc(blocks.name), asc(flats.number));
+    .where(and(eq(invoices.societyId, societyId), ...(period ? [eq(invoices.period, firstOfMonth(period))] : [])))
+    .orderBy(desc(invoices.period), asc(blocks.name), asc(flats.number))
 
   const lines = rows.map((row) => ({
     flat: row.flat,
@@ -660,31 +522,17 @@ async function collections(societyId: string, period?: string) {
     outstanding: Number((amount(row.billed) - amount(row.paid)).toFixed(2)),
     dueDate: row.dueDate,
     status: row.status,
-  }));
+  }))
   return {
-    report: "COLLECTIONS" as const,
-    columns: [
-      "flat",
-      "period",
-      "billed",
-      "paid",
-      "outstanding",
-      "dueDate",
-      "status",
-    ],
+    report: 'COLLECTIONS' as const,
+    columns: ['flat', 'period', 'billed', 'paid', 'outstanding', 'dueDate', 'status'],
     rows: lines,
     totals: {
-      billed: Number(
-        lines.reduce((total, line) => total + line.billed, 0).toFixed(2),
-      ),
-      paid: Number(
-        lines.reduce((total, line) => total + line.paid, 0).toFixed(2),
-      ),
-      outstanding: Number(
-        lines.reduce((total, line) => total + line.outstanding, 0).toFixed(2),
-      ),
+      billed: Number(lines.reduce((total, line) => total + line.billed, 0).toFixed(2)),
+      paid: Number(lines.reduce((total, line) => total + line.paid, 0).toFixed(2)),
+      outstanding: Number(lines.reduce((total, line) => total + line.outstanding, 0).toFixed(2)),
     },
-  };
+  }
 }
 
 async function occupancyReport(societyId: string) {
@@ -706,61 +554,33 @@ async function occupancyReport(societyId: string) {
       and(
         eq(flatResidents.flatId, flats.id),
         lte(flatResidents.startDate, sql`current_date`),
-        or(
-          isNull(flatResidents.endDate),
-          sql`${flatResidents.endDate} >= current_date`,
-        ),
+        or(isNull(flatResidents.endDate), sql`${flatResidents.endDate} >= current_date`),
       ),
     )
     .where(eq(blocks.societyId, societyId))
-    .groupBy(
-      blocks.name,
-      flats.number,
-      floors.floorLabel,
-      flats.flatType,
-      flats.carpetAreaSqft,
-      flats.status,
-    )
-    .orderBy(asc(blocks.name), asc(flats.number));
+    .groupBy(blocks.name, flats.number, floors.floorLabel, flats.flatType, flats.carpetAreaSqft, flats.status)
+    .orderBy(asc(blocks.name), asc(flats.number))
 
   const lines = rows.map((row) => ({
     ...row,
     owners: Number(row.owners),
     tenants: Number(row.tenants),
-    occupancy:
-      Number(row.owners) + Number(row.tenants) === 0
-        ? "VACANT"
-        : Number(row.owners) > 0
-          ? "OWNER_OCCUPIED"
-          : "RENTED",
-  }));
+    occupancy: Number(row.owners) + Number(row.tenants) === 0 ? 'VACANT' : Number(row.owners) > 0 ? 'OWNER_OCCUPIED' : 'RENTED',
+  }))
   return {
-    report: "OCCUPANCY" as const,
-    columns: [
-      "flat",
-      "floor",
-      "flatType",
-      "carpetAreaSqft",
-      "owners",
-      "tenants",
-      "occupancy",
-      "status",
-    ],
+    report: 'OCCUPANCY' as const,
+    columns: ['flat', 'floor', 'flatType', 'carpetAreaSqft', 'owners', 'tenants', 'occupancy', 'status'],
     rows: lines,
     totals: {
       flats: lines.length,
-      vacant: lines.filter((line) => line.occupancy === "VACANT").length,
-      rented: lines.filter((line) => line.occupancy === "RENTED").length,
+      vacant: lines.filter((line) => line.occupancy === 'VACANT').length,
+      rented: lines.filter((line) => line.occupancy === 'RENTED').length,
     },
-  };
+  }
 }
 
 /** The Download CSV button. Quotes every field, so a flat label with a comma survives the trip. */
 export function toCsv(columns: string[], rows: Record<string, unknown>[]) {
-  const cell = (value: unknown) =>
-    `"${String(value ?? "").replaceAll('"', '""')}"`;
-  return [
-    columns.map(cell).join(","),
-    ...rows.map((row) => columns.map((column) => cell(row[column])).join(",")),
-  ].join("\n");
+  const cell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`
+  return [columns.map(cell).join(','), ...rows.map((row) => columns.map((column) => cell(row[column])).join(','))].join('\n')
 }
