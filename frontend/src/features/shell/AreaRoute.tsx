@@ -85,7 +85,7 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
     content = !allowed(user, item) ? (
       <AccessDenied user={user} path={pathname} />
     ) : item.path === config.home ? (
-      <Dashboard user={user} />
+      <Dashboard user={user} accessToken={accessToken} />
     ) : item.key === 'addUser' ? (
       <AddUserPage accessToken={accessToken} />
     ) : item.key === 'society' ? (

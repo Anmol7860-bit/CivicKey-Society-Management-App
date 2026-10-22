@@ -5,15 +5,17 @@ import { Link } from 'react-router'
 import type { AuthUser } from '../auth/api'
 import { allowed, AREAS } from '../shell/areas'
 import { SyncSummary } from '../sync/SyncPage'
+import { AdminPanels, AdminStat, useAdminSummary } from './AdminOverview'
 
 function greetingKey(hour: number) {
   return hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'
 }
 
 /** The role's overview page. Every action and summary is filtered by the user's permissions. */
-export function Dashboard({ user }: { user: AuthUser }) {
+export function Dashboard({ user, accessToken }: { user: AuthUser; accessToken: string }) {
   const { t } = useTranslation()
   const [hour] = useState(() => new Date().getHours())
+  const admin = useAdminSummary(user, accessToken)
   const config = AREAS[user.role]
   const prefix = `area.${config.area}`
   const primary = allowed(user, config.primaryAction) ? config.primaryAction : null
@@ -58,8 +60,10 @@ export function Dashboard({ user }: { user: AuthUser }) {
                 <p className="text-[13px] text-ink">
                   <SyncSummary />
                 </p>
+              ) : config.area === 'admin' ? (
+                <AdminStat statKey={key} summary={admin} />
               ) : (
-                // ponytail: no summary APIs yet; show the value from the API once each feature ships
+                // ponytail: the resident summaries wait on the visitor and bill APIs
                 <>
                   <p className="text-lg text-ink">—</p>
                   <p className="text-[10px] text-muted">{t('shell.noData')}</p>
@@ -69,6 +73,8 @@ export function Dashboard({ user }: { user: AuthUser }) {
           ))}
         </ul>
       )}
+
+      {config.area === 'admin' && <AdminPanels summary={admin} />}
 
       {shortcuts.length > 0 && (
         <ul className="hidden gap-2.5 sm:grid sm:grid-cols-3" aria-label={t('shell.shortcuts')}>

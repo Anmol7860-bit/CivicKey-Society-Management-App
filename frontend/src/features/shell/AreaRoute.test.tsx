@@ -4,6 +4,12 @@ import { MemoryRouter } from 'react-router'
 import type { AuthUser, Permission } from '../auth/api'
 import { AreaRoute } from './AreaRoute'
 
+// The Admin overview reads its numbers from these; the routing tests only care about the shell
+vi.mock('../society/api', async () => ({
+  ...(await vi.importActual<typeof import('../society/api')>('../society/api')),
+  listSocieties: vi.fn().mockResolvedValue([]),
+}))
+
 const user = (role: AuthUser['role'], permissions: Permission[]): AuthUser => ({
   id: 'u1',
   name: 'Maya Shah',

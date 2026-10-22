@@ -110,18 +110,6 @@ export function StructureTab({ token, society, onSocietyChange }: {
     />
   )
 
-  const summary = occupancy.data?.summary
-  const tiles = summary
-    ? ([
-        ['flats', summary.flats],
-        ['owned', summary.owned],
-        ['unsold', summary.unsold],
-        ['occupied', summary.occupied],
-        ['vacant', summary.vacant],
-        ['sharingAvailable', summary.sharingAvailable],
-      ] as const)
-    : []
-
   return (
     <div className="flex flex-col gap-4">
       <Panel title={t('area.admin.society.details.title')} description={t('area.admin.society.details.description')}>
@@ -147,16 +135,6 @@ export function StructureTab({ token, society, onSocietyChange }: {
       </Panel>
 
       <Panel title={t('area.admin.society.structure.title')} description={t('area.admin.society.structure.description')}>
-        {tiles.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            {tiles.map(([key, value]) => (
-              <div key={key} className="rounded-xl border border-line p-3">
-                <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">{t(`area.admin.society.summary.${key}`)}</p>
-                <p className="text-[22px] font-bold text-ink">{value}</p>
-              </div>
-            ))}
-          </div>
-        )}
         {occupancy.loading ? (
           <Skeleton rows={4} />
         ) : occupancy.error ? (

@@ -206,6 +206,37 @@
         "users": "Users & staff",
         "billing": "Billing status"
       },
+      "overview": {
+        "ofFlats": "{{occupied}} of {{flats}}",
+        "vacantHint": "{{count}} vacant",
+        "vacantHint_one": "{{count}} vacant",
+        "peopleValue": "{{residents}} residents · {{staff}} staff",
+        "staffHint": "{{guards}} guards · {{help}} daily help · {{vendors}} vendors",
+        "waitingHint": "{{count}} waiting for approval",
+        "collectedHint": "{{collected}} collected of {{billed}}",
+        "blockLine": "{{occupied}} of {{flats}} flats occupied",
+        "occupancy": {
+          "title": "Society occupancy",
+          "description": "Flats across the society, and how full each block is today."
+        },
+        "people": {
+          "title": "Users and staff",
+          "description": "Who lives here now, and who works here.",
+          "living": "Living here",
+          "owners": "Owners",
+          "tenants": "Tenants",
+          "waiting": "Awaiting approval"
+        },
+        "money": {
+          "title": "Billing this month",
+          "description": "Raised, received and still owed for the current month.",
+          "invoices": "Invoices",
+          "unpaid": "Not settled",
+          "overdue": "Overdue",
+          "collectedShare": "{{percent}}% of this month has been collected.",
+          "notGenerated": "No invoices have been generated for this month yet."
+        }
+      },
       "shortcuts": {
         "society": {
           "label": "Society & users",
