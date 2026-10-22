@@ -5,7 +5,7 @@ import { Badge, type Tone } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { EmptyState, ErrorState, Skeleton, SuccessNote } from '../../components/ui/States'
 import { TextField } from '../../components/ui/TextField'
-import { getOccupancy, updateSociety, type Occupancy, type OccupancyFlat, type Society } from './api'
+import { getOccupancy, updateSociety, type Occupancy, type OccupancyFlat, type Society, type SocietyBody } from './api'
 import { FormGrid, Panel, useAction } from './parts'
 import { useResource } from './useResource'
 
@@ -67,17 +67,48 @@ export function StructureTab({ token, society, onSocietyChange }: {
   onSocietyChange: (society: Society) => void
 }) {
   const { t } = useTranslation()
-  const [name, setName] = useState(society.name)
-  const [address, setAddress] = useState(society.address ?? '')
+  const [form, setForm] = useState({
+    name: society.name,
+    registrationNumber: society.registrationNumber ?? '',
+    gstin: society.gstin ?? '',
+    address: society.address ?? '',
+    pinCode: society.pinCode ?? '',
+    city: society.city ?? '',
+    state: society.state ?? '',
+    officePhone: society.officePhone ?? '',
+  })
+  const set = <K extends keyof typeof form>(key: K, value: string) => setForm((previous) => ({ ...previous, [key]: value }))
   const [saved, setSaved] = useState(false)
   const action = useAction()
   const occupancy = useResource(() => getOccupancy(token, society.id), [token, society.id])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    const updated = await action.run(async () => onSocietyChange(await updateSociety(token, society.id, { name, address })))
+    // An emptied optional field is sent as null, which clears it; the name is always required
+    const body: SocietyBody = {
+      name: form.name.trim(),
+      ...(Object.fromEntries(
+        (['registrationNumber', 'gstin', 'address', 'pinCode', 'city', 'state', 'officePhone'] as const).map((key) => [
+          key,
+          form[key].trim() || null,
+        ]),
+      ) as Omit<SocietyBody, 'name'>),
+    }
+    const updated = await action.run(async () => onSocietyChange(await updateSociety(token, society.id, body)))
     setSaved(updated)
   }
+
+  const field = (key: Exclude<keyof typeof form, never>, maxLength: number, extras: { required?: boolean; hint?: string } = {}) => (
+    <TextField
+      id={`society-${key}`}
+      label={t(`area.admin.society.details.${key}`)}
+      value={form[key]}
+      onChange={(event) => set(key, event.target.value)}
+      error={action.fieldError(key)}
+      maxLength={maxLength}
+      {...extras}
+    />
+  )
 
   const summary = occupancy.data?.summary
   const tiles = summary
@@ -97,27 +128,18 @@ export function StructureTab({ token, society, onSocietyChange }: {
         {saved && <SuccessNote message={t('area.admin.society.details.saved')} onDismiss={() => setSaved(false)} />}
         <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
           <FormGrid>
-            <TextField
-              id="society-name"
-              label={t('area.admin.society.details.name')}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              error={action.fieldError('name')}
-              maxLength={160}
-              required
-            />
-            <TextField
-              id="society-address"
-              label={t('area.admin.society.details.address')}
-              value={address}
-              onChange={(event) => setAddress(event.target.value)}
-              error={action.fieldError('address')}
-              maxLength={500}
-            />
+            {field('name', 160, { required: true })}
+            {field('registrationNumber', 64)}
+            {field('gstin', 15, { hint: t('area.admin.society.details.gstinHint') })}
+            {field('address', 500, { required: true })}
+            {field('pinCode', 6)}
+            {field('city', 80)}
+            {field('state', 80)}
+            {field('officePhone', 15)}
           </FormGrid>
           {action.error && <ErrorState message={action.error} />}
           <div className="sm:w-[180px]">
-            <Button type="submit" disabled={action.pending || !name.trim()}>
+            <Button type="submit" disabled={action.pending || !form.name.trim()}>
               {action.pending ? t('shell.saving') : t('shell.save')}
             </Button>
           </div>

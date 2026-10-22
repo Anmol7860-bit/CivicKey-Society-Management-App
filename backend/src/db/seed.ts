@@ -8,8 +8,11 @@ import {
   flatResidents,
   flats,
   floors,
+  gates,
   permissions as permissionTable,
   societies,
+  staff,
+  staffFlats,
   userPermissions,
   users,
   type NewUser,
@@ -31,6 +34,10 @@ interface FlatSpec {
   block: string
   floor: string
   number: string
+  /** What the flat is and how big, so the billing panels have something to work from */
+  flatType?: (typeof flats.$inferInsert)['flatType']
+  carpetAreaSqft?: number
+  parkingSlots?: string
   /** Lets the flat take co-tenants, up to this many */
   sharing?: number
   type: ResidentType
@@ -47,36 +54,50 @@ type Account = Omit<NewUser, 'passwordHash'> & {
 }
 
 const accounts: Account[] = [
-  { name: 'Riya Sharma', phone: '9876543210', role: 'RESIDENT', password: 'Resident@123', flat: { block: 'A', floor: '1st Floor', number: '101', type: 'OWNER' } },
+  { name: 'Riya Sharma', phone: '9876543210', role: 'RESIDENT', password: 'Resident@123', flat: { block: 'A', floor: '1st Floor', number: '101', type: 'OWNER', flatType: 'TWO_BHK', carpetAreaSqft: 950, parkingSlots: 'P-12' } },
   // Co-owner of the same flat: a second OWNER assignment with full access, so either can approve
-  { name: 'Priya Sharma', phone: '9876543215', role: 'RESIDENT', password: 'Resident@123', flat: { block: 'A', floor: '1st Floor', number: '101', type: 'OWNER' } },
+  { name: 'Priya Sharma', phone: '9876543215', role: 'RESIDENT', password: 'Resident@123', flat: { block: 'A', floor: '1st Floor', number: '101', type: 'OWNER', flatType: 'TWO_BHK', carpetAreaSqft: 950, parkingSlots: 'P-12' } },
   { name: 'Mahesh Patil', phone: '9876543211', role: 'GUARD', password: 'Guard@123' },
   { name: 'Anita Rao', phone: '9876543212', email: 'admin@civickey.local', role: 'ADMIN', password: 'Admin@123', permissions: ADMIN_PERMISSIONS },
   // A Tenant on the committee: Admin role with committee permissions only
-  { name: 'Vikram Joshi', phone: '9876543214', role: 'ADMIN', password: 'Committee@123', permissions: COMMITTEE_PERMISSIONS, flat: { block: 'B', floor: '2nd Floor', number: '204', sharing: 3, type: 'TENANT' } },
+  { name: 'Vikram Joshi', phone: '9876543214', role: 'ADMIN', password: 'Committee@123', permissions: COMMITTEE_PERMISSIONS, flat: { block: 'B', floor: '2nd Floor', number: '204', sharing: 3, type: 'TENANT', flatType: 'THREE_BHK', carpetAreaSqft: 1240, parkingSlots: 'P-24, P-25' } },
   // A flatmate still in the approval queue: registered, so no access yet
-  { name: 'Arjun Nair', phone: '9876543216', role: 'RESIDENT', password: 'Tenant@123', flat: { block: 'B', floor: '2nd Floor', number: '204', sharing: 3, type: 'TENANT', pending: true } },
+  { name: 'Arjun Nair', phone: '9876543216', role: 'RESIDENT', password: 'Tenant@123', flat: { block: 'B', floor: '2nd Floor', number: '204', sharing: 3, type: 'TENANT', flatType: 'THREE_BHK', carpetAreaSqft: 1240, parkingSlots: 'P-24, P-25', pending: true } },
   { name: 'Former Resident', phone: '9876543213', role: 'RESIDENT', password: 'Inactive@123', isActive: false },
 ]
 
 /** Finds or creates the block, floor and flat; the unique keys are expressions, so no upsert. */
-async function seedFlat({ block, floor, number, sharing }: FlatSpec) {
+async function seedFlat({ block, floor, number, sharing, flatType, carpetAreaSqft, parkingSlots }: FlatSpec) {
   const [b] = await db.select().from(blocks).where(and(eq(blocks.societyId, SOCIETY_ID), eq(blocks.name, block)))
   const blockId = (b ?? (await db.insert(blocks).values({ societyId: SOCIETY_ID, name: block }).returning())[0]!).id
   const [f] = await db.select().from(floors).where(and(eq(floors.blockId, blockId), eq(floors.floorLabel, floor)))
   const floorId = (f ?? (await db.insert(floors).values({ blockId, floorLabel: floor }).returning())[0]!).id
-  const sharingColumns = { sharingAllowed: sharing !== undefined, maxOccupants: sharing ?? null }
+  const columns = {
+    sharingAllowed: sharing !== undefined,
+    maxOccupants: sharing ?? null,
+    flatType: flatType ?? null,
+    carpetAreaSqft: carpetAreaSqft ?? null,
+    parkingSlots: parkingSlots ?? null,
+  }
   const [flat] = await db
     .insert(flats)
-    .values({ blockId, floorId, number, ...sharingColumns })
+    .values({ blockId, floorId, number, ...columns })
     // floorId too: a flat left on the legacy "Unassigned" floor moves to the one it belongs on
-    .onConflictDoUpdate({ target: [flats.blockId, flats.number], set: { ...sharingColumns, floorId } })
+    .onConflictDoUpdate({ target: [flats.blockId, flats.number], set: { ...columns, floorId } })
     .returning()
   return flat!
 }
 
 try {
   await db.insert(societies).values({ id: SOCIETY_ID, name: 'Green Meadows' }).onConflictDoNothing()
+
+  // A gate and a rate, so Staff management and Billing have something to work with on first run
+  const [gate] = await db
+    .insert(gates)
+    .values({ societyId: SOCIETY_ID, name: 'Main gate' })
+    .onConflictDoNothing()
+    .returning()
+  const gateId = (gate ?? (await db.select().from(gates).where(eq(gates.societyId, SOCIETY_ID)))[0])?.id
 
   // The first Admin grants everyone's permissions, including (as the bootstrap account) their own
   let granter: string | undefined
@@ -118,6 +139,30 @@ try {
       endDate: flat.type === 'TENANT' ? IN_A_YEAR : null,
       ...(flat.pending ? {} : { verificationStatus: 'VERIFIED', verifiedBy: granter!, verifiedAt: new Date() }),
     })
+  }
+
+  if (gateId) {
+    const [help] = await db
+      .insert(staff)
+      .values({
+        societyId: SOCIETY_ID,
+        kind: 'DAILY_HELP',
+        name: 'Sunita Devi',
+        phone: '9876543220',
+        workType: 'Maid',
+        workingDays: 'MON,TUE,WED,THU,FRI,SAT',
+        policeVerification: 'VERIFIED',
+        passCode: 'CK-SEEDHELP',
+      })
+      .onConflictDoNothing()
+      .returning()
+    // The flat she works for, so the Daily help record serves someone. On a re-run the insert
+    // conflicts and returns nothing, so the existing row is read back instead.
+    const staffId = (help ?? (await db.select().from(staff).where(eq(staff.phone, '9876543220')))[0])?.id
+    const [firstFlat] = await db.select().from(flats).limit(1)
+    if (staffId && firstFlat) {
+      await db.insert(staffFlats).values({ staffId, flatId: firstFlat.id, timeWindow: '7-9 am' }).onConflictDoNothing()
+    }
   }
 
   console.log(`Seeded ${accounts.length} users:`)

@@ -87,7 +87,8 @@
     "cancel": "Cancel",
     "edit": "Edit",
     "rename": "Rename",
-    "deactivate": "Deactivate"
+    "deactivate": "Deactivate",
+    "remove": "Remove"
   },
   "area": {
     "resident": {
@@ -228,7 +229,8 @@
           "floors": "Floors",
           "flats": "Flats",
           "residents": "Residents",
-          "approvals": "Approvals"
+          "approvals": "Approvals",
+          "gates": "Gates"
         },
         "noSociety": {
           "title": "No society yet",
@@ -261,10 +263,17 @@
         },
         "details": {
           "title": "Society details",
-          "description": "The name and address shown to residents and guards.",
+          "description": "The society as it is registered, and how residents and guards reach the office.",
           "name": "Society name",
           "address": "Address",
-          "saved": "Society details saved."
+          "saved": "Society details saved.",
+          "registrationNumber": "Registration number",
+          "gstin": "GSTIN",
+          "gstinHint": "Only if the society charges GST on maintenance.",
+          "pinCode": "PIN code",
+          "city": "City",
+          "state": "State",
+          "officePhone": "Society office phone"
         },
         "structure": {
           "title": "Blocks, floors and flats",
@@ -343,7 +352,30 @@
           "deactivate": {
             "title": "Deactivate this flat?",
             "description": "Flat {{number}} stops being available for new residents. Nothing already recorded is deleted."
-          }
+          },
+          "type": "Type",
+          "noType": "Not set",
+          "types": {
+            "STUDIO": "Studio",
+            "ONE_BHK": "1 BHK",
+            "TWO_BHK": "2 BHK",
+            "THREE_BHK": "3 BHK",
+            "FOUR_BHK": "4 BHK",
+            "PENTHOUSE": "Penthouse",
+            "SHOP": "Shop"
+          },
+          "carpetArea": "Carpet area (sq ft)",
+          "carpetAreaHint": "Used to work out the maintenance charge.",
+          "area": "{{area}} sq ft",
+          "noArea": "No area recorded",
+          "parking": "Parking slots",
+          "parkingPlaceholder": "P-12, P-13",
+          "parkingHint": "Separate the slots with commas; the count is worked out from them.",
+          "slots": "{{count}} parking slot",
+          "slots_other": "{{count}} parking slots",
+          "intercom": "Intercom number",
+          "intercomHint": "Guards call this to confirm a visitor.",
+          "intercomShort": "Intercom {{number}}"
         },
         "residents": {
           "title": "Residents and tenants",
@@ -418,6 +450,29 @@
           "proof": "Proof reference",
           "proofHint": "Sale deed or rent agreement reference.",
           "done": "{{name}} registered and waiting for verification."
+        },
+        "gates": {
+          "title": "Gates",
+          "description": "Guards are posted to a gate. Every entry and exit records which gate it happened at.",
+          "name": "Gate name",
+          "namePlaceholder": "Main gate",
+          "usedFor": "Used for",
+          "add": "Add gate",
+          "created": "Gate {{name}} added.",
+          "uses": {
+            "VISITORS_AND_RESIDENTS": "Visitors and residents",
+            "VISITORS_ONLY": "Visitors only",
+            "RESIDENTS_ONLY": "Residents only",
+            "SERVICE_AND_DELIVERY": "Service and delivery"
+          },
+          "empty": {
+            "title": "No gates yet",
+            "description": "Add the gates people use, so a guard can be posted to one."
+          },
+          "deactivate": {
+            "title": "Close this gate?",
+            "description": "{{name}} stops being available for new postings. Entries already recorded keep it."
+          }
         }
       },
       "addUser": {
@@ -515,6 +570,280 @@
           "invite": "The SMS invite and OTP, so a resident cannot sign in until that ticket lands"
         },
         "noFlats": "There are no flats yet. Add a block, a floor and a flat under Society & users first."
+      },
+      "staff": {
+        "intro": "Guards need Manage guards. Daily help and staff passes need Register staff.",
+        "add": "Add staff",
+        "kinds": {
+          "GUARD": "Guards",
+          "DAILY_HELP": "Daily help",
+          "VENDOR": "Vendors and service staff"
+        },
+        "listDescription": "Search by name or mobile number.",
+        "search": "Search",
+        "searchPlaceholder": "Name or mobile",
+        "shift": "Shift",
+        "allShifts": "All shifts",
+        "shifts": {
+          "MORNING": "Morning",
+          "EVENING": "Evening",
+          "NIGHT": "Night",
+          "FULL_DAY": "Full day"
+        },
+        "verification": {
+          "NOT_STARTED": "Not started",
+          "SUBMITTED": "Submitted",
+          "VERIFIED": "Verified",
+          "REJECTED": "Rejected"
+        },
+        "policeVerification": "Police verification",
+        "days": {
+          "MON": "Mon",
+          "TUE": "Tue",
+          "WED": "Wed",
+          "THU": "Thu",
+          "FRI": "Fri",
+          "SAT": "Sat",
+          "SUN": "Sun"
+        },
+        "workingDays": "Working days",
+        "name": "Full name",
+        "phone": "Mobile number",
+        "workType": "Work type",
+        "workTypeHint": {
+          "GUARD": "Head guard, patrol, gate duty.",
+          "DAILY_HELP": "Maid, cook, driver, nanny.",
+          "VENDOR": "Plumber, electrician, housekeeping."
+        },
+        "agency": "Agency",
+        "gate": "Gate",
+        "chooseGate": "Choose a gate",
+        "chooseShift": "Choose a shift",
+        "noGates": "Add a gate under Society & users first.",
+        "homeAddress": "Home address",
+        "photo": "Photo reference",
+        "photoHint": "Where the photo is filed. Uploads are not stored yet.",
+        "flatsServed": "Flats served",
+        "flatsServedHint": "The flat’s residents see this person under Daily help and are told when they enter or leave.",
+        "flat": "Flat",
+        "addFlat": "Add flat",
+        "timeWindow": "Expected",
+        "timeWindowPlaceholder": "7–9 am",
+        "passFrom": "Staff pass valid from",
+        "passTo": "Staff pass valid until",
+        "passToHint": "Leave empty for no end date.",
+        "consent": "The staff member agreed to share their photo and ID for gate verification.",
+        "saveAndIssue": "Save and issue staff pass",
+        "reissue": "Reissue pass",
+        "saved": "{{name}} saved, and the staff pass issued.",
+        "pass": "Pass {{code}} · from {{from}}",
+        "passUntil": "until {{date}}",
+        "idOnFile": "{{type}} ····{{last4}}",
+        "serves": "Serves {{flats}}",
+        "addTitle": {
+          "GUARD": "Add a guard",
+          "DAILY_HELP": "Add daily help",
+          "VENDOR": "Add a vendor"
+        },
+        "addDescription": {
+          "GUARD": "Guards are posted to a gate on a shift, and scan passes at that gate.",
+          "DAILY_HELP": "Maids, cooks, drivers and others who work for one or more flats. Each gets a staff pass the guard scans at the gate.",
+          "VENDOR": "Plumbers, electricians and other service staff working for the society."
+        },
+        "editTitle": "Edit {{name}}",
+        "empty": {
+          "title": "Nobody here yet",
+          "description": "Add the first person with the button above."
+        },
+        "deactivate": {
+          "title": "Deactivate this staff member?",
+          "description": "{{name}}’s pass stops working at the gate. Nothing already recorded is deleted."
+        }
+      },
+      "billing": {
+        "intro": "Each panel appears only to admins who hold the permission shown under its title.",
+        "rates": {
+          "title": "Maintenance rates",
+          "permission": "BILLING_RATE_SET",
+          "basis": "Charge basis",
+          "bases": {
+            "PER_SQFT": "Per sq ft of carpet area",
+            "PER_FLAT": "Flat rate per flat"
+          },
+          "rate": "Rate (₹)",
+          "sinkingFund": "Sinking fund (₹ per month)",
+          "parkingCharge": "Parking charge (₹ per slot)",
+          "dueDay": "Due day of month",
+          "dueDayHint": "Between 1 and 28, so every month has the day.",
+          "lateFee": "Late fee (₹ per day)",
+          "effectiveFrom": "Effective from",
+          "effectiveFromHint": "Old rates stay on bills already generated.",
+          "save": "Save rates",
+          "saved": "Rates saved.",
+          "current": "In force: {{basis}} at {{rate}}, from {{from}}."
+        },
+        "generate": {
+          "title": "Generate invoices",
+          "permission": "INVOICE_GENERATE",
+          "period": "Billing period",
+          "flats": "Flats",
+          "occupied": "All occupied flats",
+          "all": "Every active flat",
+          "oneTimeDescription": "One-time charge (optional)",
+          "oneTimePlaceholder": "Lift repair contribution",
+          "oneTimeAmount": "Amount per flat (₹)",
+          "preview": "Preview",
+          "action": "Generate invoices",
+          "previewTitle": "{{count}} invoices · {{total}} in all",
+          "due": "Due on {{date}}.",
+          "breakdown": "maintenance {{maintenance}} · sinking {{sinking}} · parking {{parking}}",
+          "skipped": "Not billed: {{list}}",
+          "done": "{{count}} invoices generated for {{period}}."
+        },
+        "payment": {
+          "title": "Record a cash payment",
+          "permission": "PAYMENT_CASH_MARK",
+          "flat": "Flat",
+          "chooseFlat": "Choose a flat",
+          "chooseFlatFirst": "Choose a flat first",
+          "invoice": "Invoice",
+          "chooseInvoice": "Choose an invoice",
+          "invoiceLabel": "{{period}} maintenance · {{due}} due",
+          "amount": "Amount received (₹)",
+          "outstanding": "{{amount}} still due.",
+          "receivedOn": "Received on",
+          "paidBy": "Paid by",
+          "paidByPlaceholder": "Name of the person who paid",
+          "note": "Note",
+          "receiptNote": "A receipt number is created automatically and the resident sees it in their app. A cash entry cannot be deleted, only reversed, and both are recorded in the audit log.",
+          "action": "Record payment and issue receipt",
+          "issued": "Receipt {{receipt}} issued for {{amount}}."
+        },
+        "invoices": {
+          "title": "Invoices",
+          "description": "What has been billed, what has been paid, and the receipts behind each one.",
+          "status": {
+            "UNPAID": "Unpaid",
+            "PARTIALLY_PAID": "Part paid",
+            "PAID": "Paid",
+            "CANCELLED": "Cancelled"
+          },
+          "amounts": "{{total}} billed · {{paid}} paid · {{due}} due",
+          "due": "Due {{date}}",
+          "receipts": "Receipts",
+          "noReceipts": "Nothing received against this invoice yet.",
+          "reverse": "Reverse",
+          "reversed": "Reversed · {{reason}}",
+          "reverseTitle": "Reverse this receipt?",
+          "reverseDescription": "Receipt {{receipt}} stays on the record, and the amount goes back on the invoice.",
+          "empty": {
+            "title": "Nothing billed yet",
+            "description": "Generate the first month’s invoices above."
+          }
+        }
+      },
+      "reports": {
+        "intro": "Read back from the invoices and assignments themselves; nothing here is cached.",
+        "title": "Reports",
+        "permission": "REPORT_VIEW",
+        "report": "Report",
+        "names": {
+          "COLLECTIONS": "Collections and dues",
+          "OCCUPANCY": "Occupancy"
+        },
+        "period": "Period",
+        "thisMonth": "This month",
+        "lastMonth": "Last month",
+        "allTime": "All time",
+        "download": "Download CSV",
+        "view": "View report",
+        "columns": {
+          "flat": "Flat",
+          "period": "Period",
+          "billed": "Billed",
+          "paid": "Paid",
+          "outstanding": "Outstanding",
+          "dueDate": "Due date",
+          "status": "Status",
+          "floor": "Floor",
+          "flatType": "Type",
+          "carpetAreaSqft": "Area (sq ft)",
+          "owners": "Owners",
+          "tenants": "Tenants",
+          "occupancy": "Occupancy"
+        },
+        "totals": {
+          "billed": "Billed",
+          "paid": "Collected",
+          "outstanding": "Outstanding",
+          "flats": "Flats",
+          "vacant": "Vacant",
+          "rented": "Rented"
+        },
+        "values": {
+          "UNPAID": "Unpaid",
+          "PARTIALLY_PAID": "Part paid",
+          "PAID": "Paid",
+          "CANCELLED": "Cancelled",
+          "VACANT": "Vacant",
+          "OWNER_OCCUPIED": "Owner lives here",
+          "RENTED": "Rented",
+          "ACTIVE": "Active",
+          "INACTIVE": "Inactive"
+        },
+        "empty": {
+          "title": "Nothing to report",
+          "description": "There is no data for this report and period yet."
+        }
+      },
+      "security": {
+        "intro": "Who did what, newest first. The trail is written by the server and cannot be edited.",
+        "title": "Security activity",
+        "permission": "AUDIT_VIEW",
+        "event": "Event",
+        "allEvents": "All events",
+        "user": "User",
+        "userPlaceholder": "Name or mobile",
+        "unknownActor": "Unknown",
+        "columns": {
+          "when": "When",
+          "who": "Who",
+          "event": "Event",
+          "details": "Details"
+        },
+        "events": {
+          "AUTHORIZATION_DENIED": "Access denied",
+          "AUTH_LOGIN_SUCCESS": "Signed in",
+          "AUTH_LOGIN_FAILED": "Sign-in failed",
+          "AUTH_LOGIN_RATE_LIMITED": "Sign-in rate limited",
+          "AUTH_LOGOUT": "Signed out",
+          "COMMITTEE_MEMBERSHIP_SET": "Committee membership set",
+          "COMMITTEE_MEMBERSHIP_REMOVED": "Committee membership removed",
+          "SOCIETY_UPDATED": "Society details changed",
+          "BLOCK_CREATED": "Block created",
+          "BLOCK_UPDATED": "Block changed",
+          "FLOOR_CREATED": "Floor created",
+          "FLOOR_UPDATED": "Floor changed",
+          "FLAT_CREATED": "Flat created",
+          "FLAT_UPDATED": "Flat changed",
+          "GATE_CREATED": "Gate added",
+          "GATE_UPDATED": "Gate changed",
+          "RESIDENT_REGISTERED": "Resident registered",
+          "RESIDENT_VERIFIED": "Resident approved",
+          "RESIDENT_REJECTED": "Resident rejected",
+          "RESIDENT_UPDATED": "Resident assignment changed",
+          "STAFF_REGISTERED": "Staff registered",
+          "STAFF_UPDATED": "Staff record changed",
+          "STAFF_PASS_REISSUED": "Staff pass reissued",
+          "BILLING_RATE_SET": "Maintenance rates set",
+          "INVOICES_GENERATED": "Invoices generated",
+          "PAYMENT_RECORDED": "Payment recorded",
+          "PAYMENT_REVERSED": "Payment reversed"
+        },
+        "empty": {
+          "title": "Nothing recorded yet",
+          "description": "Activity shows up here as people use the society’s account."
+        }
       }
     }
   },

@@ -6,12 +6,13 @@ import { listBlocks, listSocieties, type Flat, type Society, type VerificationSt
 import { BlocksTab } from './BlocksTab'
 import { FlatsTab } from './FlatsTab'
 import { FloorsTab } from './FloorsTab'
+import { GatesTab } from './GatesTab'
 import { Tabs } from './parts'
 import { ResidentsTab } from './ResidentsTab'
 import { StructureTab } from './StructureTab'
 import { useResource } from './useResource'
 
-const TAB_KEYS = ['structure', 'blocks', 'floors', 'flats', 'residents', 'approvals'] as const
+const TAB_KEYS = ['structure', 'blocks', 'floors', 'flats', 'gates', 'residents', 'approvals'] as const
 type TabKey = (typeof TAB_KEYS)[number]
 
 /**
@@ -81,6 +82,7 @@ export function SocietyPage({ user, accessToken }: { user: AuthUser; accessToken
           onManageResidents={(chosen) => openResidents(chosen)}
         />
       )}
+      {active === 'gates' && <GatesTab token={accessToken} societyId={current.id} />}
       {(active === 'residents' || active === 'approvals') && (
         <ResidentsTab
           key={active}

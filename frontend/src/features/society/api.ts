@@ -9,10 +9,28 @@ export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY'
 /** The locales the society can address someone in; the database holds the same list */
 export type PreferredLanguage = 'en' | 'hi' | 'mr'
 
+export type GateUse = 'VISITORS_AND_RESIDENTS' | 'VISITORS_ONLY' | 'RESIDENTS_ONLY' | 'SERVICE_AND_DELIVERY'
+export type FlatType = 'STUDIO' | 'ONE_BHK' | 'TWO_BHK' | 'THREE_BHK' | 'FOUR_BHK' | 'PENTHOUSE' | 'SHOP'
+
 export interface Society {
   id: string
   name: string
   address: string | null
+  registrationNumber: string | null
+  /** Only societies that charge GST on maintenance have one */
+  gstin: string | null
+  pinCode: string | null
+  city: string | null
+  state: string | null
+  officePhone: string | null
+}
+
+export interface Gate {
+  id: string
+  societyId: string
+  name: string
+  usedFor: GateUse
+  status: Status
 }
 
 export interface Block {
@@ -38,10 +56,30 @@ export interface Flat {
   status: Status
   sharingAllowed: boolean
   maxOccupants: number | null
+  /** What the flat is and how big: both feed the maintenance charge */
+  flatType: FlatType | null
+  carpetAreaSqft: number | null
+  parkingSlots: string | null
+  /** Counted by the database from the slot labels */
+  parkingSlotCount: number
+  intercom: string | null
+}
+
+/** The flat fields the add and edit forms send; the hierarchy is never in the body */
+export interface FlatBody {
+  number?: string
+  sharingAllowed?: boolean
+  maxOccupants?: number | null
+  flatType?: FlatType | null
+  carpetAreaSqft?: number | null
+  parkingSlots?: string | null
+  intercom?: string | null
 }
 
 /** A flat as the occupancy view reports it: what is sold, who lives there and how many may still join. */
 export interface OccupancyFlat extends Flat {
+  /** Owners first, so the flats table can name the owner and the tenant separately */
+  residents: { name: string; residentType: ResidentType }[]
   owners: number
   tenants: number
   occupants: number
@@ -127,7 +165,7 @@ export interface RegisterResidentBody {
 }
 
 /** Every call carries the access token; the server decides scope from it, never from the request. */
-function call<T>(token: string, method: string, path: string, body?: unknown) {
+export function call<T>(token: string, method: string, path: string, body?: unknown) {
   return send<T>(`/api/v1${path}`, {
     method,
     headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
@@ -136,8 +174,23 @@ function call<T>(token: string, method: string, path: string, body?: unknown) {
 }
 
 export const listSocieties = (token: string) => call<Society[]>(token, 'GET', '/societies')
-export const updateSociety = (token: string, id: string, body: { name?: string; address?: string | null }) =>
-  call<Society>(token, 'PUT', `/societies/${id}`, body)
+export interface SocietyBody {
+  name?: string
+  address?: string | null
+  registrationNumber?: string | null
+  gstin?: string | null
+  pinCode?: string | null
+  city?: string | null
+  state?: string | null
+  officePhone?: string | null
+}
+export const updateSociety = (token: string, id: string, body: SocietyBody) => call<Society>(token, 'PUT', `/societies/${id}`, body)
+
+export const listGates = (token: string, societyId: string) => call<Gate[]>(token, 'GET', `/societies/${societyId}/gates`)
+export const createGate = (token: string, societyId: string, body: { name: string; usedFor?: GateUse }) =>
+  call<Gate>(token, 'POST', `/societies/${societyId}/gates`, body)
+export const updateGate = (token: string, id: string, body: { name?: string; usedFor?: GateUse; status?: Status; reason?: string }) =>
+  call<Gate>(token, 'PUT', `/gates/${id}`, body)
 export const getOccupancy = (token: string, societyId: string) => call<Occupancy>(token, 'GET', `/societies/${societyId}/occupancy`)
 
 export const listBlocks = (token: string, societyId: string) => call<Block[]>(token, 'GET', `/societies/${societyId}/blocks`)
@@ -156,16 +209,10 @@ export const updateFloor = (
 ) => call<Floor>(token, 'PUT', `/floors/${id}`, body)
 
 export const listFlats = (token: string, floorId: string) => call<Flat[]>(token, 'GET', `/floors/${floorId}/flats`)
-export const createFlat = (
-  token: string,
-  floorId: string,
-  body: { number: string; sharingAllowed?: boolean; maxOccupants?: number | null },
-) => call<Flat>(token, 'POST', `/floors/${floorId}/flats`, body)
-export const updateFlat = (
-  token: string,
-  id: string,
-  body: { number?: string; floorId?: string; status?: Status; sharingAllowed?: boolean; maxOccupants?: number | null; reason?: string },
-) => call<Flat>(token, 'PUT', `/flats/${id}`, body)
+export const createFlat = (token: string, floorId: string, body: FlatBody & { number: string }) =>
+  call<Flat>(token, 'POST', `/floors/${floorId}/flats`, body)
+export const updateFlat = (token: string, id: string, body: FlatBody & { floorId?: string; status?: Status; reason?: string }) =>
+  call<Flat>(token, 'PUT', `/flats/${id}`, body)
 
 export function listResidents(token: string, societyId: string, filters: ResidentFilters = {}) {
   const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString()

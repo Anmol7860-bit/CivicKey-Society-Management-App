@@ -3,9 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { Link, Navigate, useLocation } from 'react-router'
 import type { AuthUser } from '../auth/api'
 import { Dashboard } from '../dashboard/Dashboard'
+import { BillingPage } from '../billing/BillingPage'
+import { ReportsPage } from '../billing/ReportsPage'
+import { SecurityPage } from '../security/SecurityPage'
 import { AddUserPage } from '../society/AddUserPage'
 import { MyFlatPage } from '../society/MyFlatPage'
 import { SocietyPage } from '../society/SocietyPage'
+import { StaffPage } from '../staff/StaffPage'
 import { SyncPage } from '../sync/SyncPage'
 import { useAutoSync } from '../sync/useSync'
 import { AppShell } from './AppShell'
@@ -88,6 +92,14 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
       <SocietyPage user={user} accessToken={accessToken} />
     ) : item.key === 'myFlat' ? (
       <MyFlatPage accessToken={accessToken} />
+    ) : item.key === 'staff' ? (
+      <StaffPage user={user} accessToken={accessToken} />
+    ) : item.key === 'billing' ? (
+      <BillingPage user={user} accessToken={accessToken} />
+    ) : item.key === 'reports' ? (
+      <ReportsPage accessToken={accessToken} />
+    ) : item.key === 'security' ? (
+      <SecurityPage accessToken={accessToken} />
     ) : user.role === 'GUARD' && item.key === 'sync' ? (
       <SyncPage accessToken={accessToken} />
     ) : (

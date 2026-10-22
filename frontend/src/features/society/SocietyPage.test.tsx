@@ -2,12 +2,13 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ApiError, type AuthUser, type Permission } from '../auth/api'
 import * as api from './api'
+import { aSociety } from './fixtures'
 import { SocietyPage } from './SocietyPage'
 
 vi.mock('./api')
 const mocked = vi.mocked(api)
 
-const SOCIETY = { id: 's1', name: 'Green Meadows', address: null }
+const SOCIETY = aSociety()
 const BLOCK_A = { id: 'b1', societyId: 's1', name: 'A', status: 'ACTIVE' as const }
 const BLOCK_B = { id: 'b2', societyId: 's1', name: 'B', status: 'ACTIVE' as const }
 const FLOOR_A1 = { id: 'f1', blockId: 'b1', floorLabel: '1st Floor', sortOrder: null, status: 'ACTIVE' as const }
@@ -184,6 +185,59 @@ describe('flat management', () => {
 
     await waitFor(() => expect(screen.getByLabelText(/Floor/)).toHaveValue(''))
     expect(screen.getByRole('button', { name: 'Add flat' })).toBeDisabled()
+  })
+})
+
+describe('society details and flat billing fields', () => {
+  it('saves the registration, GST and address fields, clearing the ones left empty', async () => {
+    mocked.updateSociety.mockResolvedValue(aSociety({ city: 'Mumbai' }))
+    show()
+
+    await userEvent.type(await screen.findByLabelText(/Registration number/), 'MUM/HSG/1234')
+    await userEvent.type(screen.getByLabelText(/GSTIN/), '27AABCU9603R1ZM')
+    await userEvent.type(screen.getByLabelText(/City/), 'Mumbai')
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(mocked.updateSociety).toHaveBeenCalledWith('token', 's1', {
+        name: 'Green Meadows',
+        registrationNumber: 'MUM/HSG/1234',
+        gstin: '27AABCU9603R1ZM',
+        address: null,
+        pinCode: null,
+        city: 'Mumbai',
+        state: null,
+        officePhone: null,
+      }),
+    )
+  })
+
+  it('sends the type, area, parking and intercom with a new flat', async () => {
+    mocked.createFlat.mockResolvedValue({} as never)
+    show()
+    await openTab('Flats')
+
+    await userEvent.selectOptions(await screen.findByLabelText(/Block/), 'b1')
+    await waitFor(() => expect(screen.getByLabelText(/Floor/)).toBeEnabled())
+    await userEvent.selectOptions(screen.getByLabelText(/Floor/), 'f1')
+    await userEvent.type(screen.getByLabelText(/Flat number/), '101')
+    await userEvent.selectOptions(screen.getByLabelText('Type'), 'TWO_BHK')
+    await userEvent.type(screen.getByLabelText(/Carpet area/), '950')
+    await userEvent.type(screen.getByLabelText(/Parking slots/), 'P-12, P-13')
+    await userEvent.type(screen.getByLabelText(/Intercom number/), '2101')
+    await userEvent.click(screen.getByRole('button', { name: 'Add flat' }))
+
+    await waitFor(() =>
+      expect(mocked.createFlat).toHaveBeenCalledWith('token', 'f1', {
+        number: '101',
+        sharingAllowed: false,
+        maxOccupants: null,
+        flatType: 'TWO_BHK',
+        carpetAreaSqft: 950,
+        parkingSlots: 'P-12, P-13',
+        intercom: '2101',
+      }),
+    )
   })
 })
 

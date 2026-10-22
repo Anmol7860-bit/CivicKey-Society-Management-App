@@ -4,25 +4,12 @@ import { MemoryRouter } from 'react-router'
 import { ApiError } from '../auth/api'
 import { AddUserPage } from './AddUserPage'
 import * as api from './api'
+import { aFlat, aSociety } from './fixtures'
 
 vi.mock('./api')
 const mocked = vi.mocked(api)
 
-const flat = {
-  id: 'fl1',
-  blockId: 'b1',
-  floorId: 'f1',
-  number: '101',
-  status: 'ACTIVE' as const,
-  sharingAllowed: false,
-  maxOccupants: null,
-  owners: 0,
-  tenants: 0,
-  occupants: 0,
-  slotsLeft: null,
-  ownership: 'UNSOLD' as const,
-  occupancy: 'VACANT' as const,
-}
+const flat = aFlat()
 
 function show(path = '/admin/add-user') {
   render(
@@ -44,7 +31,7 @@ async function fillRequired() {
 
 beforeEach(() => {
   vi.resetAllMocks()
-  mocked.listSocieties.mockResolvedValue([{ id: 's1', name: 'Green Meadows', address: null }])
+  mocked.listSocieties.mockResolvedValue([aSociety()])
   mocked.getOccupancy.mockResolvedValue({
     society: { id: 's1', name: 'Green Meadows' },
     summary: { flats: 1, inactive: 0, unsold: 1, owned: 0, vacant: 1, occupied: 0, sharingAvailable: 0 },
