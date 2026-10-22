@@ -1,9 +1,12 @@
 import { render, screen } from '@testing-library/react'
 import type { MyAssignment } from './api'
+import * as gateApi from '../gate/api'
 import * as api from './api'
 import { MyFlatPage } from './MyFlatPage'
 
 vi.mock('./api')
+// The page now carries the daily help, vehicles and requests panels from page 7 of the design
+vi.mock('../gate/api')
 const mocked = vi.mocked(api)
 
 const assignment = (overrides: Partial<MyAssignment> = {}): MyAssignment => ({
@@ -33,7 +36,15 @@ const assignment = (overrides: Partial<MyAssignment> = {}): MyAssignment => ({
   ...overrides,
 })
 
-beforeEach(() => vi.resetAllMocks())
+const gate = vi.mocked(gateApi)
+
+beforeEach(() => {
+  vi.resetAllMocks()
+  // resetAllMocks clears the panels' loaders too, so they are given empty answers each time
+  gate.listMyDailyHelp.mockResolvedValue([])
+  gate.listMyVehicles.mockResolvedValue([])
+  gate.listMyAccessRequests.mockResolvedValue([])
+})
 
 it('shows the approved assignment, the flat and the household', async () => {
   mocked.listMyFlats.mockResolvedValue([assignment()])
@@ -68,7 +79,8 @@ it('explains view-only access instead of offering anything to manage', async () 
   mocked.listMyFlats.mockResolvedValue([assignment({ accessLevel: 'VIEW_ONLY' })])
   render(<MyFlatPage accessToken="token" />)
 
-  expect(await screen.findByText(/view-only access/)).toBeInTheDocument()
+  // The requests panel says the same thing in its own words, so the assignment's line is matched exactly
+  expect(await screen.findByText(/view-only access, so you can see the flat/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Deactivate' })).not.toBeInTheDocument()
 })
 

@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
       globals: true,
       setupFiles: './src/test/setup.ts',
       css: false,
+      // jsdom plus userEvent typing is slow once several files run at once; 5s was marginal
+      testTimeout: 15000,
     },
   }
 })

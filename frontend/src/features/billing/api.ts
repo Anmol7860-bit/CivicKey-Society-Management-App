@@ -99,6 +99,13 @@ export interface Report {
   totals: Record<string, number>
 }
 
+/** One of the resident's own bills, with the receipts behind it */
+export interface MyInvoice extends Invoice {
+  payments: Payment[]
+}
+
+export const listMyInvoices = (token: string) => call<MyInvoice[]>(token, 'GET', '/me/invoices')
+
 export const listRates = (token: string, societyId: string) => call<BillingRate[]>(token, 'GET', `/societies/${societyId}/billing-rates`)
 export const setRates = (token: string, societyId: string, body: RatesBody) =>
   call<BillingRate>(token, 'POST', `/societies/${societyId}/billing-rates`, body)

@@ -603,6 +603,37 @@ export async function listInside(ctx: AuthContext, societyId: string) {
   return people.sort((a, b) => (b.enteredAt?.getTime() ?? 0) - (a.enteredAt?.getTime() ?? 0))
 }
 
+/**
+ * The flat picker on the guard's form: the flat label and the resident's first name only, which
+ * is all a guard needs to say "A-101, Riya?" and nothing more about who lives there.
+ */
+export async function flatDirectory(ctx: AuthContext, societyId: string) {
+  await assertSameSociety(ctx, societyId)
+  const rows = await db
+    .select({
+      id: flats.id,
+      number: flats.number,
+      blockName: blocks.name,
+      residents: sql<string[]>`coalesce(array_agg(distinct split_part(${users.name}, ' ', 1)) filter (where ${users.name} is not null), '{}')`,
+    })
+    .from(flats)
+    .innerJoin(blocks, eq(blocks.id, flats.blockId))
+    .leftJoin(
+      flatResidents,
+      and(
+        eq(flatResidents.flatId, flats.id),
+        eq(flatResidents.verificationStatus, 'VERIFIED'),
+        lte(flatResidents.startDate, sql`current_date`),
+        or(isNull(flatResidents.endDate), gte(flatResidents.endDate, sql`current_date`)),
+      ),
+    )
+    .leftJoin(users, eq(users.id, flatResidents.userId))
+    .where(and(eq(blocks.societyId, societyId), eq(flats.status, 'ACTIVE')))
+    .groupBy(flats.id, flats.number, blocks.name)
+    .orderBy(asc(blocks.name), asc(flats.number))
+  return rows.map((row) => ({ id: row.id, label: `${row.blockName}-${row.number}`, residents: row.residents }))
+}
+
 /** The three numbers on the guard's overview. */
 export async function gateSummary(ctx: AuthContext, societyId: string) {
   await assertSameSociety(ctx, societyId)

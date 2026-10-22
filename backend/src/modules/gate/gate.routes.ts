@@ -47,6 +47,9 @@ export function createGateRouter() {
     const { phone } = parseOrThrow(visitorLookupSchema, req.query)
     res.json({ data: await service.lookupVisitor(req.ctx!, req.params.societyId as string, phone) })
   })
+  router.get('/societies/:societyId/flat-directory', ...atGate, async (req, res) => {
+    res.json({ data: await service.flatDirectory(req.ctx!, req.params.societyId as string) })
+  })
   router.get('/societies/:societyId/inside', ...atGate, async (req, res) => {
     res.json({ data: await service.listInside(req.ctx!, req.params.societyId as string) })
   })

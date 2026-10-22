@@ -8,6 +8,24 @@ import { AreaRoute } from './AreaRoute'
 vi.mock('../society/api', async () => ({
   ...(await vi.importActual<typeof import('../society/api')>('../society/api')),
   listSocieties: vi.fn().mockResolvedValue([]),
+  listMyFlats: vi.fn().mockResolvedValue([]),
+}))
+vi.mock('../gate/api', async () => ({
+  ...(await vi.importActual<typeof import('../gate/api')>('../gate/api')),
+  gateSummary: vi.fn().mockResolvedValue({ waiting: 0, inside: 0, visitorsInside: 0, staffInside: 0, today: 0, expected: 0 }),
+  listInside: vi.fn().mockResolvedValue([]),
+  listVisits: vi.fn().mockResolvedValue([]),
+  listMyVisits: vi.fn().mockResolvedValue([]),
+  listMyPasses: vi.fn().mockResolvedValue([]),
+  listMyDailyHelp: vi.fn().mockResolvedValue([]),
+  listMyVehicles: vi.fn().mockResolvedValue([]),
+  listMyAccessRequests: vi.fn().mockResolvedValue([]),
+  flatDirectory: vi.fn().mockResolvedValue([]),
+}))
+vi.mock('../billing/api', async () => ({
+  ...(await vi.importActual<typeof import('../billing/api')>('../billing/api')),
+  listMyInvoices: vi.fn().mockResolvedValue([]),
+  listInvoices: vi.fn().mockResolvedValue([]),
 }))
 
 const user = (role: AuthUser['role'], permissions: Permission[]): AuthUser => ({
@@ -16,7 +34,7 @@ const user = (role: AuthUser['role'], permissions: Permission[]): AuthUser => ({
   phone: null,
   email: null,
   role,
-  societyId: null,
+  societyId: 's1',
   permissions,
 })
 
@@ -110,6 +128,7 @@ describe('mobile drawer', () => {
     await userEvent.click(within(drawer).getByRole('link', { name: 'Pass validation' }))
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Pass validation' })).toBeInTheDocument()
+    // Pass validation, staff verification and the inside list are one gate screen
+    expect(screen.getByRole('heading', { name: 'Pass validation, gate and staff' })).toBeInTheDocument()
   })
 })

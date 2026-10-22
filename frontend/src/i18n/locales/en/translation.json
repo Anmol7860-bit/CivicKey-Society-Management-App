@@ -110,7 +110,12 @@
       "stats": {
         "awaiting": "Awaiting approval",
         "passes": "Active passes",
-        "bills": "Bills"
+        "bills": "Bills",
+        "awaitingHint": "{{name}} is at the gate",
+        "noneWaiting": "nobody is waiting",
+        "noPasses": "no pass in use",
+        "dueBy": "due by {{date}}",
+        "allPaid": "nothing outstanding"
       },
       "shortcuts": {
         "visitorApproval": {
@@ -143,6 +148,154 @@
           "title": "No flat assigned yet",
           "description": "The society office assigns your flat. Contact them if you think this is wrong."
         }
+      },
+      "visitors": {
+        "title": "Visitors and passes",
+        "intro": "Only visitors for your own flat are shown here.",
+        "waitingTitle": "Waiting at the gate",
+        "name": "Name",
+        "purpose": "Purpose",
+        "people": "People",
+        "vehicle": "Vehicle",
+        "gate": "Gate",
+        "reasonLabel": "Reason, if denying",
+        "reasonPlaceholder": "Optional. The guard sees this.",
+        "approve": "Approve entry",
+        "leaveAtGate": "Leave at gate",
+        "deny": "Deny",
+        "leaveAtGateHint": "Leave at gate is for deliveries. Your answer is separate from the guard’s final decision at the gate.",
+        "status": {
+          "WAITING": "Waiting",
+          "APPROVED": "Approved",
+          "LEAVE_AT_GATE": "Left at gate",
+          "DENIED": "Denied",
+          "INSIDE": "Inside",
+          "LEFT": "Left"
+        },
+        "recentTitle": "Earlier visitors",
+        "recentDescription": "What happened at the gate for your flat.",
+        "createTitle": "Create a visitor pass",
+        "createDescription": "Pre-approve someone. They show the code at the gate and walk in without waiting for you.",
+        "visitorName": "Visitor name",
+        "visitorMobile": "Visitor mobile",
+        "mobileHint": "The pass is sent here by SMS.",
+        "date": "Date",
+        "from": "Valid from",
+        "until": "Valid until",
+        "passType": "Pass type",
+        "note": "Note for the guard",
+        "notePlaceholder": "Parcel can be left with security",
+        "create": "Create pass",
+        "created": "Pass created. The entry code is {{code}}.",
+        "needFullAccess": "You have view-only access to this flat, so you cannot create a pass.",
+        "passesTitle": "Passes you have issued",
+        "passesDescription": "An active pass works once at the gate unless you chose comes and goes.",
+        "entryCode": "Entry code",
+        "passStatus": {
+          "ACTIVE": "Active",
+          "USED": "Used",
+          "CANCELLED": "Cancelled"
+        },
+        "share": "Share on WhatsApp",
+        "shareText": "Your CivicKey entry code is {{code}}. Valid {{date}}, {{from}} to {{to}}. Show it at the gate.",
+        "cancel": "Cancel pass",
+        "empty": {
+          "title": "Nobody is waiting",
+          "description": "When a guard registers a visitor for your flat, the request appears here."
+        },
+        "noPasses": {
+          "title": "No passes yet",
+          "description": "Create one for a guest, a delivery or a plumber you are expecting."
+        }
+      },
+      "dailyHelp": {
+        "title": "Daily help",
+        "description": "Staff who work for your flat. You are told when they enter and leave.",
+        "inSince": "In since {{at}}",
+        "notInToday": "Not in today",
+        "onLeave": "On leave today",
+        "seeAttendance": "See attendance",
+        "hideAttendance": "Hide attendance",
+        "markLeave": "Mark on leave today",
+        "stillIn": "still in",
+        "noAttendance": "Nothing recorded in the last two weeks.",
+        "empty": {
+          "title": "No daily help yet",
+          "description": "Ask the society office to register your maid, cook or driver, and they get a gate pass."
+        }
+      },
+      "vehicles": {
+        "title": "Vehicles",
+        "description": "Guards use these to let your vehicles in without stopping them.",
+        "number": "Vehicle number",
+        "type": "Type",
+        "types": {
+          "CAR": "Car",
+          "BIKE": "Bike",
+          "SCOOTER": "Scooter",
+          "BICYCLE": "Bicycle",
+          "OTHER": "Other"
+        },
+        "makeColour": "Make and colour",
+        "add": "Add vehicle",
+        "remove": "Remove",
+        "empty": {
+          "title": "No vehicles registered",
+          "description": "Add the cars and two-wheelers that belong to this flat."
+        }
+      },
+      "requests": {
+        "title": "Ask the society office",
+        "description": "The office checks ID and photo before anything is created.",
+        "kinds": {
+          "HOUSEHOLD_MEMBER": "Access for a family member",
+          "DAILY_HELP": "New daily help"
+        },
+        "name": "Name",
+        "mobile": "Mobile",
+        "relationship": "Relationship",
+        "workType": "Work type",
+        "access": "Access",
+        "timings": "Usual timings",
+        "householdHint": "The society admin approves the request before the account is created.",
+        "helpHint": "The society office verifies ID and photo, then issues the staff pass.",
+        "send": "Send request",
+        "sent": "Sent. The office will review your request for {{name}}.",
+        "needFullAccess": "You have view-only access to this flat, so you cannot send a request.",
+        "status": {
+          "PENDING": "Waiting",
+          "APPROVED": "Approved",
+          "REJECTED": "Rejected"
+        }
+      },
+      "bills": {
+        "title": "Bills and receipts",
+        "intro": "Bills for your flat only. View-only members can see bills but cannot pay.",
+        "currentTitle": "{{month}} maintenance",
+        "due": "Due {{date}}",
+        "maintenance": "Maintenance",
+        "total": "Total",
+        "payTitle": "Paying",
+        "payOffline": "Pay at the society office. The committee records it and your receipt appears below. Online payment is not switched on yet.",
+        "historyTitle": "Bills and receipts",
+        "historyDescription": "Every bill raised for your flat, newest first.",
+        "columns": {
+          "bill": "Bill",
+          "amount": "Amount",
+          "status": "Status",
+          "paidOn": "Paid on",
+          "receipt": "Receipt"
+        },
+        "settled": {
+          "title": "Nothing due",
+          "description": "Every bill raised for your flat has been paid."
+        },
+        "empty": {
+          "title": "No bills yet",
+          "description": "Bills appear here once the society generates them for the month."
+        },
+        "sinkingFund": "Sinking fund",
+        "parking": "Parking"
       }
     },
     "guard": {
@@ -162,7 +315,9 @@
       "stats": {
         "expected": "Expected today",
         "onSite": "Currently on site",
-        "sync": "Sync status"
+        "sync": "Sync status",
+        "expectedHint": "passes for today · {{count}} visits so far",
+        "onSiteHint": "{{visitors}} visitors · {{staff}} staff"
       },
       "shortcuts": {
         "registerVisitor": {
@@ -178,7 +333,97 @@
           "description": "Update live gate occupancy"
         }
       },
-      "activity": "Current gate activity"
+      "activity": "Current gate activity",
+      "noSociety": "Your guard account is not linked to a society yet. Ask the society office to set it up.",
+      "purposes": {
+        "GUEST": "Guest",
+        "DELIVERY": "Delivery",
+        "CAB": "Cab",
+        "SERVICE": "Service",
+        "OTHER": "Other"
+      },
+      "passTypes": {
+        "ONE_ENTRY": "One entry",
+        "MULTI_ENTRY": "Comes and goes"
+      },
+      "register": {
+        "title": "Register a visitor",
+        "intro": "Large fields for a tablet at the gate. The resident is asked to approve, and the entry is recorded here.",
+        "passTitle": "Visitor has a pass?",
+        "passDescription": "Type the six-digit entry code and the rest of the form fills itself in.",
+        "entryCode": "Entry code",
+        "check": "Check",
+        "passUnknown": "No pass has this entry code",
+        "formTitle": "Visitor details",
+        "formDescription": "The mobile number comes first: a returning visitor is recognised by it.",
+        "mobile": "Visitor mobile",
+        "mobileHint": "Enter this first. A returning visitor fills in automatically.",
+        "known": "Came before · last visited {{flat}}",
+        "name": "Visitor name",
+        "company": "Company",
+        "purpose": "Visitor type",
+        "flat": "Flat to visit",
+        "chooseFlat": "Choose the flat",
+        "flatHint": "Shows the flat number and the resident’s first name only.",
+        "people": "Number of people",
+        "vehicle": "Vehicle number",
+        "note": "Purpose or note",
+        "photo": "Photo reference",
+        "photoHint": "Where the gate photo is filed until this deployment stores files.",
+        "send": "Send for resident approval",
+        "clear": "Clear",
+        "afterSending": "No answer in 2 minutes? Call the intercom, then record your own decision at the gate.",
+        "sent": "Sent to the flat. {{name}} is waiting for the resident’s answer.",
+        "letIn": "{{name}} has a valid pass, so they are approved already."
+      },
+      "gate": {
+        "title": "Pass validation, gate and staff",
+        "intro": "Check a pass, verify a staff member, and keep the inside list honest.",
+        "passTitle": "Validate a visitor pass",
+        "passDescription": "The resident pre-approved this person; the code proves it.",
+        "entryCode": "Entry code",
+        "check": "Check",
+        "validPass": "Valid pass · pre-approved by the resident",
+        "passUnknown": "No pass has this entry code",
+        "visitor": "Visitor",
+        "flat": "Flat",
+        "valid": "Valid",
+        "note": "Note",
+        "people": "{{count}} people",
+        "allow": "Allow and record entry",
+        "refusedHint": "An expired, used or cancelled pass shows in red with the reason, and cannot be allowed.",
+        "staffTitle": "Staff verification",
+        "staffDescription": "Compare the person with the photo on file before recording.",
+        "staffPass": "Staff pass number",
+        "staffUnknown": "No staff member has this pass number",
+        "name": "Name",
+        "work": "Work",
+        "pass": "Pass",
+        "validUntil": "Valid until {{date}}",
+        "noEnd": "No end date",
+        "recordEntry": "Record entry",
+        "recordExit": "Record exit",
+        "insideSince": "Inside since {{at}}",
+        "comparePhoto": "The flats they serve are told automatically.",
+        "approvedTitle": "Approved, waiting at the gate",
+        "approvedDescription": "The resident said yes. Record the entry when they come in.",
+        "insideTitle": "Inside the premises now",
+        "insideDescription": "Visitors and staff who have not been recorded out yet.",
+        "letIn": "{{name}} is in.",
+        "exitRecorded": "{{name}} is out.",
+        "columns": {
+          "name": "Name",
+          "type": "Type",
+          "flat": "Flat",
+          "entered": "Entered",
+          "vehicle": "Vehicle"
+        },
+        "empty": {
+          "title": "Nobody is inside",
+          "description": "Entries you record at the gate appear here until you record the exit."
+        },
+        "people_one": "{{count}} person"
+      }
     },
     "admin": {
       "workspace": "Admin workspace",

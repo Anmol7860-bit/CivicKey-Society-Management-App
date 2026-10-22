@@ -2,6 +2,7 @@ import { Home } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Badge } from '../../components/ui/Badge'
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States'
+import { DailyHelpPanel, RequestsPanel, VehiclesPanel } from '../gate/FlatExtras'
 import { listMyFlats, type MyAssignment } from './api'
 import { Panel } from './parts'
 import { useResource } from './useResource'
@@ -96,6 +97,9 @@ export function MyFlatPage({ accessToken }: { accessToken: string }) {
   if (mine.loading) return <Skeleton rows={4} />
   if (mine.error) return <ErrorState message={mine.error} onRetry={mine.reload} />
 
+  // Only a full-access, current assignment may add a vehicle or ask the office for anything
+  const writableFlatId = mine.data?.find((assignment) => assignment.active && assignment.accessLevel === 'FULL')?.flatId
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-1">
@@ -106,6 +110,14 @@ export function MyFlatPage({ accessToken }: { accessToken: string }) {
         mine.data.map((assignment) => <Assignment key={assignment.id} assignment={assignment} />)
       ) : (
         <EmptyState icon={Home} title={t('area.resident.myFlat.empty.title')} description={t('area.resident.myFlat.empty.description')} />
+      )}
+
+      {mine.data && mine.data.length > 0 && (
+        <>
+          <DailyHelpPanel accessToken={accessToken} />
+          <VehiclesPanel accessToken={accessToken} flatId={writableFlatId} />
+          <RequestsPanel accessToken={accessToken} flatId={writableFlatId} />
+        </>
       )}
     </div>
   )

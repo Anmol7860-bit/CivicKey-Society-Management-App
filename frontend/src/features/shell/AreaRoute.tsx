@@ -4,6 +4,10 @@ import { Link, Navigate, useLocation } from 'react-router'
 import type { AuthUser } from '../auth/api'
 import { Dashboard } from '../dashboard/Dashboard'
 import { BillingPage } from '../billing/BillingPage'
+import { BillsPage } from '../gate/BillsPage'
+import { GatePage } from '../gate/GatePage'
+import { VisitorRegistrationPage } from '../gate/VisitorRegistrationPage'
+import { VisitorsPage } from '../gate/VisitorsPage'
 import { ReportsPage } from '../billing/ReportsPage'
 import { SecurityPage } from '../security/SecurityPage'
 import { AddUserPage } from '../society/AddUserPage'
@@ -90,8 +94,17 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
       <AddUserPage accessToken={accessToken} />
     ) : item.key === 'society' ? (
       <SocietyPage user={user} accessToken={accessToken} />
-    ) : item.key === 'myFlat' ? (
+    ) : item.key === 'myFlat' || item.key === 'dailyHelp' ? (
       <MyFlatPage accessToken={accessToken} />
+    ) : item.key === 'visitorRegistration' ? (
+      <VisitorRegistrationPage user={user} accessToken={accessToken} />
+    ) : item.key === 'passValidation' || item.key === 'gate' || item.key === 'staffVerification' ? (
+      // One gate screen: the PDF puts pass validation, staff verification and who is inside together
+      <GatePage user={user} accessToken={accessToken} />
+    ) : item.key === 'visitorApproval' || item.key === 'visitorPasses' ? (
+      <VisitorsPage accessToken={accessToken} />
+    ) : item.key === 'bills' ? (
+      <BillsPage accessToken={accessToken} />
     ) : item.key === 'staff' ? (
       <StaffPage user={user} accessToken={accessToken} />
     ) : item.key === 'billing' ? (

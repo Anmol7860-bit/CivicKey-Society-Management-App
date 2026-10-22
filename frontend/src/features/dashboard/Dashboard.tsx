@@ -6,6 +6,7 @@ import type { AuthUser } from '../auth/api'
 import { allowed, AREAS } from '../shell/areas'
 import { SyncSummary } from '../sync/SyncPage'
 import { AdminPanels, AdminStat, useAdminSummary } from './AdminOverview'
+import { GuardStat, ResidentStat, useGuardSummary, useResidentSummary } from './RoleStats'
 
 function greetingKey(hour: number) {
   return hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'
@@ -16,6 +17,8 @@ export function Dashboard({ user, accessToken }: { user: AuthUser; accessToken: 
   const { t } = useTranslation()
   const [hour] = useState(() => new Date().getHours())
   const admin = useAdminSummary(user, accessToken)
+  const guard = useGuardSummary(user, accessToken)
+  const residentSummary = useResidentSummary(user, accessToken)
   const config = AREAS[user.role]
   const prefix = `area.${config.area}`
   const primary = allowed(user, config.primaryAction) ? config.primaryAction : null
@@ -62,12 +65,10 @@ export function Dashboard({ user, accessToken }: { user: AuthUser; accessToken: 
                 </p>
               ) : config.area === 'admin' ? (
                 <AdminStat statKey={key} summary={admin} />
+              ) : config.area === 'guard' ? (
+                <GuardStat statKey={key} summary={guard} />
               ) : (
-                // ponytail: the resident summaries wait on the visitor and bill APIs
-                <>
-                  <p className="text-lg text-ink">—</p>
-                  <p className="text-[10px] text-muted">{t('shell.noData')}</p>
-                </>
+                <ResidentStat statKey={key} summary={residentSummary} />
               )}
             </li>
           ))}

@@ -170,6 +170,11 @@ describe('visits', () => {
     expect((await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-lookup?phone=9999999999`, guard)).body.data).toBeNull()
   })
 
+  it('offers the guard a flat picker with first names only', async () => {
+    const directory = await api.get(`/societies/${TEST_SOCIETY_ID}/flat-directory`, guard)
+    expect(directory.body.data).toEqual([{ id: flatId, label: 'A-101-101', residents: ['Riya'] }])
+  })
+
   it('keeps every gate route inside the guard’s own society and behind its permission', async () => {
     expect((await request(app).get(`/api/v1/societies/${TEST_SOCIETY_ID}/visits`)).status).toBe(401)
     expect((await api.get(`/societies/${OTHER_SOCIETY_ID}/visits`, guard)).status).toBe(403)
