@@ -74,6 +74,8 @@ export const updateResidentSchema = z
 
 /** Filters for the Admin's resident directory; `active` means verified and inside its period. */
 export const listResidentsSchema = z.strictObject({
+  /** Matches a resident name or mobile, a flat number, a block-flat label like A-101, or a flat id */
+  search: z.string().trim().min(1).max(60).optional(),
   status: z.enum(verificationStatus.enumValues).optional(),
   residentType: z.enum(residentType.enumValues).optional(),
   active: z.enum(['true', 'false']).optional(),

@@ -274,6 +274,19 @@ describe('registration review', () => {
     expect(mocked.listResidents).toHaveBeenCalledWith('token', 's1', expect.objectContaining({ status: 'PENDING' }))
   })
 
+  it('searches the directory and shows the flat behind each resident', async () => {
+    mocked.listResidents.mockResolvedValue([
+      { ...pending, flat: { id: 'fl1', number: '204', flatType: 'TWO_BHK', carpetAreaSqft: 1240 }, floor: { id: 'fo1', floorLabel: '2nd Floor' } },
+    ])
+    show()
+    await openTab('Residents')
+
+    expect(await screen.findByText('2nd Floor · 2 BHK · 1240 sq ft')).toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText('Search'), 'B-204')
+    await waitFor(() => expect(mocked.listResidents).toHaveBeenLastCalledWith('token', 's1', { search: 'B-204' }))
+  })
+
   it('verifies with the access level the Admin chose', async () => {
     mocked.listResidents.mockResolvedValue([pending])
     mocked.verifyResident.mockResolvedValue({ ...pending, verificationStatus: 'VERIFIED' })

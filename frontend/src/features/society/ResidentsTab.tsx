@@ -50,6 +50,12 @@ function ResidentRow({ resident, token, onChanged, onReject, onClose }: {
   }
 
   const place = resident.block && resident.flat ? `${resident.block.name} · ${resident.flat.number}` : null
+  // What the Admin wants to know about the flat itself once they have searched their way to it
+  const flatFacts = [
+    resident.floor?.floorLabel,
+    resident.flat?.flatType ? t(`area.admin.society.flats.types.${resident.flat.flatType}`) : null,
+    resident.flat?.carpetAreaSqft ? t('area.admin.society.flats.area', { area: resident.flat.carpetAreaSqft }) : null,
+  ].filter(Boolean)
 
   return (
     <div className="flex flex-col gap-2 border-t border-line px-4 py-3">
@@ -62,6 +68,8 @@ function ResidentRow({ resident, token, onChanged, onReject, onClose }: {
         <Badge tone={resident.accessLevel === 'FULL' ? 'brand' : 'neutral'}>{t(`area.admin.society.residents.access.${resident.accessLevel}`)}</Badge>
         {resident.verificationStatus === 'VERIFIED' && !resident.active && <Badge tone="danger">{t('area.admin.society.residents.ended')}</Badge>}
       </div>
+
+      {flatFacts.length > 0 && <p className="text-[12px] text-muted">{flatFacts.join(' · ')}</p>}
 
       <p className="text-[12px] text-muted">
         {t('area.admin.society.residents.period', { start: resident.startDate, end: resident.endDate ?? t('area.admin.society.residents.noEnd') })}
@@ -151,8 +159,9 @@ export function ResidentsTab({ token, societyId, flat, onClearFlat, initialStatu
 }) {
   const { t } = useTranslation()
   // Empty string is "any" in the selects; only the set filters reach the query string
-  const [filters, setFilters] = useState({ status: initialStatus, residentType: '', active: '' })
+  const [filters, setFilters] = useState({ search: '', status: initialStatus, residentType: '', active: '' })
   const query: ResidentFilters = {
+    ...(filters.search.trim() ? { search: filters.search.trim() } : {}),
     ...(filters.status ? { status: filters.status as VerificationStatus } : {}),
     ...(filters.residentType ? { residentType: filters.residentType as ResidentType } : {}),
     ...(filters.active ? { active: filters.active as 'true' | 'false' } : {}),
@@ -160,7 +169,7 @@ export function ResidentsTab({ token, societyId, flat, onClearFlat, initialStatu
 
   const residents = useResource(
     flat ? () => listFlatResidents(token, flat.id) : () => listResidents(token, societyId, query),
-    [token, societyId, flat?.id, filters.status, filters.residentType, filters.active],
+    [token, societyId, flat?.id, filters.search, filters.status, filters.residentType, filters.active],
   )
 
   const reject = useDeactivate<Resident>({
@@ -203,7 +212,16 @@ export function ResidentsTab({ token, societyId, flat, onClearFlat, initialStatu
         }
       >
         {!flat && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <TextField
+              id="filter-search"
+              label={t('area.admin.society.residents.search')}
+              value={filters.search}
+              onChange={(event) => setFilters({ ...filters, search: event.target.value })}
+              placeholder={t('area.admin.society.residents.searchPlaceholder')}
+              hint={t('area.admin.society.residents.searchHint')}
+              maxLength={60}
+            />
             <Select
               id="filter-status"
               label={t('area.admin.society.residents.filterStatus')}

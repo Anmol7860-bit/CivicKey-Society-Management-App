@@ -223,6 +223,33 @@ describe('verification', () => {
     expect((await api.get(`/societies/${TEST_SOCIETY_ID}/residents?status=NOPE`)).status).toBe(422)
   })
 
+  it('searches the directory by resident, by flat and by flat id, and says who lives there', async () => {
+    await register(owner)
+    await register(tenant)
+    const other = await createFlat(TEST_SOCIETY_ID, '202')
+    await register({ ...owner, phone: '9833333333' }, other.id)
+    const ids = (res: { body: { data: { id: string }[] } }) => res.body.data.map((row) => row.id)
+    const search = (term: string) => api.get(`/societies/${TEST_SOCIETY_ID}/residents?search=${encodeURIComponent(term)}`)
+
+    // A name, a mobile and a flat number each find the same household
+    expect(await search('arjun').then((res) => res.body.data.map((row: { user: { name: string } }) => row.user.name))).toEqual([
+      'Arjun Nair',
+    ])
+    expect(ids(await search('9822222222'))).toHaveLength(1)
+    expect(ids(await search('202'))).toHaveLength(1)
+
+    // The flat's own id is the unique handle, and both its residents come back, owner first
+    const byId = await search(flatId)
+    expect(byId.body.data.map((row: { residentType: string }) => row.residentType)).toEqual(['OWNER', 'TENANT'])
+    expect(byId.body.data[0]).toMatchObject({
+      flat: { number: '101', carpetAreaSqft: null },
+      floor: { floorLabel: '1st Floor' },
+      block: { name: 'A-101' },
+    })
+
+    expect(ids(await search('nobody here'))).toEqual([])
+  })
+
   it('gives a VIEW_ONLY co-owner the flat without the right to act on it', async () => {
     const first = await register(owner)
     await api.post(`/residents/${first.body.data.id}/verify`)

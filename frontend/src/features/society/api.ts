@@ -123,7 +123,8 @@ export interface Resident {
   active: boolean
   /** Active with FULL access, so visitor approvals route here */
   eligible: boolean
-  flat?: { id: string; number: string }
+  flat?: { id: string; number: string; flatType?: FlatType | null; carpetAreaSqft?: number | null }
+  floor?: { id: string; floorLabel: string }
   block?: { id: string; name: string }
 }
 
@@ -137,6 +138,8 @@ export interface MyAssignment extends Resident {
 }
 
 export interface ResidentFilters {
+  /** A resident name or mobile, a flat number, a block-flat label like A-101, or a flat id */
+  search?: string
   status?: VerificationStatus
   residentType?: ResidentType
   active?: 'true' | 'false'

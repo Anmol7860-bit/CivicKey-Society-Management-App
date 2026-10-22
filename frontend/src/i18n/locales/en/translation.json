@@ -380,6 +380,9 @@
         "residents": {
           "title": "Residents and tenants",
           "description": "Owners and tenants of this society, current and past.",
+          "search": "Search",
+          "searchPlaceholder": "Name, mobile, flat or flat id",
+          "searchHint": "Try a resident name, a mobile number, 101, A-101, or paste a flat id.",
           "flatTitle": "Residents of flat {{number}}",
           "flatDescription": "Everyone registered to this flat, current and past.",
           "showAll": "Show the whole society",

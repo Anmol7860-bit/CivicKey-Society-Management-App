@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { and, desc, eq, gte, inArray, isNull, lte, not, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, not, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
 import { blocks, flatResidents, flats, floors, societies, users } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
@@ -272,7 +272,8 @@ export async function listFlatResidents(ctx: AuthContext, flatId: string) {
 
 /**
  * The Admin's resident directory for a society: owners and tenants, current and historical.
- * `?status=PENDING` is the approval queue, `?active=true` who holds access right now.
+ * `?status=PENDING` is the approval queue, `?active=true` who holds access right now, and
+ * `?search=` is the one box that takes a name, a mobile, a flat number, A-101 or a flat id.
  */
 export async function listResidents(ctx: AuthContext, societyId: string, query: ListResidentsQuery) {
   await assertSameSociety(ctx, societyId)
@@ -285,22 +286,37 @@ export async function listResidents(ctx: AuthContext, societyId: string, query: 
   if (query.status) filters.push(eq(flatResidents.verificationStatus, query.status))
   if (query.residentType) filters.push(eq(flatResidents.residentType, query.residentType))
   if (query.active) filters.push(query.active === 'true' ? isActive : not(isActive))
+  if (query.search) {
+    const term = `%${query.search}%`
+    filters.push(
+      or(
+        ilike(users.name, term),
+        ilike(users.phone, term),
+        ilike(flats.number, term),
+        ilike(sql`${blocks.name} || '-' || ${flats.number}`, term),
+        ilike(sql`${flats.id}::text`, term),
+      )!,
+    )
+  }
 
   const rows = await db
     .select({
       assignment: flatResidents,
       user: userColumns,
       today: sql<string>`current_date`,
-      flat: { id: flats.id, number: flats.number },
+      flat: { id: flats.id, number: flats.number, flatType: flats.flatType, carpetAreaSqft: flats.carpetAreaSqft },
+      floor: { id: floors.id, floorLabel: floors.floorLabel },
       block: { id: blocks.id, name: blocks.name },
     })
     .from(flatResidents)
     .innerJoin(flats, eq(flats.id, flatResidents.flatId))
+    .innerJoin(floors, eq(floors.id, flats.floorId))
     .innerJoin(blocks, eq(blocks.id, flats.blockId))
     .innerJoin(users, eq(users.id, flatResidents.userId))
     .where(and(...filters))
-    .orderBy(desc(flatResidents.createdAt))
-  return rows.map((row) => ({ ...view(row), flat: row.flat, block: row.block }))
+    // A searched flat reads as a household: owners first, then tenants, newest assignment first
+    .orderBy(asc(blocks.name), asc(flats.number), asc(flatResidents.residentType), desc(flatResidents.createdAt))
+  return rows.map((row) => ({ ...view(row), flat: row.flat, floor: row.floor, block: row.block }))
 }
 
 /**
