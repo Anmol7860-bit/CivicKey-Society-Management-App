@@ -113,6 +113,13 @@
       "when": 1792669692428,
       "tag": "0015_gate_visits_and_passes",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792745311434,
+      "tag": "0016_password_setup_codes",
+      "breakpoints": true
     }
   ]
 }

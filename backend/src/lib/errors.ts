@@ -3,6 +3,7 @@ export type ErrorCode =
   | 'USER_INACTIVE'
   | 'ROLE_MISMATCH'
   | 'INVALID_REFRESH_TOKEN'
+  | 'INVALID_CODE'
   | 'SESSION_EXPIRED'
   | 'TOKEN_MISSING'
   | 'TOKEN_INVALID'

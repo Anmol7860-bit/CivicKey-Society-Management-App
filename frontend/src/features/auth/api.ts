@@ -65,6 +65,25 @@ export function login(values: LoginFormValues) {
   })
 }
 
+/**
+ * POST /auth/forgot-password. Always succeeds: the office is told someone cannot sign in, and
+ * the reply never says whether the number is registered.
+ */
+export function forgotPassword(phone: string) {
+  return send<{ requested: true }>('/api/v1/auth/forgot-password', {
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone }),
+  })
+}
+
+/** POST /auth/set-password. Spends the one-time code the society office handed over. */
+export function setPassword(code: string, password: string) {
+  return send<{ passwordSet: true }>('/api/v1/auth/set-password', {
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, password }),
+  })
+}
+
 let refreshing: Promise<AuthSession> | null = null
 
 /**

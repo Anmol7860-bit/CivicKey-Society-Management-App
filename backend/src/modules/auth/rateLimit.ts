@@ -79,5 +79,15 @@ export function createLoginRateLimiters() {
     handler: rejectWith429,
   })
 
-  return { perIp, perAccount, perIdentifier }
+  // Code guessing and reset requests, per IP. Tighter than login: nobody needs many tries.
+  const perIpPasswordSetup = rateLimit({
+    windowMs,
+    limit: env.LOGIN_RATE_LIMIT_MAX,
+    keyGenerator: clientIp,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler: rejectWith429,
+  })
+
+  return { perIp, perAccount, perIdentifier, perIpPasswordSetup }
 }

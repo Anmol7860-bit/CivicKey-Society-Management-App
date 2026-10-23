@@ -1,6 +1,8 @@
 import { useCallback, useState, type ReactNode, type Ref } from 'react'
-import { ApiError } from '../auth/api'
+import { useTranslation } from 'react-i18next'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { ApiError } from '../auth/api'
+import type { LoginCode } from './api'
 
 /** White card used for every section of the Society & users page. */
 export function Panel({ title, description, action, children, ref }: {
@@ -144,6 +146,42 @@ export function useDeactivate<T>({ title, description, confirmLabel, onConfirm }
 }
 
 /** Secondary button used for row actions: Rename, Deactivate, Cancel. */
+/**
+ * The one-time code the office hands over so a resident can set their own password. There is no
+ * SMS sender yet, so the Admin reads it out, copies it, or sends it on WhatsApp themselves.
+ */
+export function LoginCodeNote({ loginCode, onDismiss }: { loginCode: LoginCode; onDismiss?: () => void }) {
+  const { t } = useTranslation()
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-brand/30 bg-brand/5 p-4">
+      <p className="text-[13px] font-bold text-ink">{t('area.admin.society.loginCode.title', { name: loginCode.user.name })}</p>
+      <p className="font-mono text-[20px] font-bold tracking-[0.12em] text-brand select-all">{loginCode.code}</p>
+      <p className="text-[12px] text-muted">
+        {t('area.admin.society.loginCode.expires', { date: new Date(loginCode.expiresAt).toLocaleString() })}
+      </p>
+      <p className="text-[12px] text-muted">{t('area.admin.society.loginCode.hint')}</p>
+      <div className="flex flex-wrap gap-2">
+        <RowButton onClick={() => void navigator.clipboard?.writeText(loginCode.code)}>
+          {t('area.admin.society.loginCode.copy')}
+        </RowButton>
+        <RowButton
+          onClick={() =>
+            window.open(
+              `https://wa.me/?text=${encodeURIComponent(t('area.admin.society.loginCode.shareText', { code: loginCode.code }))}`,
+              '_blank',
+              'noopener',
+            )
+          }
+        >
+          {t('area.admin.society.loginCode.share')}
+        </RowButton>
+        {onDismiss && <RowButton onClick={onDismiss}>{t('shell.dismiss')}</RowButton>}
+      </div>
+    </div>
+  )
+}
+
 export function RowButton({ onClick, tone = 'normal', children, disabled }: {
   onClick: () => void
   tone?: 'normal' | 'danger'

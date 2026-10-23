@@ -7,6 +7,7 @@ import { Select } from '../../components/ui/Select'
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States'
 import { TextField } from '../../components/ui/TextField'
 import {
+  issueLoginCode,
   listFlatResidents,
   listResidents,
   rejectResident,
@@ -14,12 +15,13 @@ import {
   verifyResident,
   type AccessLevel,
   type Flat,
+  type LoginCode,
   type Resident,
   type ResidentFilters,
   type ResidentType,
   type VerificationStatus,
 } from './api'
-import { Panel, RowButton, useAction, useDeactivate } from './parts'
+import { LoginCodeNote, Panel, RowButton, useAction, useDeactivate } from './parts'
 import { useResource } from './useResource'
 
 const STATUS_TONE: Record<VerificationStatus, Tone> = { PENDING: 'warning', VERIFIED: 'positive', REJECTED: 'danger' }
@@ -37,7 +39,13 @@ function ResidentRow({ resident, token, onChanged, onReject, onClose }: {
   const [accessLevel, setAccessLevel] = useState<AccessLevel>(resident.accessLevel)
   const [endDate, setEndDate] = useState(resident.endDate ?? '')
   const [extending, setExtending] = useState(false)
+  const [loginCode, setLoginCode] = useState<LoginCode | null>(null)
   const action = useAction()
+
+  async function issueCode() {
+    let issued: LoginCode | null = null
+    if (await action.run(async () => { issued = await issueLoginCode(token, resident.userId) })) setLoginCode(issued)
+  }
 
   const verify = () => action.run(() => verifyResident(token, resident.id, { accessLevel })).then((ok) => ok && onChanged())
 
@@ -80,6 +88,8 @@ function ResidentRow({ resident, token, onChanged, onReject, onClose }: {
       </p>
 
       {action.error && <p className="text-[12px] font-semibold text-red-700" role="alert">{action.error}</p>}
+
+      {loginCode && <LoginCodeNote loginCode={loginCode} onDismiss={() => setLoginCode(null)} />}
 
       {extending ? (
         <form onSubmit={handleExtend} className="flex flex-wrap items-end gap-3" noValidate>
@@ -131,6 +141,9 @@ function ResidentRow({ resident, token, onChanged, onReject, onClose }: {
               </RowButton>
             </>
           )}
+          <RowButton disabled={action.pending} onClick={issueCode}>
+            {t('area.admin.society.residents.loginCode')}
+          </RowButton>
           {resident.active && (
             <>
               <RowButton onClick={() => setExtending(true)}>{t('area.admin.society.residents.extend')}</RowButton>

@@ -137,6 +137,13 @@ export interface MyAssignment extends Resident {
   household: { name: string; residentType: ResidentType; accessLevel: AccessLevel }[]
 }
 
+export interface LoginCode {
+  /** Grouped in fours, e.g. MWRT-4K9P-2BHD */
+  code: string
+  expiresAt: string
+  user: { id: string; name: string }
+}
+
 export interface ResidentFilters {
   /** A resident name or mobile, a flat number, a block-flat label like A-101, or a flat id */
   search?: string
@@ -223,7 +230,10 @@ export function listResidents(token: string, societyId: string, filters: Residen
 }
 export const listFlatResidents = (token: string, flatId: string) => call<Resident[]>(token, 'GET', `/flats/${flatId}/residents`)
 export const registerResident = (token: string, flatId: string, body: RegisterResidentBody) =>
-  call<Resident>(token, 'POST', `/flats/${flatId}/residents`, body)
+  call<Resident & { loginCode: LoginCode | null }>(token, 'POST', `/flats/${flatId}/residents`, body)
+/** A one-time code to hand over so the person can set their own password. */
+export const issueLoginCode = (token: string, userId: string) =>
+  call<LoginCode>(token, 'POST', `/users/${userId}/login-code`)
 export const verifyResident = (token: string, id: string, body: { accessLevel?: AccessLevel } = {}) =>
   call<Resident>(token, 'POST', `/residents/${id}/verify`, body)
 export const rejectResident = (token: string, id: string, body: { reason: string }) =>

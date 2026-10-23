@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import { ApiError, logout, refresh, type AuthSession } from './features/auth/api'
 import { LoginPage } from './features/auth/LoginPage'
+import { SetPasswordPage } from './features/auth/SetPasswordPage'
 import { homePath } from './features/shell/areas'
 import { AreaRoute } from './features/shell/AreaRoute'
 
@@ -84,6 +85,8 @@ function App() {
           path="/login"
           element={session ? <Navigate to={home} replace /> : <LoginPage onSignedIn={handleSignedIn} notice={notice} />}
         />
+        {/* Reachable signed in or out: a code from the office works either way */}
+        <Route path="/forgot-password" element={<SetPasswordPage />} />
         {/* AreaRoute shows Access Denied for other roles' areas and pages the user lacks permission for */}
         <Route
           path="*"

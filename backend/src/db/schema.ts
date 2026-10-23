@@ -415,6 +415,33 @@ export const refreshTokens = pgTable(
   ],
 )
 
+/**
+ * One-time codes that let a person set their own password: the office issues one for a new
+ * account or a forgotten password, and the person spends it on the set-password screen. Only
+ * the SHA-256 of the code is stored, as with refresh tokens.
+ */
+export const passwordSetupCodes = pgTable(
+  'password_setup_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** SHA-256 of the code; the code itself is never stored or logged */
+    codeHash: varchar('code_hash', { length: 64 }).notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    /** The Admin who issued it; null once that account is deleted */
+    issuedBy: uuid('issued_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // At most one spendable code per user, so issuing a new one must retire the old one
+    uniqueIndex('password_setup_codes_one_live_per_user').on(table.userId).where(sql`${table.usedAt} is null`),
+    check('password_setup_codes_code_hash_sha256', sql`${table.codeHash} ~ '^[0-9a-f]{64}$'`),
+  ],
+)
+
 export const auditLogs = pgTable(
   'audit_logs',
   {

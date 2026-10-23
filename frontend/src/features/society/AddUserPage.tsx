@@ -13,9 +13,10 @@ import {
   type AccessLevel,
   type Gender,
   type PreferredLanguage,
+  type LoginCode,
   type RegisterResidentBody,
 } from './api'
-import { FormGrid, Panel, useAction } from './parts'
+import { FormGrid, LoginCodeNote, Panel, useAction } from './parts'
 import { useResource } from './useResource'
 
 type Role = 'RESIDENT' | 'GUARD' | 'ADMIN'
@@ -76,6 +77,8 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
   const [params] = useSearchParams()
   const [role, setRole] = useState<Role>('RESIDENT')
   const [registered, setRegistered] = useState<string | null>(null)
+  // Only a brand-new account gets one; an existing account keeps its own password
+  const [loginCode, setLoginCode] = useState<LoginCode | null>(null)
   const action = useAction()
 
   const societies = useResource(() => listSocieties(accessToken), [accessToken])
@@ -148,8 +151,10 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
       ...(form.idDocumentLast4.trim() ? { idDocumentLast4: form.idDocumentLast4.trim().toUpperCase() } : {}),
       ...(form.proofReference.trim() ? { proofReference: form.proofReference.trim() } : {}),
     }
-    if (await action.run(() => registerResident(accessToken, chosenFlat, body))) {
+    let code: LoginCode | null = null
+    if (await action.run(async () => { code = (await registerResident(accessToken, chosenFlat, body)).loginCode })) {
       setRegistered(form.name.trim())
+      setLoginCode(code)
       setForm({ ...form, name: '', phone: '', email: '', idDocumentLast4: '', proofReference: '', consent: false })
     }
   }
@@ -197,6 +202,8 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
               {registered && (
                 <SuccessNote message={t('area.admin.society.register.done', { name: registered })} onDismiss={() => setRegistered(null)} />
               )}
+
+              {loginCode && <LoginCodeNote loginCode={loginCode} onDismiss={() => setLoginCode(null)} />}
 
               <Step number={2} title={t('area.admin.addUser.personal.title')}>
                 <FormGrid>

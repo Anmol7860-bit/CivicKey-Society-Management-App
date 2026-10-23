@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
 import { parseOrThrow, validateBody } from '../../middleware/validateBody.js'
+import { issueSetupCode } from '../auth/passwordSetup.js'
 import {
   listResidentsSchema,
   registerResidentSchema,
@@ -26,6 +27,12 @@ export function createResidentRouter() {
   })
   router.post('/flats/:flatId/residents', ...manage, validateBody(registerResidentSchema), async (req, res) => {
     res.status(201).json({ data: await service.registerResident(req.ctx!, req.params.flatId as string, req.body) })
+  })
+
+  /** A one-time code the office hands over so the person can set their own password. */
+  router.post('/users/:userId/login-code', ...manage, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.json({ data: await issueSetupCode(req.ctx!, req.params.userId as string) })
   })
 
   // ?status=PENDING is the approval queue; ?active=true who holds access today

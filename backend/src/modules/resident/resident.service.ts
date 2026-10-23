@@ -8,6 +8,7 @@ import { identityOf, withoutHash } from '../access/identity.js'
 import { assignRole } from '../access/permissions.js'
 import { assertSameSociety, assertState, requireRecord, UUID } from '../access/scope.js'
 import { hashPassword } from '../auth/password.js'
+import { issueSetupCode } from '../auth/passwordSetup.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import { countOccupants, loadFlat } from '../society/society.service.js'
 import type {
@@ -93,7 +94,7 @@ async function findOrCreateUser(tx: DbExecutor, societyId: string, body: Registe
     if (Object.keys(profile).length > 0) {
       await tx.update(users).set({ ...profile, updatedAt: new Date() }).where(eq(users.id, existing.id))
     }
-    return { id: existing.id, name: existing.name, phone: existing.phone, email: existing.email }
+    return { user: { id: existing.id, name: existing.name, phone: existing.phone, email: existing.email }, isNew: false }
   }
   const [created] = await conflict(
     tx
@@ -104,15 +105,15 @@ async function findOrCreateUser(tx: DbExecutor, societyId: string, body: Registe
         email: body.email ?? null,
         societyId,
         ...profileOf(body),
-        // ponytail: an unusable random password. Admin-registered residents cannot log in until
-        // OTP or a set-password flow lands; give them one there rather than a shared default.
+        // Unusable by design: the account gets in through the one-time code issued below, so
+        // there is never a shared default password to guess
         passwordHash: await hashPassword(randomBytes(32).toString('hex')),
       })
       .returning(userColumns),
     'This email is already registered',
   )
   await assignRole(tx, created!.id, 'RESIDENT')
-  return created!
+  return { user: created!, isNew: true }
 }
 
 /**
@@ -123,7 +124,7 @@ export function registerResident(ctx: AuthContext, flatId: string, body: Registe
   return db.transaction(async (tx) => {
     const flat = await loadFlat(tx, ctx, flatId, 'share')
     assertState(flat.status === 'ACTIVE', 'This flat is inactive, so it cannot take new residents')
-    const user = await findOrCreateUser(tx, flat.societyId, body)
+    const { user, isNew } = await findOrCreateUser(tx, flat.societyId, body)
     const [assignment] = await conflict(
       tx
         .insert(flatResidents)
@@ -148,7 +149,10 @@ export function registerResident(ctx: AuthContext, flatId: string, body: Registe
       userId: user.id,
       residentType: body.residentType,
     })
-    return { ...withoutHash(assignment!), user }
+    // A brand-new account has no usable password, so the Admin leaves with a code to hand over.
+    // An existing account keeps its own password and gets a code from the directory if asked.
+    const loginCode = isNew ? await issueSetupCode(ctx, user.id, tx) : null
+    return { ...withoutHash(assignment!), user, loginCode }
   })
 }
 

@@ -15,7 +15,7 @@ beforeAll(async () => {
 })
 
 beforeEach(async () => {
-  await pool.query('TRUNCATE visits, visitor_passes, staff_attendance, staff_leave, flat_vehicles, access_requests, payments, invoices, billing_rates, staff_flats, staff, gates, flat_residents, flats, floors, blocks, user_permissions, user_roles, audit_logs, refresh_tokens, auth_sessions, users, societies RESTART IDENTITY CASCADE')
+  await pool.query('TRUNCATE password_setup_codes, visits, visitor_passes, staff_attendance, staff_leave, flat_vehicles, access_requests, payments, invoices, billing_rates, staff_flats, staff, gates, flat_residents, flats, floors, blocks, user_permissions, user_roles, audit_logs, refresh_tokens, auth_sessions, users, societies RESTART IDENTITY CASCADE')
   // roles, permissions and role_permissions are master data from migrations and are kept
 })
 

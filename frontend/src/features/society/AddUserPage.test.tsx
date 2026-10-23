@@ -106,6 +106,29 @@ it('sends the profile details along with the registration', async () => {
   )
 })
 
+it('hands the Admin a one-time login code for a new account', async () => {
+  mocked.registerResident.mockResolvedValue({
+    loginCode: { code: 'MWRT-4K9P-2BHD', expiresAt: '2026-10-26T10:00:00.000Z', user: { id: 'u1', name: 'Arjun Nair' } },
+  } as never)
+  show()
+  await fillRequired()
+  await userEvent.click(screen.getByRole('button', { name: 'Register resident' }))
+
+  expect(await screen.findByText('MWRT-4K9P-2BHD')).toBeInTheDocument()
+  expect(screen.getByText(/One-time login code for Arjun Nair/)).toBeInTheDocument()
+  expect(screen.getByText(/does not send messages yet/)).toBeInTheDocument()
+})
+
+it('shows no code when the person already had an account', async () => {
+  mocked.registerResident.mockResolvedValue({ loginCode: null } as never)
+  show()
+  await fillRequired()
+  await userEvent.click(screen.getByRole('button', { name: 'Register resident' }))
+
+  await screen.findByText(/Arjun Nair/)
+  expect(screen.queryByText(/One-time login code/)).not.toBeInTheDocument()
+})
+
 it('asks for a lease end date only for a tenant', async () => {
   show()
   await screen.findByLabelText(/Resident type/)

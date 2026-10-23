@@ -50,6 +50,34 @@
     },
     "session": {
       "expired": "Your session has ended. Please sign in again."
+    },
+    "setPassword": {
+      "title": "Set your CivicKey password",
+      "intro": "The society office issues a one-time code. Use it here to choose your own password.",
+      "have": {
+        "title": "I have a code",
+        "description": "Enter the code the office gave you and choose a password. The code works once.",
+        "codeLabel": "One-time code",
+        "codeHint": "Twelve letters and numbers. Spaces and dashes are fine.",
+        "passwordLabel": "New password",
+        "passwordHint": "At least 10 characters, with a letter and a number.",
+        "confirmLabel": "Repeat the password",
+        "mismatch": "Both passwords must match.",
+        "submit": "Set password"
+      },
+      "ask": {
+        "title": "I need a code",
+        "description": "We will tell the society office that you cannot sign in. Collect the code from them.",
+        "submit": "Tell the office",
+        "doneTitle": "The office has been told",
+        "doneDescription": "Ask the society office for your one-time code. For your safety we never say whether a number is registered."
+      },
+      "done": {
+        "title": "Your password is set",
+        "description": "Any device that was signed in with the old password has been signed out.",
+        "signIn": "Sign in"
+      },
+      "backToLogin": "Back to sign in"
     }
   },
   "shell": {
@@ -707,7 +735,8 @@
             "title": "No residents match",
             "description": "Change the filters, or register a resident from the Flats tab."
           },
-          "addToFlat": "Add a resident"
+          "addToFlat": "Add a resident",
+          "loginCode": "Login code"
         },
         "register": {
           "title": "Register a resident for flat {{number}}",
@@ -752,6 +781,14 @@
             "title": "Close this gate?",
             "description": "{{name}} stops being available for new postings. Entries already recorded keep it."
           }
+        },
+        "loginCode": {
+          "title": "One-time login code for {{name}}",
+          "expires": "Works once, until {{date}}.",
+          "hint": "Hand it over in person or send it yourself: CivicKey does not send messages yet. They set their own password with it.",
+          "copy": "Copy",
+          "share": "Share on WhatsApp",
+          "shareText": "Your CivicKey one-time code is {{code}}. Open the app, tap \"Forgot password?\" and use it to set your password. It works once."
         }
       },
       "addUser": {
