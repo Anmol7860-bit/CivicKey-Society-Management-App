@@ -63,6 +63,7 @@ describe('role destinations', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Good (morning|afternoon|evening), Maya$/)
     expect(screen.getAllByRole('link', { name: 'Approve visitor' })[0]).toHaveAttribute('href', '/resident/visitor-approval')
     expect(screen.getByRole('heading', { name: 'Own activity & history' })).toBeInTheDocument()
+    // The resident's own feed fills it; a committee member without VISIT_VIEW_OWN sees the empty note
   })
 
   it('gives a Guard gate operations only', () => {
@@ -76,7 +77,8 @@ describe('role destinations', () => {
   it('gives a committee member only the committee destinations, with no Add user', () => {
     renderAt('/admin/overview', user('ADMIN', ['BILLING_RATE_SET', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK', 'REPORT_VIEW']))
 
-    expect(navLabels()).toEqual(['Overview', 'Billing', 'Reports', 'Community tasks'])
+    // Community tasks needs SOCIETY_MANAGE, which this committee member does not hold
+    expect(navLabels()).toEqual(['Overview', 'Billing', 'Reports'])
     expect(screen.queryByRole('link', { name: 'Add user' })).not.toBeInTheDocument()
     expect(within(screen.getByRole('list', { name: 'Shortcuts' })).getAllByRole('link').map((link) => link.textContent)).toEqual([
       'Billing & reportsCollections and exports',

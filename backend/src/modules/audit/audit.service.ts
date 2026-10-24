@@ -52,6 +52,9 @@ export type AuditEventType =
   | 'VEHICLE_REMOVED'
   | 'ACCESS_REQUEST_CREATED'
   | 'ACCESS_REQUEST_DECIDED'
+  | 'TASK_CREATED'
+  | 'TASK_UPDATED'
+  | 'TASK_STATUS_CHANGED'
 
 export interface AuditEvent {
   eventType: AuditEventType

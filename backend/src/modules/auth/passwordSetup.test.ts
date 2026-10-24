@@ -147,7 +147,7 @@ describe('setting a password', () => {
     const [session] = await db.select().from(authSessions).where(eq(authSessions.userId, target!.id))
     expect(session!.revokedAt).not.toBeNull()
     expect(session!.revokedReason).toBe('PASSWORD_CHANGED')
-    const refreshed = await request(app).post('/api/v1/auth/refresh').set('Cookie', login.headers['set-cookie'])
+    const refreshed = await request(app).post('/api/v1/auth/refresh').set('Cookie', login.headers['set-cookie']!)
     expect(refreshed.status).toBe(401)
   })
 

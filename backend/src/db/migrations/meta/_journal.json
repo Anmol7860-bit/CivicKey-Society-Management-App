@@ -120,6 +120,13 @@
       "when": 1792745311434,
       "tag": "0016_password_setup_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792825012207,
+      "tag": "0017_community_tasks",
+      "breakpoints": true
     }
   ]
 }

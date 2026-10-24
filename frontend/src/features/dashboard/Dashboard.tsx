@@ -2,6 +2,7 @@ import { ChevronRight, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
+import { buildEvents } from '../activity/feed'
 import type { AuthUser } from '../auth/api'
 import { allowed, AREAS } from '../shell/areas'
 import { SyncSummary } from '../sync/SyncPage'
@@ -24,6 +25,14 @@ export function Dashboard({ user, accessToken }: { user: AuthUser; accessToken: 
   const primary = allowed(user, config.primaryAction) ? config.primaryAction : null
   const stats = config.stats.filter((stat) => allowed(user, stat))
   const shortcuts = config.shortcuts.filter((shortcut) => allowed(user, shortcut))
+  // Built from the summary calls this page already made, so the panel costs no extra request
+  const recent = allowed(user, { key: 'activity', icon: Plus, anyOf: ['VISIT_VIEW_OWN'] })
+    ? buildEvents({
+        visits: residentSummary.visits.data,
+        passes: residentSummary.passes.data,
+        invoices: residentSummary.invoices.data,
+      }).slice(0, 4)
+    : []
   const title =
     config.area === 'resident'
       ? t(`shell.greeting.${greetingKey(hour)}`, { name: user.name.split(' ')[0] })
@@ -100,11 +109,31 @@ export function Dashboard({ user, accessToken }: { user: AuthUser; accessToken: 
       )}
 
       <section className="flex flex-col gap-3 rounded-xl border border-line bg-white p-3.5" aria-labelledby="activity-title">
-        <h2 id="activity-title" className="text-[13px] text-ink">
-          {t(`${prefix}.activity`)}
-        </h2>
-        {/* ponytail: activity feed needs the audit/visits APIs; empty state until then */}
-        <p className="text-[12px] text-muted">{t('shell.noActivity')}</p>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="activity-title" className="text-[13px] text-ink">
+            {t(`${prefix}.activityTitle`)}
+          </h2>
+          {recent.length > 0 && (
+            <Link to={`/${config.area}/activity`} className="text-[12px] font-semibold text-brand hover:underline">
+              {t('area.resident.activity.seeAll')}
+            </Link>
+          )}
+        </div>
+        {recent.length === 0 ? (
+          // ponytail: the guard's feed would need its own gate-wide call; the counts above carry it
+          <p className="text-[12px] text-muted">{t('shell.noActivity')}</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {recent.map((event) => (
+              <li key={event.id} className="flex flex-col gap-0.5 border-t border-line pt-2 first:border-t-0 first:pt-0">
+                <span className="text-[12px] text-ink">{t(`area.resident.activity.events.${event.event}`, event.values)}</span>
+                <span className="text-[10px] text-muted">
+                  {new Date(event.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {primaryButton && <div className="sm:hidden">{primaryButton}</div>}

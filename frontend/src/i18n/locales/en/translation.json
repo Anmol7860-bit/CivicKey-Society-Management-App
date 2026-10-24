@@ -159,7 +159,47 @@
           "description": "View dues and payment history"
         }
       },
-      "activity": "Own activity & history",
+      "activity": {
+        "title": "My activity",
+        "intro": "Everything that has happened on your flat, newest first.",
+        "timelineTitle": "Your timeline",
+        "timelineDescription": "Visitors, passes, bills and requests, read from the records themselves.",
+        "filterLabel": "Filter the timeline",
+        "open": "Open",
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "kinds": {
+          "ALL": "Everything ({{count}})",
+          "filter": "{{kind}} ({{count}})",
+          "VISIT": "Visitors",
+          "PASS": "Passes",
+          "BILL": "Bills",
+          "REQUEST": "Requests"
+        },
+        "events": {
+          "visitWaiting": "{{name}} is at the gate for {{flat}} and is waiting for your answer",
+          "visitApproved": "You let {{name}} in",
+          "visitDenied": "You turned {{name}} away",
+          "visitLeftAtGate": "You asked the guard to keep {{name}} at the gate",
+          "visitInside": "{{name}} came in",
+          "visitLeft": "{{name}} left",
+          "passCreated": "You made a pass for {{name}}, code {{code}}, for {{date}}",
+          "passUsed": "{{name}} used the pass you made",
+          "passCancelled": "You cancelled the pass for {{name}}",
+          "billDue": "Your {{month}} bill of ₹{{amount}} is due on {{date}}",
+          "billIssued": "Your {{month}} bill of ₹{{amount}} was settled",
+          "billPaid": "Payment of ₹{{amount}} recorded, receipt {{receipt}}",
+          "billReversed": "Payment of ₹{{amount}} was reversed, receipt {{receipt}}",
+          "requestPending": "You asked the office to add {{name}}",
+          "requestApproved": "The office approved {{name}}",
+          "requestRejected": "The office turned down {{name}}"
+        },
+        "empty": {
+          "title": "Nothing here yet",
+          "description": "Visitors, passes, bills and requests will appear here as they happen."
+        },
+        "seeAll": "See all"
+      },
       "myFlat": {
         "intro": "The flat the society office has assigned to you.",
         "place": "Block {{block}} · {{floor}} · Flat {{number}}",
@@ -324,7 +364,26 @@
         },
         "sinkingFund": "Sinking fund",
         "parking": "Parking"
-      }
+      },
+      "notifications": {
+        "title": "Notifications",
+        "intro": "What still needs an answer from you, and what has changed since you last looked.",
+        "pendingTitle": "Needs your attention",
+        "pendingDescription": "Visitors waiting at the gate and bills still to pay.",
+        "recentTitle": "Recently",
+        "recentDescription": "The last few things that happened on your flat.",
+        "markRead": "Mark {{count}} as read",
+        "footnote": "CivicKey does not send SMS or push messages yet, so this page is where notices appear.",
+        "clear": {
+          "title": "Nothing waiting on you",
+          "description": "No visitor is at the gate and no bill is outstanding."
+        },
+        "empty": {
+          "title": "Nothing to show",
+          "description": "Once visitors, passes and bills start moving, they appear here."
+        }
+      },
+      "activityTitle": "Own activity & history"
     },
     "guard": {
       "workspace": "Guard workspace",
@@ -361,7 +420,6 @@
           "description": "Update live gate occupancy"
         }
       },
-      "activity": "Current gate activity",
       "noSociety": "Your guard account is not linked to a society yet. Ask the society office to set it up.",
       "purposes": {
         "GUEST": "Guest",
@@ -451,7 +509,8 @@
           "description": "Entries you record at the gate appear here until you record the exit."
         },
         "people_one": "{{count}} person"
-      }
+      },
+      "activityTitle": "Current gate activity"
     },
     "admin": {
       "workspace": "Admin workspace",
@@ -524,7 +583,6 @@
           "description": "Collections and exports"
         }
       },
-      "activity": "Security & community activity",
       "society": {
         "intro": "Managing {{name}}.",
         "tabs": {
@@ -1160,7 +1218,83 @@
           "title": "Nothing recorded yet",
           "description": "Activity shows up here as people use the society’s account."
         }
-      }
+      },
+      "tasks": {
+        "title": "Community tasks",
+        "intro": "The society's own work list: what needs doing in the common areas, and who is doing it.",
+        "listTitle": "Work list",
+        "listDescription": "Open work first, most pressing at the top.",
+        "formTitle": "Raise a task",
+        "formDescription": "Say what needs doing and, if you already know, who should do it.",
+        "add": "Add task",
+        "save": "Raise task",
+        "created": "“{{title}}” is on the work list.",
+        "search": "Search",
+        "searchPlaceholder": "Title, details or place",
+        "any": "Any",
+        "filterStatus": "Status",
+        "filterCategory": "Category",
+        "filterOverdue": "Due date",
+        "overdueOnly": "Past its due date",
+        "overdue": "Overdue",
+        "unassigned": "Nobody yet",
+        "assignLabel": "Who is doing “{{title}}”",
+        "due": "Due {{date}}",
+        "raisedBy": "Raised by {{name}}",
+        "closedWith": "Closed: {{note}}",
+        "start": "Start",
+        "done": "Mark done",
+        "cancel": "Cancel task",
+        "reopen": "Reopen",
+        "cancelTitle": "Cancel this task",
+        "cancelDescription": "Say why “{{title}}” is being cancelled. The task stays on the list with the reason.",
+        "stats": {
+          "open": "Open",
+          "inProgress": "In progress",
+          "overdue": "Past due",
+          "unassigned": "Nobody assigned",
+          "doneThisMonth": "Done this month"
+        },
+        "status": {
+          "OPEN": "Open",
+          "IN_PROGRESS": "In progress",
+          "DONE": "Done",
+          "CANCELLED": "Cancelled"
+        },
+        "priority": {
+          "LOW": "Low",
+          "NORMAL": "Normal",
+          "HIGH": "High"
+        },
+        "category": {
+          "PLUMBING": "Plumbing",
+          "ELECTRICAL": "Electrical",
+          "HOUSEKEEPING": "Housekeeping",
+          "SECURITY": "Security",
+          "LIFT": "Lift",
+          "PARKING": "Parking",
+          "GARDEN": "Garden",
+          "OTHER": "Other"
+        },
+        "fields": {
+          "title": "What needs doing",
+          "titlePlaceholder": "Lobby light is out",
+          "location": "Where",
+          "locationPlaceholder": "B wing lobby",
+          "category": "Category",
+          "priority": "Priority",
+          "dueDate": "Due by",
+          "assignee": "Hand it to",
+          "assigneeHint": "Daily help and vendors on the society’s staff. Guards are not listed.",
+          "details": "Details",
+          "detailsPlaceholder": "Anything the person doing the work needs to know"
+        },
+        "empty": {
+          "title": "Nothing on the list",
+          "description": "Raise a task when something in the common areas needs doing."
+        }
+      },
+      "activityTitle": "Security & community activity"
     }
   },
   "sync": {

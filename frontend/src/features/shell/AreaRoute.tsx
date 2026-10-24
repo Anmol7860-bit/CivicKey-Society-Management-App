@@ -1,6 +1,8 @@
 import { ArrowLeft, RouteOff, ShieldX } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link, Navigate, useLocation } from 'react-router'
+import { ActivityPage } from '../activity/ActivityPage'
+import { NotificationsPage } from '../activity/NotificationsPage'
 import type { AuthUser } from '../auth/api'
 import { Dashboard } from '../dashboard/Dashboard'
 import { BillingPage } from '../billing/BillingPage'
@@ -15,6 +17,7 @@ import { MyFlatPage } from '../society/MyFlatPage'
 import { SocietyPage } from '../society/SocietyPage'
 import { StaffPage } from '../staff/StaffPage'
 import { SyncPage } from '../sync/SyncPage'
+import { TasksPage } from '../task/TasksPage'
 import { useAutoSync } from '../sync/useSync'
 import { AppShell } from './AppShell'
 import { allowed, AREAS, homePath } from './areas'
@@ -103,6 +106,10 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
       <GatePage user={user} accessToken={accessToken} />
     ) : item.key === 'visitorApproval' || item.key === 'visitorPasses' ? (
       <VisitorsPage accessToken={accessToken} />
+    ) : item.key === 'activity' ? (
+      <ActivityPage user={user} accessToken={accessToken} />
+    ) : item.key === 'notifications' ? (
+      <NotificationsPage user={user} accessToken={accessToken} />
     ) : item.key === 'bills' ? (
       <BillsPage accessToken={accessToken} />
     ) : item.key === 'staff' ? (
@@ -111,6 +118,8 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
       <BillingPage user={user} accessToken={accessToken} />
     ) : item.key === 'reports' ? (
       <ReportsPage accessToken={accessToken} />
+    ) : item.key === 'tasks' ? (
+      <TasksPage accessToken={accessToken} />
     ) : item.key === 'security' ? (
       <SecurityPage accessToken={accessToken} />
     ) : user.role === 'GUARD' && item.key === 'sync' ? (

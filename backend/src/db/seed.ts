@@ -14,6 +14,7 @@ import {
   societies,
   staff,
   staffFlats,
+  communityTasks,
   visitorPasses,
   visits,
   userPermissions,
@@ -210,6 +211,24 @@ try {
         .onConflictDoNothing()
     }
   }
+
+  // Something on the work list, so Community tasks is not empty on a fresh database
+  const [officeAdmin] = await db.select().from(users).where(eq(users.phone, '9876543212'))
+  const [vendor] = await db.select().from(staff).where(eq(staff.phone, '9876543220'))
+  await db
+    .insert(communityTasks)
+    .values({
+      societyId: SOCIETY_ID,
+      title: 'Lobby light is out',
+      details: 'Second tube from the lift. Needs a starter as well.',
+      category: 'ELECTRICAL',
+      priority: 'HIGH',
+      location: 'B wing lobby',
+      dueDate: new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10),
+      assignedStaffId: vendor?.id ?? null,
+      raisedBy: officeAdmin?.id ?? null,
+    })
+    .onConflictDoNothing()
 
   console.log(`Seeded ${accounts.length} users:`)
   console.table(accounts.map(({ name, phone, email, role, password, isActive, flat }) => ({

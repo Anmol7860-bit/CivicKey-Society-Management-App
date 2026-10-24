@@ -850,6 +850,64 @@ export const accessRequests = pgTable(
   ],
 )
 
+// ---------------------------------------------------------------------------
+// Community tasks: the office's own work list for the society's common areas
+// ---------------------------------------------------------------------------
+
+export const taskCategory = pgEnum('task_category', [
+  'PLUMBING',
+  'ELECTRICAL',
+  'HOUSEKEEPING',
+  'SECURITY',
+  'LIFT',
+  'PARKING',
+  'GARDEN',
+  'OTHER',
+])
+
+export const taskPriority = pgEnum('task_priority', ['LOW', 'NORMAL', 'HIGH'])
+
+export const taskStatus = pgEnum('task_status', ['OPEN', 'IN_PROGRESS', 'DONE', 'CANCELLED'])
+
+/**
+ * A job the society has to get done: a lift inspection, a leaking tank, a light in the lobby.
+ * Raised by the office and optionally handed to a staff member or vendor already on the books.
+ */
+export const communityTasks = pgTable(
+  'community_tasks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id, { onDelete: 'cascade' }),
+    title: varchar('title', { length: 120 }).notNull(),
+    details: text('details'),
+    category: taskCategory('category').notNull().default('OTHER'),
+    priority: taskPriority('priority').notNull().default('NORMAL'),
+    status: taskStatus('status').notNull().default('OPEN'),
+    /** Where in the society the work is, e.g. "B wing lobby" */
+    location: varchar('location', { length: 120 }),
+    dueDate: date('due_date'),
+    /** Staff or a vendor already registered with the society; nobody else can be assigned */
+    assignedStaffId: uuid('assigned_staff_id').references(() => staff.id, { onDelete: 'set null' }),
+    raisedBy: uuid('raised_by').references(() => users.id, { onDelete: 'set null' }),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    closingNote: varchar('closing_note', { length: 300 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('community_tasks_society_id_status_idx').on(table.societyId, table.status),
+    index('community_tasks_assigned_staff_id_idx').on(table.assignedStaffId),
+    check('community_tasks_title_trimmed', sql`${table.title} = btrim(${table.title}) and ${table.title} <> ''`),
+    // A finished task says when it finished, and an open one never claims to have
+    check(
+      'community_tasks_closed_recorded',
+      sql`(${table.status} in ('DONE', 'CANCELLED')) = (${table.closedAt} is not null)`,
+    ),
+  ],
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Role = (typeof userRole.enumValues)[number]
@@ -864,3 +922,4 @@ export type Visit = typeof visits.$inferSelect
 export type VisitorPass = typeof visitorPasses.$inferSelect
 export type FlatVehicle = typeof flatVehicles.$inferSelect
 export type AccessRequest = typeof accessRequests.$inferSelect
+export type CommunityTask = typeof communityTasks.$inferSelect

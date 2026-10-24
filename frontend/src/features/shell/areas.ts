@@ -112,7 +112,7 @@ export const AREAS: Record<Role, AreaConfig> = {
       { key: 'security', path: 'security', icon: ShieldCheck, anyOf: ['AUDIT_VIEW'] },
       { key: 'billing', path: 'billing', icon: Receipt, anyOf: BILLING },
       { key: 'reports', path: 'reports', icon: ChartNoAxesCombined, anyOf: ['REPORT_VIEW'] },
-      { key: 'tasks', path: 'tasks', icon: ListChecks },
+      { key: 'tasks', path: 'tasks', icon: ListChecks, anyOf: ['SOCIETY_MANAGE'] },
       // A committee member is a Resident first. These carry the RESIDENT role's permissions, so a
       // staff Admin — who holds none of them — never sees them.
       { key: 'myFlat', path: 'my-flat', icon: Home, anyOf: ['VISIT_VIEW_OWN'] },
