@@ -75,10 +75,9 @@ beforeEach(async () => {
     rate: 3.5,
     sinkingFund: 500,
     parkingCharge: 0,
-    dueDay: 10,
     effectiveFrom: '2026-01-01',
   })
-  await api.post(`/societies/${TEST_SOCIETY_ID}/invoices`, { period: '2026-02' })
+  await api.post(`/societies/${TEST_SOCIETY_ID}/invoices`, { period: '2026-01' })
   const [invoice] = await db.select().from(invoices)
   invoiceId = invoice!.id
 })

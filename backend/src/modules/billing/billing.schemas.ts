@@ -10,6 +10,9 @@ const period = z
   .string()
   .trim()
   .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use the format YYYY-MM')
+
+/** A quarter, named by the month it starts in. Maintenance is billed four times a year. */
+const quarter = period.regex(/-(01|04|07|10)$/, 'Choose a quarter start: January, April, July or October')
 /** Rupees, to the paisa. Sent as a number and stored as numeric, never as a float in the database. */
 const money = (max = 1_000_000) =>
   z
@@ -28,15 +31,13 @@ export const setRatesSchema = z.strictObject({
   }),
   sinkingFund: money().optional(),
   parkingCharge: money().optional(),
-  /** Capped at 28 so every month has the day */
-  dueDay: z.number().int().min(1).max(28),
   lateFeePerDay: money(10_000).nullable().optional(),
   effectiveFrom: isoDate,
 })
 
 export const generateInvoicesSchema = z
   .strictObject({
-    period,
+    period: quarter,
     /** Which flats to bill: every occupied flat, or every active flat including the empty ones */
     flats: z.enum(['OCCUPIED', 'ALL']).optional(),
     oneTimeDescription: z.string().trim().min(2).max(120).optional(),
@@ -50,7 +51,7 @@ export const generateInvoicesSchema = z
 export const listInvoicesSchema = z.strictObject({
   period: period.optional(),
   flatId: z.uuid().optional(),
-  status: z.enum(['UNPAID', 'PARTIALLY_PAID', 'PAID', 'CANCELLED']).optional(),
+  status: z.enum(['UNPAID', 'OVERDUE', 'PARTIALLY_PAID', 'PAID', 'CANCELLED']).optional(),
 })
 
 export const recordPaymentSchema = z.strictObject({

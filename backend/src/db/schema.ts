@@ -572,7 +572,11 @@ export const billingRates = pgTable(
     sinkingFund: numeric('sinking_fund', { precision: 10, scale: 2 }).notNull().default('0'),
     parkingCharge: numeric('parking_charge', { precision: 10, scale: 2 }).notNull().default('0'),
     /** Day of the month an invoice falls due; capped at 28 so every month has one */
-    dueDay: integer('due_day').notNull(),
+    /**
+     * Kept for the rates already set. An invoice's due date is fifteen days after the quarter
+     * starts, so nothing reads this any more.
+     */
+    dueDay: integer('due_day').notNull().default(16),
     lateFeePerDay: numeric('late_fee_per_day', { precision: 10, scale: 2 }),
     effectiveFrom: date('effective_from').notNull(),
     createdBy: uuid('created_by').references(() => users.id),
@@ -617,7 +621,9 @@ export const invoices = pgTable(
   (table) => [
     unique('invoices_flat_id_period_unique').on(table.flatId, table.period),
     index('invoices_society_id_period_idx').on(table.societyId, table.period),
-    check('invoices_period_is_month_start', sql`date_trunc('month', ${table.period}) = ${table.period}`),
+    // Maintenance is billed by the quarter. Added NOT VALID in migration 0030, so the monthly
+    // invoices generated before the change keep the periods they were issued under.
+    check('invoices_period_is_quarter_start', sql`date_trunc('quarter', ${table.period}) = ${table.period}`),
     check(
       'invoices_amounts_not_negative',
       sql`${table.maintenance} >= 0 and ${table.sinkingFund} >= 0 and ${table.parkingCharge} >= 0 and ${table.oneTimeAmount} >= 0`,

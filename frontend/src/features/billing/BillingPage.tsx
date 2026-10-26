@@ -36,6 +36,11 @@ const STATUS_TONE: Record<InvoiceStatus, Tone> = {
 }
 
 const thisMonth = () => today().slice(0, 7)
+/** The quarter this month falls in, as YYYY-MM: maintenance is billed four times a year. */
+const thisQuarter = () => {
+  const month = Number(today().slice(5, 7))
+  return `${today().slice(0, 4)}-${String(month - ((month - 1) % 3)).padStart(2, '0')}`
+}
 /** Rupees, as the panels print them */
 const rupees = (value: number) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -48,7 +53,6 @@ function RatesPanel({ token, societyId }: { token: string; societyId: string }) 
     rate: '',
     sinkingFund: '',
     parkingCharge: '',
-    dueDay: '10',
     lateFeePerDay: '',
     effectiveFrom: `${thisMonth()}-01`,
   })
@@ -63,7 +67,6 @@ function RatesPanel({ token, societyId }: { token: string; societyId: string }) 
       rate: Number(form.rate),
       sinkingFund: form.sinkingFund.trim() ? Number(form.sinkingFund) : 0,
       parkingCharge: form.parkingCharge.trim() ? Number(form.parkingCharge) : 0,
-      dueDay: Number(form.dueDay),
       lateFeePerDay: form.lateFeePerDay.trim() ? Number(form.lateFeePerDay) : null,
       effectiveFrom: form.effectiveFrom,
     }
@@ -132,18 +135,6 @@ function RatesPanel({ token, societyId }: { token: string; societyId: string }) 
             error={action.fieldError('parkingCharge')}
           />
           <TextField
-            id="rate-due-day"
-            label={t('area.admin.billing.rates.dueDay')}
-            type="number"
-            min={1}
-            max={28}
-            value={form.dueDay}
-            onChange={(event) => set('dueDay', event.target.value)}
-            error={action.fieldError('dueDay')}
-            hint={t('area.admin.billing.rates.dueDayHint')}
-            required
-          />
-          <TextField
             id="rate-late-fee"
             label={t('area.admin.billing.rates.lateFee')}
             type="number"
@@ -177,10 +168,22 @@ function RatesPanel({ token, societyId }: { token: string; societyId: string }) 
   )
 }
 
-/** Generate invoices: preview the arithmetic first, then write one invoice per flat for the month. */
+/** The current quarter and the three before it, which is as far back as a society bills. */
+function quarters() {
+  const [year, month] = thisQuarter().split('-').map(Number)
+  return [0, 1, 2, 3].map((back) => {
+    const months = (year! * 12 + month! - 1) - back * 3
+    return `${Math.floor(months / 12)}-${String((months % 12) + 1).padStart(2, '0')}`
+  })
+}
+
+const quarterLabel = (period: string) =>
+  `${['Jan', 'Apr', 'Jul', 'Oct'][(Number(period.slice(5, 7)) - 1) / 3] ?? period.slice(5, 7)}–${period.slice(0, 4)}`
+
+/** Generate invoices: preview the arithmetic first, then write one invoice per flat for the quarter. */
 function GeneratePanel({ token, societyId, onGenerated }: { token: string; societyId: string; onGenerated: () => void }) {
   const { t } = useTranslation()
-  const [form, setForm] = useState({ period: thisMonth(), flats: 'OCCUPIED', description: '', amount: '' })
+  const [form, setForm] = useState({ period: thisQuarter(), flats: 'OCCUPIED', description: '', amount: '' })
   const [preview, setPreview] = useState<Preview | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const action = useAction()
@@ -209,14 +212,13 @@ function GeneratePanel({ token, societyId, onGenerated }: { token: string; socie
     <Panel title={t('area.admin.billing.generate.title')} description={t('area.admin.billing.generate.permission')}>
       {done && <SuccessNote message={done} onDismiss={() => setDone(null)} />}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <TextField
+        <Select
           id="generate-period"
           label={t('area.admin.billing.generate.period')}
-          type="month"
+          options={quarters().map((value) => ({ value, label: quarterLabel(value) }))}
           value={form.period}
           onChange={(event) => set('period', event.target.value)}
           error={action.fieldError('period')}
-          required
         />
         <Select
           id="generate-flats"

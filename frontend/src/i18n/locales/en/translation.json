@@ -1161,8 +1161,6 @@
           "rate": "Rate (₹)",
           "sinkingFund": "Sinking fund (₹ per month)",
           "parkingCharge": "Parking charge (₹ per slot)",
-          "dueDay": "Due day of month",
-          "dueDayHint": "Between 1 and 28, so every month has the day.",
           "lateFee": "Late fee (₹ per day)",
           "effectiveFrom": "Effective from",
           "effectiveFromHint": "Old rates stay on bills already generated.",
@@ -1173,7 +1171,7 @@
         "generate": {
           "title": "Generate invoices",
           "permission": "INVOICE_GENERATE",
-          "period": "Billing period",
+          "period": "Quarter to bill",
           "flats": "Flats",
           "occupied": "All occupied flats",
           "all": "Every active flat",

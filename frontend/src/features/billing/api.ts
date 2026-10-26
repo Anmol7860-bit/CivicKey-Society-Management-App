@@ -12,6 +12,7 @@ export interface BillingRate {
   rate: number
   sinkingFund: number
   parkingCharge: number
+  /** Still returned for rates already set; a bill is due fifteen days after its quarter starts */
   dueDay: number
   lateFeePerDay: number | null
   effectiveFrom: string
@@ -23,7 +24,6 @@ export interface RatesBody {
   rate: number
   sinkingFund?: number
   parkingCharge?: number
-  dueDay: number
   lateFeePerDay?: number | null
   effectiveFrom: string
 }

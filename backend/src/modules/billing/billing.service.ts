@@ -90,7 +90,6 @@ export function setRates(ctx: AuthContext, societyId: string, body: SetRatesBody
           rate: asAmount(toPaise(body.rate)),
           sinkingFund: asAmount(toPaise(body.sinkingFund ?? 0)),
           parkingCharge: asAmount(toPaise(body.parkingCharge ?? 0)),
-          dueDay: body.dueDay,
           lateFeePerDay: body.lateFeePerDay == null ? null : asAmount(toPaise(body.lateFeePerDay)),
           effectiveFrom: body.effectiveFrom,
           createdBy: ctx.userId,
@@ -116,8 +115,24 @@ export function setRates(ctx: AuthContext, societyId: string, body: SetRatesBody
 // ---------------------------------------------------------------------------
 
 const firstOfMonth = (period: string) => `${period}-01`
-/** The due date is the rate's due day in the month billed */
-const dueDate = (period: string, dueDay: number) => `${period}-${String(dueDay).padStart(2, '0')}`
+
+/**
+ * Maintenance is billed by the quarter, starting on 1 January, April, July or October.
+ *
+ * A quarter is the unit the society's own books use, and the rate on the quarter's first day is
+ * the one the whole quarter is charged at: a mid-quarter rate change reaches the next bill, never
+ * one already issued.
+ */
+export const QUARTER_MONTHS = [1, 4, 7, 10] as const
+
+export const isQuarterStart = (period: string) => QUARTER_MONTHS.includes(Number(period.slice(5, 7)) as 1 | 4 | 7 | 10)
+
+/** Fifteen calendar days after the quarter starts, e.g. 1 April is due on 16 April. */
+function dueDate(period: string) {
+  const start = new Date(`${firstOfMonth(period)}T00:00:00.000Z`)
+  start.setUTCDate(start.getUTCDate() + 15)
+  return start.toISOString().slice(0, 10)
+}
 
 interface BillableFlat {
   id: string
@@ -180,6 +195,7 @@ interface InvoiceLine {
  * zero.
  */
 async function priceInvoices(tx: DbExecutor, societyId: string, body: GenerateInvoicesBody) {
+  assertState(isQuarterStart(body.period), 'Maintenance is billed by the quarter: choose January, April, July or October')
   const period = firstOfMonth(body.period)
   const rate = await rateOn(tx, societyId, period)
   assertState(rate !== undefined, 'Set the maintenance rates before generating invoices')
@@ -209,7 +225,7 @@ async function priceInvoices(tx: DbExecutor, societyId: string, body: GenerateIn
   for (const flat of wanted) {
     const name = `${flat.blockName}-${flat.number}`
     if (invoiced.has(flat.id)) {
-      skipped.push({ flat: name, reason: 'Already invoiced for this month' })
+      skipped.push({ flat: name, reason: 'Already invoiced for this quarter' })
       continue
     }
     if (rate!.chargeBasis === 'PER_SQFT' && !flat.carpetAreaSqft) {
@@ -234,7 +250,7 @@ async function priceInvoices(tx: DbExecutor, societyId: string, body: GenerateIn
   return {
     rate: serializeRate(rate!),
     period,
-    dueDate: dueDate(body.period, rate!.dueDay),
+    dueDate: dueDate(body.period),
     lines,
     skipped,
   }
@@ -254,7 +270,7 @@ export function generateInvoices(ctx: AuthContext, societyId: string, body: Gene
   return db.transaction(async (tx) => {
     await loadSociety(tx, ctx, societyId)
     const priced = await priceInvoices(tx, societyId, body)
-    assertState(priced.lines.length > 0, 'There is nothing to invoice for this month')
+    assertState(priced.lines.length > 0, 'There is nothing to invoice for this quarter')
 
     const created = await tx
       .insert(invoices)
@@ -277,7 +293,7 @@ export function generateInvoices(ctx: AuthContext, societyId: string, body: Gene
           createdBy: ctx.userId,
         })),
       )
-      // A flat already invoiced for the month keeps the invoice it has
+      // A flat already invoiced for the quarter keeps the invoice it has
       .onConflictDoNothing({ target: [invoices.flatId, invoices.period] })
       .returning()
 

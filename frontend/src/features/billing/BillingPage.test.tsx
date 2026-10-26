@@ -83,7 +83,7 @@ it('saves the maintenance rates, sending the amounts as numbers', async () => {
     expect(mocked.setRates).toHaveBeenCalledWith(
       'token',
       's1',
-      expect.objectContaining({ chargeBasis: 'PER_SQFT', rate: 3.5, sinkingFund: 500, dueDay: 10 }),
+      expect.objectContaining({ chargeBasis: 'PER_SQFT', rate: 3.5, sinkingFund: 500 }),
     ),
   )
   expect(await screen.findByText('Rates saved.')).toBeInTheDocument()
@@ -91,8 +91,8 @@ it('saves the maintenance rates, sending the amounts as numbers', async () => {
 
 it('previews the invoices before generating them, and writes nothing on a preview', async () => {
   mocked.previewInvoices.mockResolvedValue({
-    period: '2026-02-01',
-    dueDate: '2026-02-10',
+    period: '2026-01-01',
+    dueDate: '2026-01-16',
     rate,
     lines: [{ flatId: 'fl1', flat: 'A-101', maintenance: 3500, sinkingFund: 500, parkingCharge: 600, oneTimeAmount: 0, total: 4600 }],
     skipped: [{ flat: 'A-102', reason: 'No carpet area on the flat' }],
@@ -208,4 +208,13 @@ it('reverses a receipt with a reason instead of deleting it', async () => {
   await userEvent.click(screen.getByRole('dialog').querySelector('button[type="submit"]')!)
 
   await waitFor(() => expect(mocked.reversePayment).toHaveBeenCalledWith('token', 'p1', { reason: 'Cheque bounced' }))
+})
+
+it('offers quarters to bill, not months', async () => {
+  show()
+
+  const quarter = await screen.findByLabelText('Quarter to bill')
+  const options = [...quarter.querySelectorAll('option')].map((option) => option.value)
+  expect(options).toHaveLength(4)
+  expect(options.every((value) => ['01', '04', '07', '10'].includes(value.slice(5, 7)))).toBe(true)
 })
