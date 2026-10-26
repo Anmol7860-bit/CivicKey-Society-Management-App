@@ -1,0 +1,2 @@
+ALTER TABLE "community_tasks" ADD COLUMN "due_reminder_sent_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "community_tasks" ADD COLUMN "overdue_notice_sent_at" timestamp with time zone;

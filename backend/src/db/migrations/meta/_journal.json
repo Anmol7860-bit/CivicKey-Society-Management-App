@@ -176,6 +176,20 @@
       "when": 1793003498547,
       "tag": "0024_owner_access_suspended_by_tenancy",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793003893656,
+      "tag": "0025_notifications_and_visit_deadlines",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793004121055,
+      "tag": "0026_task_reminder_marks",
+      "breakpoints": true
     }
   ]
 }

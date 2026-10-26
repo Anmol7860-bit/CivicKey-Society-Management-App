@@ -737,6 +737,151 @@ export const visitorPasses = pgTable(
 
 /** One person at the gate, from the guard's form to the exit stamp. */
 /** Where a visit was recorded: at the gate online, or on a guard's device during an outage. */
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+/** Every notification this system can raise. The channel rules key off these. */
+export const notificationEvent = pgEnum('notification_event', [
+  'VISITOR_WAITING_APPROVAL',
+  'VISITOR_APPROVAL_REMINDER',
+  'VISITOR_ESCALATED_TO_GATE',
+  'VISITOR_DECIDED',
+  'VISITOR_ENTERED',
+  'VISITOR_EXITED',
+  'STAFF_ENTERED',
+  'STAFF_EXITED',
+  'OFFLINE_EVENT_NEEDS_REVIEW',
+  'INVOICE_GENERATED',
+  'BILL_DUE_SOON',
+  'BILL_OVERDUE',
+  'PAYMENT_RECORDED',
+  'RECEIPT_READY',
+  'TASK_ASSIGNED',
+  'TASK_DUE_SOON',
+  'TASK_OVERDUE',
+  'TASK_STATUS_CHANGED',
+])
+
+export const outboxStatus = pgEnum('outbox_status', ['PENDING', 'PROCESSING', 'DONE', 'DEAD'])
+export const notificationChannel = pgEnum('notification_channel', ['IN_APP', 'SOCKET', 'PUSH', 'EMAIL'])
+export const deliveryStatus = pgEnum('delivery_status', ['PENDING', 'SENT', 'SKIPPED', 'FAILED', 'DEAD'])
+
+/**
+ * A domain event waiting to be told to someone.
+ *
+ * Written inside the business transaction that caused it, so an event and the change it describes
+ * commit together or not at all. Nothing is delivered from inside that transaction: the dispatcher
+ * picks the row up afterwards, and a mail server being down never rolls back a visitor's entry.
+ */
+export const notificationOutbox = pgTable(
+  'notification_outbox',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    eventType: notificationEvent('event_type').notNull(),
+    /** What the event is about, so a reader can open it: 'visit', 'invoice', 'task' */
+    entityType: varchar('entity_type', { length: 40 }).notNull(),
+    entityId: uuid('entity_id'),
+    /** Who should be told. Resolved by the transaction, which knows the flat and its residents. */
+    recipientIds: jsonb('recipient_ids').notNull().default([]),
+    /** Values the message is built from. Never a full ID number, a token or an amount owed to anyone else. */
+    payload: jsonb('payload').notNull().default({}),
+    status: outboxStatus('status').notNull().default('PENDING'),
+    attempts: integer('attempts').notNull().default(0),
+    /** Set while a dispatcher holds the row; a claim older than the stale window is taken over */
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    lastError: varchar('last_error', { length: 200 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('notification_outbox_pending_idx').on(table.status, table.createdAt),
+    index('notification_outbox_society_idx').on(table.societyId, table.createdAt),
+  ],
+)
+
+/** The in-app record, one per person told. This always exists, whatever the other channels do. */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outboxId: uuid('outbox_id').references(() => notificationOutbox.id, { onDelete: 'set null' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    eventType: notificationEvent('event_type').notNull(),
+    entityType: varchar('entity_type', { length: 40 }).notNull(),
+    entityId: uuid('entity_id'),
+    payload: jsonb('payload').notNull().default({}),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('notifications_user_created_idx').on(table.userId, table.createdAt),
+    index('notifications_user_unread_idx').on(table.userId).where(sql`${table.readAt} is null`),
+    // One notification per person per event: a dispatcher retry must not tell someone twice
+    unique('notifications_outbox_user_unique').on(table.outboxId, table.userId),
+  ],
+)
+
+/**
+ * One row per channel per person, so a failed email never hides a delivered in-app record and a
+ * retry only retries the channel that failed.
+ */
+export const notificationDeliveries = pgTable(
+  'notification_deliveries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    notificationId: uuid('notification_id')
+      .notNull()
+      .references(() => notifications.id, { onDelete: 'cascade' }),
+    channel: notificationChannel('channel').notNull(),
+    status: deliveryStatus('status').notNull().default('PENDING'),
+    attempts: integer('attempts').notNull().default(0),
+    /** When this channel may be tried again; the backoff schedule sets it */
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    lastError: varchar('last_error', { length: 200 }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('notification_deliveries_due_idx').on(table.status, table.nextAttemptAt),
+    unique('notification_deliveries_notification_channel_unique').on(table.notificationId, table.channel),
+  ],
+)
+
+/**
+ * A browser that has agreed to receive push. Keyed by endpoint, because that is what the push
+ * service recognises, and deactivated rather than deleted when the service says it is gone.
+ */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull(),
+    /** The browser's public key and auth secret for this subscription */
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('push_subscriptions_endpoint_unique').on(table.endpoint),
+    index('push_subscriptions_user_idx').on(table.userId).where(sql`${table.isActive}`),
+  ],
+)
+
 export const rateLimitBucketType = pgEnum('rate_limit_bucket_type', ['PHONE', 'IP'])
 
 /**
@@ -841,6 +986,14 @@ export const visits = pgTable(
     decisionReason: varchar('decision_reason', { length: 200 }),
     /** The guard device's request id when the visit was registered offline; one visit per id */
     clientEventId: uuid('client_event_id'),
+    /**
+     * When the approver gets one reminder, and when an unanswered visit becomes the guard's to
+     * decide. Both are set at registration and kept through a change of approver, so moving a
+     * tenant in does not hand the next approver a fresh three minutes.
+     */
+    reminderAt: timestamp('reminder_at', { withTimezone: true }),
+    escalateAt: timestamp('escalate_at', { withTimezone: true }),
+    reminderSentAt: timestamp('reminder_sent_at', { withTimezone: true }),
     enteredAt: timestamp('entered_at', { withTimezone: true }),
     entryBy: uuid('entry_by').references(() => users.id),
     exitedAt: timestamp('exited_at', { withTimezone: true }),
@@ -852,6 +1005,8 @@ export const visits = pgTable(
     index('visits_society_id_status_idx').on(table.societyId, table.status),
     uniqueIndex('visits_client_event_id_unique').on(table.clientEventId),
     index('visits_flat_id_created_at_idx').on(table.flatId, table.createdAt),
+    // The escalation job looks for exactly this: a visit whose deadline has passed
+    index('visits_escalation_idx').on(table.status, table.escalateAt),
     check('visits_phone_digits', sql`${table.visitorPhone} ~ '^[6-9][0-9]{9}$'`),
     check('visits_people_range', sql`${table.people} between 1 and 50`),
     check('visits_decision_recorded', sql`(${table.decidedAt} is null) or (${table.status} <> 'AWAITING_APPROVAL')`),
@@ -1091,6 +1246,9 @@ export const communityTasks = pgTable(
     /** Staff or a vendor already registered with the society; nobody else can be assigned */
     assignedStaffId: uuid('assigned_staff_id').references(() => staff.id, { onDelete: 'set null' }),
     raisedBy: uuid('raised_by').references(() => users.id, { onDelete: 'set null' }),
+    /** Each task gets one reminder before it is due and one notice once it is late */
+    dueReminderSentAt: timestamp('due_reminder_sent_at', { withTimezone: true }),
+    overdueNoticeSentAt: timestamp('overdue_notice_sent_at', { withTimezone: true }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     closingNote: varchar('closing_note', { length: 300 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

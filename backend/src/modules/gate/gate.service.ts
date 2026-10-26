@@ -18,6 +18,7 @@ import {
   visits,
 } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
+import { enqueueNotification } from '../notification/outbox.service.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assertFlatAccess, assertSameSociety, assertState, deny, permissionDenied, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
@@ -30,6 +31,10 @@ import type {
   StaffMovementHistoryQuery,
   StaffRejectionBody,
 } from './gate.schemas.js'
+
+/** The approver's single reminder, and the point at which the guard decides instead. */
+const REMINDER_AFTER_MS = 60_000
+const ESCALATE_AFTER_MS = 180_000
 
 const AWAITING_APPROVAL = 'AWAITING_APPROVAL'
 const AWAITING_MANUAL = 'AWAITING_MANUAL'
@@ -310,6 +315,8 @@ export async function registerVisit(
     status = AWAITING_MANUAL
   }
 
+  const approver = status === AWAITING_APPROVAL ? await effectiveApprover(flat.id) : undefined
+  const now = new Date()
   const { entryCode: _code, flatId, ...rest } = body
   const [visit] = await db
     .insert(visits)
@@ -322,6 +329,11 @@ export async function registerVisit(
       clientEventId,
       registeredBy: ctx.userId,
       ...(status === APPROVED ? { decidedBy: ctx.userId, decidedAt: new Date(), decisionReason: 'Arrived with a valid pass' } : {}),
+      // One reminder a minute in, the guard's decision two minutes after that. Only a visit
+      // that is actually waiting on someone has deadlines.
+      ...(status === AWAITING_APPROVAL
+        ? { reminderAt: new Date(now.getTime() + REMINDER_AFTER_MS), escalateAt: new Date(now.getTime() + ESCALATE_AFTER_MS) }
+        : {}),
       // No decidedBy: nobody approved this, and the record must not suggest anyone did
       ...(manualOffline
         ? {
@@ -334,6 +346,37 @@ export async function registerVisit(
         : {}),
     })
     .returning()
+  const label_ = label(flat)
+  if (approver) {
+    await enqueueNotification(db, {
+      societyId,
+      eventType: 'VISITOR_WAITING_APPROVAL',
+      entityType: 'visit',
+      entityId: visit!.id,
+      recipientIds: [approver.userId],
+      payload: { name: visit!.visitorName, flat: label_, purpose: visit!.purpose },
+    })
+  } else if (status === AWAITING_MANUAL) {
+    // Nobody can answer, so the gate and the office are told rather than a resident
+    await enqueueNotification(db, {
+      societyId,
+      eventType: 'VISITOR_ESCALATED_TO_GATE',
+      entityType: 'visit',
+      entityId: visit!.id,
+      recipientIds: [ctx.userId],
+      payload: { name: visit!.visitorName, flat: label_ },
+    })
+  }
+  if (manualOffline) {
+    await enqueueNotification(db, {
+      societyId,
+      eventType: 'OFFLINE_EVENT_NEEDS_REVIEW',
+      entityType: 'visit',
+      entityId: visit!.id,
+      recipientIds: [ctx.userId],
+      payload: { name: visit!.visitorName, flat: label_ },
+    })
+  }
   await audit(db, ctx, manualOffline ? 'VISIT_MANUAL_OFFLINE_ENTRY' : 'VISIT_REGISTERED', {
     visitId: visit!.id,
     flat: label(flat),
@@ -409,7 +452,14 @@ export async function decideVisit(ctx: AuthContext, id: string, body: DecideVisi
   const row = await loadVisit(ctx, id)
   const asGuard = ctx.permissions?.includes('VISIT_DECIDE') ?? false
   if (!asGuard) await assertFlatAccess(ctx, row.visit.flatId, { write: true })
-  assertState(row.visit.status === AWAITING_APPROVAL, 'This visit has already been decided')
+
+  // A resident answers while the visit is waiting on them. Once it has escalated the decision is
+  // the guard's, and the guard has to say why, because nobody upstairs was asked.
+  const open: ('AWAITING_APPROVAL' | 'AWAITING_MANUAL')[] = asGuard ? [AWAITING_APPROVAL, AWAITING_MANUAL] : [AWAITING_APPROVAL]
+  assertState(open.some((status) => status === row.visit.status), 'This visit has already been decided')
+  if (asGuard && row.visit.status === AWAITING_MANUAL) {
+    assertState(Boolean(body.reason), 'Give the reason for deciding this at the gate')
+  }
 
   const [updated] = await db
     .update(visits)
@@ -420,7 +470,7 @@ export async function decideVisit(ctx: AuthContext, id: string, body: DecideVisi
       decisionReason: body.reason ?? null,
       updatedAt: new Date(),
     })
-    .where(and(eq(visits.id, id), eq(visits.status, AWAITING_APPROVAL)))
+    .where(and(eq(visits.id, id), inArray(visits.status, open)))
     .returning()
   assertState(Boolean(updated), 'This visit has already been decided')
   await audit(db, ctx, 'VISIT_DECIDED', {
@@ -431,7 +481,41 @@ export async function decideVisit(ctx: AuthContext, id: string, body: DecideVisi
     ...(asGuard ? { byGuard: true } : {}),
     ...(body.reason ? { reason: body.reason } : {}),
   })
+  // The gate needs the answer, and the flat needs to know what was decided in its name
+  await enqueueNotification(db, {
+    societyId: row.visit.societyId,
+    eventType: 'VISITOR_DECIDED',
+    entityType: 'visit',
+    entityId: id,
+    recipientIds: await flatAudience(row.visit.flatId, row.visit.registeredBy, ctx.userId),
+    payload: { name: row.visit.visitorName, flat: label(row.flat), status: body.decision },
+  })
   return serializeVisit({ ...row, visit: updated! })
+}
+
+/**
+ * Who hears about something that happened at a flat: the residents who hold access, plus the
+ * guard who registered it. The person who caused it is left out - they just did it and watched
+ * it happen - and nobody is told twice.
+ */
+async function flatAudience(flatId: string, ...extra: (string | null | undefined)[]) {
+  const residents = await db
+    .select({ userId: flatResidents.userId })
+    .from(flatResidents)
+    .innerJoin(users, eq(users.id, flatResidents.userId))
+    .where(
+      and(
+        eq(flatResidents.flatId, flatId),
+        eq(flatResidents.verificationStatus, 'VERIFIED'),
+        eq(users.isActive, true),
+        lte(flatResidents.startDate, sql`current_date`),
+        or(isNull(flatResidents.endDate), gte(flatResidents.endDate, sql`current_date`))!,
+      ),
+    )
+  const actor = extra.at(-1)
+  return [...new Set([...residents.map((row) => row.userId), ...extra.filter((id): id is string => Boolean(id))])].filter(
+    (id) => id !== actor,
+  )
 }
 
 /** The gate lets them in. A one-entry pass is closed here, so it cannot be used twice. */
@@ -455,6 +539,14 @@ export async function recordEntry(ctx: AuthContext, id: string, gateId?: string)
         .where(and(eq(visitorPasses.id, row.visit.passId), eq(visitorPasses.passType, 'ONE_ENTRY'), eq(visitorPasses.status, 'ACTIVE')))
     }
     await audit(tx, ctx, 'VISIT_ENTRY_RECORDED', { visitId: id, flat: label(row.flat), name: row.visit.visitorName })
+    await enqueueNotification(tx, {
+      societyId: row.visit.societyId,
+      eventType: 'VISITOR_ENTERED',
+      entityType: 'visit',
+      entityId: id,
+      recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
+      payload: { name: row.visit.visitorName, flat: label(row.flat) },
+    })
     return updated
   })
   assertState(Boolean(entered), 'Only an approved visit can be let in')
@@ -473,6 +565,14 @@ export async function recordExit(ctx: AuthContext, id: string) {
     .returning()
   assertState(Boolean(updated), 'This visitor is not inside')
   await audit(db, ctx, 'VISIT_EXIT_RECORDED', { visitId: id, flat: label(row.flat), name: row.visit.visitorName })
+  await enqueueNotification(db, {
+    societyId: row.visit.societyId,
+    eventType: 'VISITOR_EXITED',
+    entityType: 'visit',
+    entityId: id,
+    recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
+    payload: { name: row.visit.visitorName, flat: label(row.flat) },
+  })
   return serializeVisit({ ...row, visit: updated! })
 }
 

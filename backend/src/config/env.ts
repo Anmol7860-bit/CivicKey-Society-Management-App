@@ -24,6 +24,16 @@ const envSchema = z.object({
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
   /** Auth requests allowed from one IP in the window, counting malformed ones */
   LOGIN_RATE_LIMIT_IP_MAX: z.coerce.number().int().positive().default(30),
+  /** Brevo transactional email. Unset means email is skipped rather than failed. */
+  BREVO_API_KEY: z.string().min(1).optional(),
+  EMAIL_FROM_NAME: z.string().min(1).default('CivicKey'),
+  EMAIL_FROM_ADDRESS: z.string().email().default('no-reply@civickey.local'),
+  /** Web Push. Both unset means push is skipped; generate a pair with `npx web-push generate-vapid-keys`. */
+  VAPID_PUBLIC_KEY: z.string().min(1).optional(),
+  VAPID_PRIVATE_KEY: z.string().min(1).optional(),
+  /** How often the dispatcher and the scheduled jobs look for work. Zero switches them off. */
+  DISPATCHER_INTERVAL_SECONDS: z.coerce.number().int().min(0).default(5),
+  JOB_INTERVAL_SECONDS: z.coerce.number().int().min(0).default(15),
   /** Keys the throttle buckets, so the table holds no phone numbers or addresses */
   AUTH_RATE_KEY: z.string().min(16).default('dev-only-auth-rate-key-change-me'),
   LOGIN_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),

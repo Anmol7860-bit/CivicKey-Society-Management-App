@@ -13,6 +13,7 @@ import { createAuditRouter } from './modules/audit/audit.routes.js'
 import { createAuthRouter } from './modules/auth/auth.routes.js'
 import { createBillingRouter } from './modules/billing/billing.routes.js'
 import { createGateRouter } from './modules/gate/gate.routes.js'
+import { createNotificationRouter } from './modules/notification/notification.routes.js'
 import { createResidentRouter } from './modules/resident/resident.routes.js'
 import { createSocietyRouter } from './modules/society/society.routes.js'
 import { createTaskRouter } from './modules/task/task.routes.js'
@@ -60,6 +61,7 @@ export function createApp({ logger = defaultLogger }: AppOptions = {}) {
   app.use('/api/v1', createTaskRouter())
   app.use('/api/v1', createAuditRouter())
   app.use('/api/v1', createSyncRouter())
+  app.use('/api/v1', createNotificationRouter())
 
   app.use(notFoundHandler)
   app.use(errorHandler)
