@@ -265,20 +265,34 @@ describe('POST /api/v1/auth/login', () => {
   })
 
   describe('rate limiting', () => {
-    it('returns 429 after 5 failed attempts for the same account', async () => {
+    it('locks the phone on the fifth failure, and says nothing different until the sixth', async () => {
       await createUser()
 
+      // The fifth failure answers like the four before it: the threshold is not announced
       for (let attempt = 0; attempt < 5; attempt++) {
         const res = await postLogin(app, { phone: '9876543210', password: 'wrong-password' })
         expect(res.status).toBe(401)
+        expect(res.body.error.code).toBe('INVALID_CREDENTIALS')
       }
-      const blocked = await postLogin(app, { phone: '9876543210', password: PASSWORD })
 
+      // Everything after it is refused, the correct password included
+      const blocked = await postLogin(app, { phone: '9876543210', password: PASSWORD })
       expect(blocked.status).toBe(429)
-      expect(blocked.body.error).toMatchObject({ code: 'TOO_MANY_REQUESTS', retryAfterSeconds: 900 })
-      expect(blocked.headers['retry-after']).toBe('900')
+      expect(blocked.body.error.code).toBe('TOO_MANY_REQUESTS')
+      expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0)
       const limited = await db.select().from(auditLogs).where(eq(auditLogs.eventType, 'AUTH_LOGIN_RATE_LIMITED'))
       expect(limited).toHaveLength(1)
+    })
+
+    it('keeps the lock across a restart, because it lives in the database', async () => {
+      await createUser()
+      for (let attempt = 0; attempt < 5; attempt++) {
+        expect((await postLogin(app, { phone: '9876543210', password: 'wrong-password' })).status).toBe(401)
+      }
+
+      // A fresh app is a fresh process: an in-memory counter would have been cleared by it
+      const restarted = createApp()
+      expect((await postLogin(restarted, { phone: '9876543210', password: PASSWORD })).status).toBe(429)
     })
 
     it('does not count successful logins toward the limit', async () => {
@@ -290,22 +304,34 @@ describe('POST /api/v1/auth/login', () => {
       }
     })
 
-    it('limits an account across IPs, so guesses spread over many IPs are capped', async () => {
+    it('counts failures per phone, not per IP, so spreading guesses over many IPs does not help', async () => {
       await createUser()
       app.set('trust proxy', true)
       const fromIp = (ip: string, password: string) =>
         postLogin(app, { phone: '9876543210', password }).set('X-Forwarded-For', ip)
 
-      // 20 failures spread so that no single IP reaches its own limit of 5
+      // One failure from each of five addresses: the phone's own counter reaches five
       for (let ip = 1; ip <= 5; ip++) {
-        for (let attempt = 0; attempt < 4; attempt++) {
-          expect((await fromIp(`203.0.113.${ip}`, 'wrong-password')).status).toBe(401)
-        }
+        expect((await fromIp(`203.0.113.${ip}`, 'wrong-password')).status).toBe(401)
       }
 
+      // A sixth address gains nothing: the lock follows the phone
       const blocked = await fromIp('203.0.113.99', PASSWORD)
       expect(blocked.status).toBe(429)
       expect(blocked.body.error.code).toBe('TOO_MANY_REQUESTS')
+    })
+
+    it('caps auth requests from one address, whatever phone they name', async () => {
+      app.set('trust proxy', true)
+      const fromIp = (phone: string) => postLogin(app, { phone, password: 'wrong-password' }).set('X-Forwarded-For', '198.51.100.7')
+
+      // Thirty requests are allowed in the window; each names a different phone, so no phone locks
+      for (let n = 0; n < 30; n++) {
+        const phone = `98765${String(40000 + n).padStart(5, '0')}`
+        expect((await fromIp(phone)).status).toBe(401)
+      }
+
+      expect((await fromIp('9811100000')).status).toBe(429)
     })
 
     it('rate limits unknown accounts the same way, so 429 does not reveal registration', async () => {

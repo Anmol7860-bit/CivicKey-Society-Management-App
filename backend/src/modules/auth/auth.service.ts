@@ -4,6 +4,7 @@ import { db } from '../../db/client.js'
 import { authSessions, refreshTokens, roles, userRoles, users, type Role, type User } from '../../db/schema.js'
 import { loadPermissions, type Permission } from '../access/permissions.js'
 import { AppError } from '../../lib/errors.js'
+import { assertPhoneNotLocked, clearFailedAttempts, countFailedAttempt } from './throttle.js'
 import { maskIdentifier, recordAuditEvent, type DbExecutor } from '../audit/audit.service.js'
 import type { LoginIdentifier } from './auth.schemas.js'
 import { verifyPassword } from './password.js'
@@ -126,6 +127,10 @@ export async function login(
   context: RequestContext,
   selectedRole?: Role,
 ): Promise<AuthResult> {
+  // Refused before the password is looked at, so a locked account cannot be probed for whether
+  // the guess happened to be right
+  await assertPhoneNotLocked(identifier.value, context)
+
   const user = await findUser(identifier)
   const passwordMatches = await verifyPassword(password, user?.passwordHash)
   const auditBase = {
@@ -135,6 +140,8 @@ export async function login(
   const attempted = { identifierType: identifier.type, identifier: maskIdentifier(identifier.type, identifier.value) }
 
   if (!user || !passwordMatches) {
+    // The attempt that reaches the limit answers 401 like the rest; the next one is refused
+    await countFailedAttempt(identifier.value)
     await recordAuditEvent(db, {
       ...auditBase,
       eventType: 'AUTH_LOGIN_FAILED',
@@ -202,6 +209,9 @@ export async function login(
       actorUserId: user.id,
       metadata: { ...attempted, sessionId: session.id, role: user.role },
     })
+
+    // A correct password clears this phone's failures; the caller's IP window keeps running
+    await clearFailedAttempts(identifier.value)
 
     return buildAuthResult(tx, { ...user, role }, session.id, refresh)
   })

@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import {
   boolean,
+  char,
   time,
   check,
   date,
@@ -727,6 +728,27 @@ export const visitorPasses = pgTable(
 
 /** One person at the gate, from the guard's form to the exit stamp. */
 /** Where a visit was recorded: at the gate online, or on a guard's device during an outage. */
+export const rateLimitBucketType = pgEnum('rate_limit_bucket_type', ['PHONE', 'IP'])
+
+/**
+ * Login throttling, kept in the database so a restart does not clear it.
+ *
+ * bucket_key is an HMAC of the phone or the IP, never the value itself: a leaked table must not
+ * hand over the list of phone numbers that tried to sign in.
+ *
+ * An IP bucket counts every auth request. A phone bucket counts only failed credentials, and
+ * carries the lock that follows the fifth failure.
+ */
+export const authRateLimitBuckets = pgTable('auth_rate_limit_buckets', {
+  bucketKey: char('bucket_key', { length: 64 }).primaryKey(),
+  bucketType: rateLimitBucketType('bucket_type').notNull(),
+  windowStartedAt: timestamp('window_started_at', { withTimezone: true }).notNull().defaultNow(),
+  requestCount: integer('request_count').notNull().default(0),
+  /** Set when the failure threshold is reached; every request is refused until it passes */
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [check('auth_rate_limit_buckets_count_positive', sql`${table.requestCount} >= 0`)])
+
 export const visitSource = pgEnum('visit_source', ['ONLINE', 'MANUAL_OFFLINE'])
 
 /** A Guard is a users row with role GUARD plus this operational profile. */

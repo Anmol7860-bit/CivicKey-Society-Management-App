@@ -20,7 +20,12 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
 
+  /** Failed credential attempts for one phone before it is locked for the window */
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  /** Auth requests allowed from one IP in the window, counting malformed ones */
+  LOGIN_RATE_LIMIT_IP_MAX: z.coerce.number().int().positive().default(30),
+  /** Keys the throttle buckets, so the table holds no phone numbers or addresses */
+  AUTH_RATE_KEY: z.string().min(16).default('dev-only-auth-rate-key-change-me'),
   LOGIN_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
 })
 

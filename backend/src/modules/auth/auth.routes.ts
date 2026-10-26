@@ -1,4 +1,4 @@
-import { Router, type CookieOptions, type Response } from 'express'
+import { Router, type CookieOptions, type RequestHandler, type Response } from 'express'
 import { isProduction } from '../../config/env.js'
 import { AppError } from '../../lib/errors.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
@@ -7,7 +7,7 @@ import { getEffectivePermissions } from '../access/permissions.js'
 import { identifierFrom, loginSchema, type LoginBody } from './auth.schemas.js'
 import { login, logout, refreshSession, type AuthResult } from './auth.service.js'
 import { forgotPasswordSchema, requestPasswordReset, setPasswordSchema, setPasswordWithCode } from './passwordSetup.js'
-import { createLoginRateLimiters } from './rateLimit.js'
+import { countRequestFromIp } from './throttle.js'
 
 export const REFRESH_COOKIE_NAME = 'ck_refresh'
 
@@ -36,18 +36,28 @@ function sendAuthResult(res: Response, result: AuthResult) {
   })
 }
 
+/**
+ * Counts every auth request against the caller's address, in the database, before anything else
+ * runs. It survives a restart, which an in-process counter did not.
+ */
+const perIp: RequestHandler = async (req, _res, next) => {
+  try {
+    await countRequestFromIp(req.ip ?? 'unknown', { ipAddress: req.ip ?? null, userAgent: req.get('user-agent') ?? null })
+    next()
+  } catch (error) {
+    next(error)
+  }
+}
+
 export function createAuthRouter() {
   const router = Router()
-  const limiters = createLoginRateLimiters()
 
-  // Order matters: the cheap per-IP cap first, then validation so no auth logic sees bad input,
-  // then the per-account limits that need the parsed identifier
+  // Order matters: the per-IP cap first, then validation so no auth logic sees bad input. The
+  // per-phone failure count lives in the login service, which knows whether the password was right.
   router.post(
     '/login',
-    limiters.perIp,
+    perIp,
     validateBody(loginSchema),
-    limiters.perAccount,
-    limiters.perIdentifier,
     async (req, res) => {
       const body = req.body as LoginBody
       const result = await login(
@@ -63,7 +73,7 @@ export function createAuthRouter() {
   /** Someone who cannot sign in asks the office for a code. Always answers the same way. */
   router.post(
     '/forgot-password',
-    limiters.perIpPasswordSetup,
+    perIp,
     validateBody(forgotPasswordSchema),
     async (req, res) => {
       const data = await requestPasswordReset(req.body.phone, {
@@ -76,7 +86,7 @@ export function createAuthRouter() {
   )
 
   /** Spends a one-time code from the office and sets the account's password. */
-  router.post('/set-password', limiters.perIpPasswordSetup, validateBody(setPasswordSchema), async (req, res) => {
+  router.post('/set-password', perIp, validateBody(setPasswordSchema), async (req, res) => {
     const data = await setPasswordWithCode(req.body, {
       ipAddress: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
