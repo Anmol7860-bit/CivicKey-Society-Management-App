@@ -674,7 +674,8 @@
           "flats": "Flats",
           "residents": "Residents",
           "approvals": "Approvals",
-          "gates": "Gates"
+          "gates": "Gates",
+          "settings": "Settings & backups"
         },
         "noSociety": {
           "title": "No society yet",
@@ -929,6 +930,38 @@
           "copy": "Copy",
           "share": "Share on WhatsApp",
           "shareText": "Your CivicKey one-time code is {{code}}. Open the app, tap \"Forgot password?\" and use it to set your password. It works once."
+        },
+        "settings": {
+          "title": "Society settings",
+          "description": "Choices that apply to the whole society.",
+          "saved": "Saved.",
+          "idRequired": "Require a government ID for staff",
+          "idRequiredHint": "Staff cannot be registered without an ID type and number. Only the type and last 4 digits are ever shown.",
+          "timezone": "Timezone"
+        },
+        "backups": {
+          "title": "Database backup",
+          "description": "An encrypted copy of the whole database, for this self-hosted server.",
+          "export": "Export a backup",
+          "starting": "Starting…",
+          "refresh": "Refresh",
+          "download": "Download",
+          "used": "Link used",
+          "empty": "No backup has been exported yet.",
+          "note": "A backup is encrypted with the server’s backup key and the link works once, within 15 minutes. Keep the file somewhere safe: without the key it cannot be read.",
+          "columns": {
+            "requested": "Requested",
+            "status": "Status",
+            "size": "Size",
+            "link": "Link"
+          },
+          "statuses": {
+            "PENDING": "Queued",
+            "RUNNING": "Generating",
+            "READY": "Ready",
+            "FAILED": "Failed",
+            "EXPIRED": "Expired"
+          }
         }
       },
       "addUser": {

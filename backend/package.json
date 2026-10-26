@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
-    "db:seed": "tsx --env-file=.env src/db/seed.ts"
+    "db:seed": "tsx --env-file=.env src/db/seed.ts",
+    "bootstrap:society": "tsx --env-file=.env src/db/bootstrap.ts"
   },
   "type": "module",
   "dependencies": {

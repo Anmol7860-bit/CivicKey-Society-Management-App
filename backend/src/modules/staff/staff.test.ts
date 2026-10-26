@@ -231,3 +231,17 @@ describe('the record', () => {
     expect((await api.post(`/staff/${created.body.data.id}/pass`)).status).toBe(400)
   })
 })
+
+describe('society settings', () => {
+  it('insists on a government ID once the society says it is required', async () => {
+    await api.put(`/societies/${TEST_SOCIETY_ID}/settings`, { idRequired: true })
+
+    const refused = await register(guard())
+    expect(refused.status).toBe(400)
+    expect(refused.body.error.message).toMatch(/government ID/)
+
+    const created = await register({ ...guard(), idDocumentType: 'AADHAAR', idDocumentLast4: '1234' })
+    expect(created.status).toBe(201)
+    expect(created.body.data).toMatchObject({ idDocumentType: 'AADHAAR', idDocumentLast4: '1234' })
+  })
+})

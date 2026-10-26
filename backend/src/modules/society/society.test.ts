@@ -465,3 +465,15 @@ describe('flat billing details', () => {
     })
   })
 })
+
+describe('settings', () => {
+  it('answers with the defaults, and keeps what the society changes', async () => {
+    const defaults = await api.get(`/societies/${TEST_SOCIETY_ID}/settings`)
+    expect(defaults.body.data).toMatchObject({ timezone: 'Asia/Kolkata', idRequired: false })
+
+    const changed = await api.put(`/societies/${TEST_SOCIETY_ID}/settings`, { idRequired: true })
+    expect(changed.body.data.idRequired).toBe(true)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/settings`)).body.data.idRequired).toBe(true)
+    expect((await api.put(`/societies/${TEST_SOCIETY_ID}/settings`, {})).status).toBe(422)
+  })
+})

@@ -246,3 +246,47 @@ export const updateResident = (
 
 /** The signed-in person's own assignments. No management permission; the server returns only their rows. */
 export const listMyFlats = (token: string) => call<MyAssignment[]>(token, 'GET', '/me/flats')
+
+export interface SocietySettings {
+  societyId: string
+  timezone: string
+  /** When true, staff cannot be registered without a government ID */
+  idRequired: boolean
+}
+
+export const getSettings = (token: string, societyId: string) =>
+  call<SocietySettings>(token, 'GET', `/societies/${societyId}/settings`)
+
+export const updateSettings = (token: string, societyId: string, body: Partial<Pick<SocietySettings, 'timezone' | 'idRequired'>>) =>
+  call<SocietySettings>(token, 'PUT', `/societies/${societyId}/settings`, body)
+
+export type BackupStatus = 'PENDING' | 'RUNNING' | 'READY' | 'FAILED' | 'EXPIRED'
+
+export interface BackupJob {
+  id: string
+  status: BackupStatus
+  byteSize: number | null
+  errorCode: string | null
+  createdAt: string
+  completedAt: string | null
+  expiresAt: string | null
+  downloadedAt: string | null
+}
+
+export const listBackups = (token: string, societyId: string) =>
+  call<BackupJob[]>(token, 'GET', `/societies/${societyId}/backups`)
+
+export const requestBackup = (token: string, societyId: string) =>
+  call<BackupJob>(token, 'POST', `/societies/${societyId}/backups`, {})
+
+/** Spends the single-use link and hands the encrypted archive to the browser. */
+export async function downloadBackup(token: string, jobId: string) {
+  const res = await fetch(`/api/v1/backups/${jobId}/download`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!res.ok) throw new Error('That download link is no longer valid. Export a new backup.')
+  const url = URL.createObjectURL(await res.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `civickey-backup-${jobId}.sql.gz.enc`
+  link.click()
+  URL.revokeObjectURL(url)
+}

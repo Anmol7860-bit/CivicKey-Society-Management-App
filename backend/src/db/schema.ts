@@ -1395,6 +1395,56 @@ export const storedFiles = pgTable(
   ],
 )
 
+/**
+ * The few choices a society makes once and the whole deployment reads.
+ *
+ * One row per society, created with the society itself, so a lookup never has to cope with a
+ * missing row. id_required is what makes a government ID mandatory when staff are registered.
+ */
+export const societySettings = pgTable('society_settings', {
+  societyId: uuid('society_id')
+    .primaryKey()
+    .references(() => societies.id, { onDelete: 'cascade' }),
+  timezone: varchar('timezone', { length: 80 }).notNull().default('Asia/Kolkata'),
+  /** When true, a staff member cannot be registered without an ID type and number */
+  idRequired: boolean('id_required').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const backupExportStatus = pgEnum('backup_export_status', ['PENDING', 'RUNNING', 'READY', 'FAILED', 'EXPIRED'])
+
+/**
+ * A request for an encrypted database dump, and what became of it.
+ *
+ * The file lives in private storage and the link expires fifteen minutes after it is ready, so a
+ * forwarded URL is worth nothing for long. A failed job is kept: an admin should be able to see
+ * that a backup did not happen.
+ */
+export const backupExportJobs = pgTable(
+  'backup_export_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    requestedBy: uuid('requested_by')
+      .notNull()
+      .references(() => users.id),
+    status: backupExportStatus('status').notNull().default('PENDING'),
+    /** The encrypted archive's name inside the private backup directory */
+    fileName: varchar('file_name', { length: 120 }),
+    byteSize: integer('byte_size'),
+    /** Spent on the first download, so a link works once */
+    downloadedAt: timestamp('downloaded_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    errorCode: varchar('error_code', { length: 80 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('backup_export_jobs_requested_by_idx').on(table.requestedBy, table.createdAt.desc())],
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Role = (typeof userRole.enumValues)[number]
@@ -1411,5 +1461,7 @@ export type FlatVehicle = typeof flatVehicles.$inferSelect
 export type AccessRequest = typeof accessRequests.$inferSelect
 export type CommunityTask = typeof communityTasks.$inferSelect
 export type StoredFile = typeof storedFiles.$inferSelect
+export type SocietySettings = typeof societySettings.$inferSelect
+export type BackupExportJob = typeof backupExportJobs.$inferSelect
 export type PaymentAttempt = typeof paymentAttempts.$inferSelect
 export type Receipt = typeof receipts.$inferSelect

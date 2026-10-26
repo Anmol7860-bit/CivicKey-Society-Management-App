@@ -11,6 +11,7 @@ import {
   updateBlockSchema,
   updateFlatSchema,
   updateFloorSchema,
+  updateSettingsSchema,
   updateSocietySchema,
 } from './society.schemas.js'
 import * as service from './society.service.js'
@@ -29,6 +30,13 @@ export function createSocietyRouter() {
   })
   router.put('/societies/:societyId', ...manage, validateBody(updateSocietySchema), async (req, res) => {
     res.json({ data: await service.updateSociety(req.ctx!, req.params.societyId as string, req.body) })
+  })
+
+  router.get('/societies/:societyId/settings', ...manage, async (req, res) => {
+    res.json({ data: await service.getSettings(req.ctx!, req.params.societyId as string) })
+  })
+  router.put('/societies/:societyId/settings', ...manage, validateBody(updateSettingsSchema), async (req, res) => {
+    res.json({ data: await service.updateSettings(req.ctx!, req.params.societyId as string, req.body) })
   })
 
   /** The selling view: the whole hierarchy with what is sold, occupied and open to sharing */

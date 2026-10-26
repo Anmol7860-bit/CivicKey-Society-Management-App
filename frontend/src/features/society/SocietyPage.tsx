@@ -9,10 +9,11 @@ import { FloorsTab } from './FloorsTab'
 import { GatesTab } from './GatesTab'
 import { Tabs } from './parts'
 import { ResidentsTab } from './ResidentsTab'
+import { SettingsTab } from './SettingsTab'
 import { StructureTab } from './StructureTab'
 import { useResource } from './useResource'
 
-const TAB_KEYS = ['structure', 'blocks', 'floors', 'flats', 'gates', 'residents', 'approvals'] as const
+const TAB_KEYS = ['structure', 'blocks', 'floors', 'flats', 'gates', 'residents', 'approvals', 'settings'] as const
 type TabKey = (typeof TAB_KEYS)[number]
 
 /**
@@ -48,7 +49,12 @@ export function SocietyPage({ user, accessToken }: { user: AuthUser; accessToken
   }
 
   const permitted = TAB_KEYS.filter((key) =>
-    key === 'residents' || key === 'approvals' ? user.permissions.includes('USER_MANAGE') : user.permissions.includes('SOCIETY_MANAGE'),
+    key === 'residents' || key === 'approvals'
+      ? user.permissions.includes('USER_MANAGE')
+      : // Settings holds the backup export, which is its own permission
+        key === 'settings'
+        ? user.permissions.includes('SOCIETY_MANAGE') || user.permissions.includes('BACKUP_EXPORT')
+        : user.permissions.includes('SOCIETY_MANAGE'),
   )
   const active = permitted.includes(tab) ? tab : permitted[0]!
 
@@ -83,6 +89,7 @@ export function SocietyPage({ user, accessToken }: { user: AuthUser; accessToken
         />
       )}
       {active === 'gates' && <GatesTab token={accessToken} societyId={current.id} />}
+      {active === 'settings' && <SettingsTab token={accessToken} societyId={current.id} />}
       {(active === 'residents' || active === 'approvals') && (
         <ResidentsTab
           key={active}

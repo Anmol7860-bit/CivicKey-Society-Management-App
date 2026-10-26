@@ -45,6 +45,16 @@ const envSchema = z.object({
   RAZORPAY_KEY_ID: z.string().min(1).optional(),
   RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
+  /**
+   * Self-hosted ('local') or managed ('cloud'). The backup export exists only in local mode:
+   * in cloud mode its endpoints answer 404 and nothing shells out to pg_dump.
+   */
+  DEPLOYMENT_MODE: z.enum(['local', 'cloud']).default('local'),
+  /** 32 bytes, hex or base64, for the AES-256-GCM backup archive. Unset means no backups. */
+  BACKUP_ENCRYPTION_KEY: z.string().min(32).optional(),
+  BACKUP_DIR: z.string().min(1).default(fileURLToPath(new URL('../../var/backups', import.meta.url))),
+  /** The pg_dump to run. A full path when it is not on the server's PATH. */
+  PG_DUMP_PATH: z.string().min(1).default('pg_dump'),
   /** Where uploaded photos are written. Private by design: nothing serves this directory. */
   FILE_STORAGE_DIR: z.string().min(1).default(fileURLToPath(new URL('../../var/uploads', import.meta.url))),
   LOGIN_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),

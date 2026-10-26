@@ -132,3 +132,13 @@ export type CreateGateBody = z.infer<typeof createGateSchema>
 export type UpdateGateBody = z.infer<typeof updateGateSchema>
 export type CreateFlatBody = z.infer<typeof createFlatSchema>
 export type UpdateFlatBody = z.infer<typeof updateFlatSchema>
+
+/** The society's own choices: its timezone, and whether a government ID is mandatory. */
+export const updateSettingsSchema = z
+  .strictObject({
+    timezone: z.string().trim().min(3).max(80).optional(),
+    idRequired: z.boolean().optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, { message: 'Nothing to change' })
+
+export type UpdateSettingsBody = z.infer<typeof updateSettingsSchema>

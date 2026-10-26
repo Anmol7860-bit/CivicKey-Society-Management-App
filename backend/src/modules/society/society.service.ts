@@ -1,6 +1,6 @@
 import { and, asc, count, eq, gte, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { blocks, flatResidents, flats, floors, gates, societies, users } from '../../db/schema.js'
+import { blocks, flatResidents, flats, floors, gates, societies, societySettings, users } from '../../db/schema.js'
 import { AppError, type ErrorCode } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assertState, requireRecord, UUID } from '../access/scope.js'
@@ -14,6 +14,7 @@ import type {
   UpdateBlockBody,
   UpdateFlatBody,
   UpdateFloorBody,
+  UpdateSettingsBody,
   UpdateSocietyBody,
 } from './society.schemas.js'
 
@@ -137,6 +138,42 @@ export function updateSociety(ctx: AuthContext, id: string, body: UpdateSocietyB
     await audit(tx, ctx, 'SOCIETY_UPDATED', { societyId: id, changes: body })
     return society!
   })
+}
+
+/**
+ * The society's settings, creating the row on first read.
+ *
+ * Societies made before this table existed have a row from the migration; one made another way
+ * still answers with the defaults rather than a 404, which is what every caller wants.
+ */
+export async function getSettings(ctx: AuthContext, societyId: string) {
+  await loadSociety(db, ctx, societyId)
+  const [row] = await db.select().from(societySettings).where(eq(societySettings.societyId, societyId))
+  if (row) return row
+  const [created] = await db.insert(societySettings).values({ societyId }).onConflictDoNothing().returning()
+  return created ?? (await db.select().from(societySettings).where(eq(societySettings.societyId, societyId)))[0]!
+}
+
+export function updateSettings(ctx: AuthContext, societyId: string, body: UpdateSettingsBody) {
+  return db.transaction(async (tx) => {
+    await loadSociety(tx, ctx, societyId, 'update')
+    const [row] = await tx
+      .insert(societySettings)
+      .values({ societyId, ...body })
+      .onConflictDoUpdate({ target: societySettings.societyId, set: { ...body, updatedAt: new Date() } })
+      .returning()
+    await audit(tx, ctx, 'SOCIETY_UPDATED', { societyId, changes: body })
+    return row!
+  })
+}
+
+/** Whether this society insists on a government ID. Read by staff and resident registration. */
+export async function idRequired(societyId: string) {
+  const [row] = await db
+    .select({ idRequired: societySettings.idRequired })
+    .from(societySettings)
+    .where(eq(societySettings.societyId, societyId))
+  return row?.idRequired ?? false
 }
 
 // ---------------------------------------------------------------------------

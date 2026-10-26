@@ -7,7 +7,14 @@ import { recordAuditEvent, type DbExecutor } from '../audit/audit.service.js'
 // The permissions table is the source of truth; these lists mirror the master data inserted by
 // migration 0006 so code can name permissions with type checking. A test keeps them in step.
 
-export const GENERAL_ADMIN_PERMISSIONS = ['SOCIETY_MANAGE', 'USER_MANAGE', 'GUARD_MANAGE', 'STAFF_MANAGE', 'AUDIT_VIEW'] as const
+export const GENERAL_ADMIN_PERMISSIONS = [
+  'SOCIETY_MANAGE',
+  'USER_MANAGE',
+  'GUARD_MANAGE',
+  'STAFF_MANAGE',
+  'AUDIT_VIEW',
+  'BACKUP_EXPORT',
+] as const
 
 export const COMMITTEE_PERMISSIONS = ['BILLING_RATE_SET', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK', 'REPORT_VIEW'] as const
 

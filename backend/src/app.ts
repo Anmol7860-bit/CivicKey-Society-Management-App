@@ -11,6 +11,7 @@ import { logger as defaultLogger } from './lib/logger.js'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import { createAuditRouter } from './modules/audit/audit.routes.js'
 import { createAuthRouter } from './modules/auth/auth.routes.js'
+import { createBackupRouter } from './modules/backup/backup.routes.js'
 import { createBillingRouter } from './modules/billing/billing.routes.js'
 import { createFileRouter } from './modules/file/file.routes.js'
 import { createGateRouter } from './modules/gate/gate.routes.js'
@@ -66,6 +67,7 @@ export function createApp({ logger = defaultLogger }: AppOptions = {}) {
   app.use('/api/v1', createSyncRouter())
   app.use('/api/v1', createNotificationRouter())
   app.use('/api/v1', createFileRouter())
+  app.use('/api/v1', createBackupRouter())
 
   app.use(notFoundHandler)
   app.use(errorHandler)

@@ -8,6 +8,7 @@ import { identityOf, withoutHash } from '../access/identity.js'
 import { assertState, deny, permissionDenied, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import { requireFile } from '../file/file.service.js'
+import { idRequired } from '../society/society.service.js'
 import type { CreateStaffBody, ListStaffQuery, UpdateStaffBody } from './staff.schemas.js'
 
 type Kind = (typeof staff.$inferSelect)['kind']
@@ -189,6 +190,13 @@ export function createStaff(ctx: AuthContext, societyId: string, body: CreateSta
     if (fields.gateId) await assertGateInSociety(tx, societyId, fields.gateId)
     // A staff profile is never created pointing at a photo that was not stored
     await requireFile(societyId, fields.photoReference)
+    // Some societies insist on a government ID; the setting is theirs to make, not this code's
+    if (await idRequired(societyId)) {
+      assertState(
+        Boolean(fields.idDocumentType && (body.idNumber || fields.idDocumentLast4)),
+        'This society requires a government ID for every staff member',
+      )
+    }
     await assertFlatsInSociety(tx, societyId, flatsServed?.map((entry) => entry.flatId) ?? [])
 
     const [created] = await unique(

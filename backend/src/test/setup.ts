@@ -6,8 +6,10 @@ process.env.BCRYPT_COST = '4'
 process.env.ID_HASH_PEPPER = 'test-pepper-at-least-thirty-two-characters'
 process.env.LOGIN_RATE_LIMIT_MAX = '5'
 process.env.RAZORPAY_WEBHOOK_SECRET = 'test-webhook-secret'
+process.env.BACKUP_ENCRYPTION_KEY = '0'.repeat(63) + '1'
 // Uploads go to a throwaway directory, never the one a developer's own server writes to
 process.env.FILE_STORAGE_DIR = `${(await import('node:os')).tmpdir()}/civickey-test-uploads`
+process.env.BACKUP_DIR = `${(await import('node:os')).tmpdir()}/civickey-test-backups`
 
 const { migrate } = await import('drizzle-orm/node-postgres/migrator')
 const { db, pool } = await import('../db/client.js')
@@ -18,7 +20,7 @@ beforeAll(async () => {
 })
 
 beforeEach(async () => {
-  await pool.query('TRUNCATE receipts, payment_attempts, gateway_events, stored_files, auth_rate_limit_buckets, notification_deliveries, notifications, notification_outbox, push_subscriptions, community_tasks, password_setup_codes, processed_client_events, guard_gate_assignments, guard_profiles, visits, visitor_passes, staff_attendance, staff_entry_rejections, staff_leave, flat_vehicles, access_requests, payments, invoices, billing_rates, staff_flats, staff, gates, flat_residents, flats, floors, blocks, user_permissions, user_roles, audit_logs, refresh_tokens, auth_sessions, users, societies RESTART IDENTITY CASCADE')
+  await pool.query('TRUNCATE backup_export_jobs, receipts, payment_attempts, gateway_events, stored_files, auth_rate_limit_buckets, notification_deliveries, notifications, notification_outbox, push_subscriptions, community_tasks, password_setup_codes, processed_client_events, guard_gate_assignments, guard_profiles, visits, visitor_passes, staff_attendance, staff_entry_rejections, staff_leave, flat_vehicles, access_requests, payments, invoices, billing_rates, staff_flats, staff, gates, flat_residents, flats, floors, blocks, user_permissions, user_roles, audit_logs, refresh_tokens, auth_sessions, users, societies RESTART IDENTITY CASCADE')
   // roles, permissions and role_permissions are master data from migrations and are kept
 })
 
