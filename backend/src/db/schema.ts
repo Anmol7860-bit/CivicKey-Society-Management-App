@@ -328,6 +328,12 @@ export const flatResidents = pgTable(
      * household names these in more ways than an enum can hold. */
     relationship: varchar('relationship', { length: 60 }),
     accessLevel: flatAccess('access_level').notNull().default('FULL'),
+    /**
+     * True when this owner's VIEW_ONLY was imposed because a tenant holds the flat, so it is
+     * lifted when the tenancy ends. An owner an Admin made VIEW_ONLY on purpose - a co-owner who
+     * does not approve visitors - keeps it false and is never restored behind their back.
+     */
+    accessSuspendedByTenancy: boolean('access_suspended_by_tenancy').notNull().default(false),
     startDate: date('start_date').notNull().default(sql`current_date`),
     /** Last valid day; mandatory for a tenancy, null while an ownership is open-ended */
     endDate: date('end_date'),
@@ -349,7 +355,10 @@ export const flatResidents = pgTable(
     index('flat_residents_user_id_flat_id_idx').on(table.userId, table.flatId),
     index('flat_residents_flat_id_idx').on(table.flatId),
     check('flat_residents_valid_period', sql`${table.endDate} is null or ${table.endDate} >= ${table.startDate}`),
-    check('flat_residents_tenant_end_date', sql`${table.residentType} <> 'TENANT' or ${table.endDate} is not null`),
+    // The baseline wants one active owner and one active tenant per flat, enforced by partial
+    // unique indexes. They are deliberately absent: this society has joint owners who both
+    // approve, and flats that are shared by several tenants under flats.max_occupants. The
+    // counts that do apply are checked on verification, where the flat's own sharing rule is known.
     check(
       'flat_residents_id_document_hash_sha256',
       sql`${table.idDocumentHash} is null or ${table.idDocumentHash} ~ '^[0-9a-f]{64}$'`,

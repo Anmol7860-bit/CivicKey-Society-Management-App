@@ -125,15 +125,49 @@ describe('owner registration', () => {
 })
 
 describe('tenant registration', () => {
-  it('needs both a start and an end date', async () => {
+  it('needs a start date, and runs open-ended until the tenant moves out', async () => {
     const { name, phone } = tenant
 
-    const noEnd = await register({ name, phone, residentType: 'TENANT', startDate: '2025-01-01' })
-    expect(noEnd.status).toBe(422)
-    expect(noEnd.body.error.details.fields).toEqual([{ field: 'endDate', message: 'A tenancy must have an end date' }])
-
     const noStart = await register({ name, phone, residentType: 'TENANT', endDate: '2099-12-31' })
+    expect(noStart.status).toBe(422)
     expect(noStart.body.error.details.fields).toEqual([{ field: 'startDate', message: 'A tenancy must have a start date' }])
+
+    // No end date: the tenant is here until they leave, and the end is recorded then
+    const open = await register({ name, phone, residentType: 'TENANT', startDate: '2025-01-01' })
+    expect(open.status).toBe(201)
+    expect(open.body.data.endDate).toBeNull()
+  })
+
+  it('will not start a relationship in the future', async () => {
+    const { name, phone } = tenant
+    const ahead = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+
+    const res = await register({ name, phone, residentType: 'TENANT', startDate: ahead })
+    expect(res.status).toBe(422)
+    expect(res.body.error.details.fields).toEqual([{ field: 'startDate', message: 'A relationship cannot start in the future' }])
+  })
+
+  it('moves the owner to view-only for the tenancy, and back when it ends', async () => {
+    const ownerReg = await register(owner)
+    await api.post(`/residents/${ownerReg.body.data.id}/verify`)
+
+    const tenantReg = await register({ ...tenant, endDate: undefined })
+    await api.post(`/residents/${tenantReg.body.data.id}/verify`)
+
+    const withTenant = await api.get(`/flats/${flatId}/residents`)
+    const ownerRow = () =>
+      (withTenant.body.data as { residentType: string; accessLevel: string }[]).find((row) => row.residentType === 'OWNER')
+    expect(ownerRow()).toMatchObject({ accessLevel: 'VIEW_ONLY' })
+    // The tenant is the one who answers while they hold the flat
+    await expect(canAccess(ownerReg.body.data.user.id, flatId, true)).rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+
+    const today = new Date().toISOString().slice(0, 10)
+    await api.put(`/residents/${tenantReg.body.data.id}`, { endDate: today, reason: 'Moved out' })
+
+    const after = await api.get(`/flats/${flatId}/residents`)
+    const restored = (after.body.data as { residentType: string; accessLevel: string }[]).find((row) => row.residentType === 'OWNER')
+    expect(restored).toMatchObject({ accessLevel: 'FULL' })
+    await expect(canAccess(ownerReg.body.data.user.id, flatId, true)).resolves.toBeUndefined()
   })
 
   it('keeps access only for the tenancy period and keeps the history after it ends', async () => {

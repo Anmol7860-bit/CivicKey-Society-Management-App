@@ -25,7 +25,7 @@ export interface AuthSession {
   user: AuthUser
 }
 
-/** A field path and message from a 422, e.g. { field: 'endDate', message: 'A tenancy must have an end date' } */
+/** A field path and message from a 422, e.g. { field: 'startDate', message: 'A tenancy must have a start date' } */
 export interface FieldError {
   field: string
   message: string

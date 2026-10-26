@@ -28,6 +28,7 @@ export const registerResidentSchema = identityRefinements(
       /** VIEW_ONLY lets the person see the flat without approving visitors or paying */
       accessLevel: accessLevel.optional(),
       startDate: isoDate.optional(),
+      /** Left out while the relationship runs; set on move-out */
       endDate: isoDate.optional(),
       ...identitySchema,
       /** Sale deed, rent agreement or other proof reference */
@@ -45,9 +46,11 @@ export const registerResidentSchema = identityRefinements(
       message: 'Nobody can be their own emergency contact',
       path: ['emergencyContactPhone'],
     })
-    .refine((body) => body.residentType !== 'TENANT' || body.endDate !== undefined, {
-      message: 'A tenancy must have an end date',
-      path: ['endDate'],
+    // An end date is set when the tenant moves out, never demanded when they move in: a tenancy
+    // whose end is already known is still a tenancy that is running now.
+    .refine((body) => body.startDate === undefined || body.startDate <= new Date().toISOString().slice(0, 10), {
+      message: 'A relationship cannot start in the future',
+      path: ['startDate'],
     })
     .refine((body) => body.residentType !== 'TENANT' || body.startDate !== undefined, {
       message: 'A tenancy must have a start date',

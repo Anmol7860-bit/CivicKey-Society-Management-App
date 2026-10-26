@@ -125,7 +125,8 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
   const chosenFlat = flatsOfBlock.some((flat) => flat.id === form.flatId) ? form.flatId : ''
 
   const isTenant = form.residentType === 'TENANT'
-  const ready = Boolean(form.name.trim() && form.phone.trim() && chosenFlat && form.startDate && form.consent && (!isTenant || form.endDate))
+  // A tenancy's end date is optional: it is recorded on move-out, not promised on arrival
+  const ready = Boolean(form.name.trim() && form.phone.trim() && chosenFlat && form.startDate && form.consent)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -352,7 +353,6 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
                       onChange={(event) => set('endDate', event.target.value)}
                       error={action.fieldError('endDate')}
                       hint={t('area.admin.society.register.endDateHint')}
-                      required
                     />
                   )}
                 </FormGrid>

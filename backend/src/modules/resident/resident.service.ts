@@ -1,12 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, not, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { blocks, flatResidents, flats, floors, societies, users } from '../../db/schema.js'
+import { blocks, flatResidents, flats, floors, societies, users, visits } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { identityOf, withoutHash } from '../access/identity.js'
 import { assignRole } from '../access/permissions.js'
 import { assertSameSociety, assertState, requireRecord, UUID } from '../access/scope.js'
+import { effectiveApprover } from '../gate/gate.service.js'
 import { hashPassword } from '../auth/password.js'
 import { issueSetupCode } from '../auth/passwordSetup.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
@@ -156,6 +157,65 @@ export function registerResident(ctx: AuthContext, flatId: string, body: Registe
   })
 }
 
+/**
+ * Puts the owner's access where the tenancy says it should be, and tells the gate about it.
+ *
+ * While a verified tenant is in the flat, the tenant holds FULL access and the owner drops to
+ * VIEW_ONLY: they can still see visits and bills, but they cannot approve a visitor or pay. When
+ * the tenancy closes, the owner's FULL access comes back. Nobody sets this by hand, because the
+ * two halves have to agree and an admin who forgets the second half leaves a flat with two
+ * approvers or none.
+ *
+ * Then any visit still waiting on an answer is re-checked: if the flat no longer has anyone who
+ * can answer, it goes to the guard now rather than waiting out a three-minute timeout.
+ */
+async function syncOwnerAccess(tx: DbExecutor, ctx: AuthContext, flatId: string) {
+  const [tenant] = await tx
+    .select({ id: flatResidents.id })
+    .from(flatResidents)
+    .where(
+      and(
+        eq(flatResidents.flatId, flatId),
+        eq(flatResidents.residentType, 'TENANT'),
+        eq(flatResidents.verificationStatus, VERIFIED),
+        isNull(flatResidents.endDate),
+      ),
+    )
+  const activeOwner = and(eq(flatResidents.flatId, flatId), eq(flatResidents.residentType, 'OWNER'), isNull(flatResidents.endDate))
+  const ownerAccess = tenant ? 'VIEW_ONLY' : 'FULL'
+
+  const changed = await tx
+    .update(flatResidents)
+    .set({ accessLevel: ownerAccess, accessSuspendedByTenancy: Boolean(tenant), updatedAt: new Date() })
+    .where(
+      tenant
+        ? // Only owners who hold full access are lowered; one an Admin already made view-only
+          // stays as it is, and is not marked as suspended by this tenancy
+          and(activeOwner, eq(flatResidents.accessLevel, 'FULL'))
+        : // Only the owners this mechanism lowered are restored
+          and(activeOwner, eq(flatResidents.accessSuspendedByTenancy, true)),
+    )
+    .returning({ id: flatResidents.id, userId: flatResidents.userId })
+
+  for (const owner of changed) {
+    await audit(tx, ctx, 'RESIDENT_UPDATED', {
+      flatId,
+      assignmentId: owner.id,
+      userId: owner.userId,
+      changes: { accessLevel: ownerAccess },
+      reason: tenant ? 'A tenant now holds full access to this flat' : 'The tenancy closed, so full access returns to the owner',
+    })
+  }
+
+  // A visit waiting on a resident who can no longer answer belongs to the guard
+  if (!(await effectiveApprover(flatId))) {
+    await tx
+      .update(visits)
+      .set({ status: 'AWAITING_MANUAL', updatedAt: new Date() })
+      .where(and(eq(visits.flatId, flatId), eq(visits.status, 'AWAITING_APPROVAL')))
+  }
+}
+
 /** Approves a registration. Only from here on does the person have access to the flat. */
 export function verifyResident(ctx: AuthContext, id: string, body: VerifyResidentBody) {
   return db.transaction(async (tx) => {
@@ -198,6 +258,8 @@ export function verifyResident(ctx: AuthContext, id: string, body: VerifyResiden
       userId: assignment.userId,
       residentType: assignment.residentType,
     })
+    // A verified tenant takes full access, which moves the owner to view-only
+    await syncOwnerAccess(tx, ctx, assignment.flatId)
     return withoutHash(updated!)
   })
 }
@@ -231,7 +293,6 @@ export function updateResident(ctx: AuthContext, id: string, body: UpdateResiden
         'This assignment has already ended; register the resident again',
       )
     }
-    assertState(assignment.residentType !== 'TENANT' || endDate !== null, 'A tenancy must have an end date')
     assertState(endDate === null || endDate >= assignment.startDate, 'The end date cannot be before the start date')
     // Closing an assignment is recorded with its reason and actor, since billing and visitor
     // history will lean on these relationships long after the resident has gone
@@ -248,6 +309,8 @@ export function updateResident(ctx: AuthContext, id: string, body: UpdateResiden
     )
     const { reason, ...changes } = body
     await audit(tx, ctx, 'RESIDENT_UPDATED', { societyId, flatId: assignment.flatId, assignmentId: id, changes, reason })
+    // Closing a tenancy hands full access back to the owner, in this same transaction
+    await syncOwnerAccess(tx, ctx, assignment.flatId)
     return withoutHash(updated!)
   })
 }

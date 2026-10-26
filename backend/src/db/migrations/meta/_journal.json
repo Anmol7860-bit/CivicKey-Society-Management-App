@@ -162,6 +162,20 @@
       "when": 1793000040691,
       "tag": "0022_auth_rate_limit_buckets",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793000040692,
+      "tag": "0023_tenant_dates_and_owner_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793003498547,
+      "tag": "0024_owner_access_suspended_by_tenancy",
+      "breakpoints": true
     }
   ]
 }

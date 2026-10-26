@@ -1,0 +1,1 @@
+ALTER TABLE "flat_residents" ADD COLUMN "access_suspended_by_tenancy" boolean DEFAULT false NOT NULL;
