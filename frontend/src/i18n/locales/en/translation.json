@@ -1146,7 +1146,11 @@
         "deactivate": {
           "title": "Deactivate this staff member?",
           "description": "{{name}}’s pass stops working at the gate. Nothing already recorded is deleted."
-        }
+        },
+        "idReveal": "Show ID number",
+        "idHide": "Hide",
+        "idReason": "Why is the ID being read?",
+        "idReasonHint": "Kept in the audit log with your name. The number is not stored in this browser."
       },
       "billing": {
         "intro": "Each panel appears only to admins who hold the permission shown under its title.",

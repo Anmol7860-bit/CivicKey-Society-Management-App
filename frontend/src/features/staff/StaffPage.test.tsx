@@ -194,3 +194,18 @@ it('scrolls the form into view when Add staff is pressed', async () => {
   await screen.findByLabelText(/Full name/)
   expect(scrollIntoView).toHaveBeenCalled()
 })
+
+it('shows the captured ID number only after a reason is given', async () => {
+  mocked.listStaff.mockResolvedValue([
+    guard({ idDocumentOnFile: true, idDocumentType: 'AADHAAR', idDocumentLast4: '9012' }),
+  ])
+  mocked.revealIdNumber.mockResolvedValue({ idDocumentType: 'AADHAAR', idNumber: '123456789012' })
+  show()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Show ID number' }))
+  await userEvent.type(screen.getByLabelText(/Why is the ID being read/), 'Police verification visit')
+  await userEvent.click(screen.getByRole('button', { name: 'Show ID number' }))
+
+  expect(await screen.findByText('123456789012')).toBeInTheDocument()
+  expect(mocked.revealIdNumber).toHaveBeenCalledWith('token', 'st1', 'Police verification visit')
+})

@@ -4,7 +4,7 @@ import { db } from '../../db/client.js'
 import { blocks, flats, gates, societies, staff, staffFlats } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
-import { identityOf, withoutHash } from '../access/identity.js'
+import { decryptIdNumber, identityOf, withoutHash } from '../access/identity.js'
 import { assertState, deny, permissionDenied, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import { requireFile } from '../file/file.service.js'
@@ -264,6 +264,31 @@ export function updateStaff(ctx: AuthContext, id: string, body: UpdateStaffBody)
       reason,
     })
     return { ...withoutHash(updated!), flatsServed: flatsServed ?? [] }
+  })
+}
+
+/**
+ * The captured ID number itself, for the one read that is allowed to see it.
+ *
+ * A society has to be able to show an authority the document it recorded, so the number is
+ * recoverable - but every reading of it is a line in the audit log naming who looked and why,
+ * and the number is in no other response and no log.
+ */
+export function revealIdNumber(ctx: AuthContext, id: string, reason: string) {
+  return db.transaction(async (tx) => {
+    const member = await loadStaff(tx, ctx, id)
+    await assertMayManage(ctx, member.kind)
+    assertState(member.idDocumentEncrypted !== null, 'No ID document is on file for this staff member')
+    await audit(tx, ctx, 'STAFF_ID_REVEALED', {
+      societyId: member.societyId,
+      staffId: id,
+      idDocumentType: member.idDocumentType,
+      reason,
+    })
+    return {
+      idDocumentType: member.idDocumentType,
+      idNumber: decryptIdNumber(member.idDocumentEncrypted),
+    }
   })
 }
 

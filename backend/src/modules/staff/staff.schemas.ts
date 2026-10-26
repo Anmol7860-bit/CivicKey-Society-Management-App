@@ -108,3 +108,10 @@ export const listStaffSchema = z.strictObject({
 export type CreateStaffBody = z.infer<typeof createStaffSchema>
 export type UpdateStaffBody = z.infer<typeof updateStaffSchema>
 export type ListStaffQuery = z.infer<typeof listStaffSchema>
+
+/** Reading a government ID is always for a reason, and the reason is kept in the audit log. */
+export const revealIdSchema = z.strictObject({
+  reason: z.string().trim().min(5, 'Say why the ID is being read').max(200),
+})
+
+export type RevealIdBody = z.infer<typeof revealIdSchema>

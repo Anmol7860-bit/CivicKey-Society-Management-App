@@ -5,6 +5,7 @@ process.env.JWT_ACCESS_SECRET = 'test-secret-that-is-at-least-thirty-two-charact
 process.env.BCRYPT_COST = '4'
 process.env.ID_HASH_PEPPER = 'test-pepper-at-least-thirty-two-characters'
 process.env.LOGIN_RATE_LIMIT_MAX = '5'
+process.env.DATA_ENCRYPTION_KEY = 'a'.repeat(64)
 process.env.RAZORPAY_WEBHOOK_SECRET = 'test-webhook-secret'
 process.env.BACKUP_ENCRYPTION_KEY = '0'.repeat(63) + '1'
 // Uploads go to a throwaway directory, never the one a developer's own server writes to

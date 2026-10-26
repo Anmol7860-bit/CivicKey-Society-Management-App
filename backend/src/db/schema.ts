@@ -350,6 +350,8 @@ export const flatResidents = pgTable(
     idDocumentType: idDocumentType('id_document_type'),
     /** Keyed HMAC-SHA256 of the ID number. The number itself is never stored or returned. */
     idDocumentHash: varchar('id_document_hash', { length: 64 }),
+    /** The number itself, as base64(nonce || AES-256-GCM tag || ciphertext); never served as is */
+    idDocumentEncrypted: text('id_document_encrypted'),
     idDocumentLast4: varchar('id_document_last4', { length: 4 }),
     /** Sale deed, rent agreement or other proof reference recorded by the Admin */
     proofReference: varchar('proof_reference', { length: 200 }),
@@ -511,6 +513,8 @@ export const staff = pgTable(
     /** Identity is kept exactly as a resident's is: type, keyed hash and last 4, never the number */
     idDocumentType: idDocumentType('id_document_type'),
     idDocumentHash: varchar('id_document_hash', { length: 64 }),
+    /** The number itself, as base64(nonce || AES-256-GCM tag || ciphertext); never served as is */
+    idDocumentEncrypted: text('id_document_encrypted'),
     idDocumentLast4: varchar('id_document_last4', { length: 4 }),
     /** Where the photo and the masked ID copy are filed until this deployment stores files */
     photoReference: varchar('photo_reference', { length: 200 }),

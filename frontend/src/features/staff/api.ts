@@ -79,3 +79,10 @@ export const createStaff = (token: string, societyId: string, body: StaffBody & 
 export const updateStaff = (token: string, id: string, body: StaffBody) => call<Staff>(token, 'PUT', `/staff/${id}`, body)
 /** Issues a fresh pass code; the old one stops working at once */
 export const reissuePass = (token: string, id: string) => call<Staff>(token, 'POST', `/staff/${id}/pass`)
+
+/**
+ * Reads the captured ID number itself. It is a POST because the server writes an audit line
+ * naming who read it and why; the reason is required.
+ */
+export const revealIdNumber = (token: string, staffId: string, reason: string) =>
+  call<{ idDocumentType: IdDocumentType | null; idNumber: string }>(token, 'POST', `/staff/${staffId}/id-document`, { reason })

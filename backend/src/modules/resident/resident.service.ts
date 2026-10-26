@@ -4,7 +4,7 @@ import { db } from '../../db/client.js'
 import { blocks, flatResidents, flats, floors, societies, users, visits } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
-import { identityOf, withoutHash } from '../access/identity.js'
+import { decryptIdNumber, identityOf, withoutHash } from '../access/identity.js'
 import { assignRole } from '../access/permissions.js'
 import { assertSameSociety, assertState, requireRecord, UUID } from '../access/scope.js'
 import { effectiveApprover } from '../gate/gate.service.js'
@@ -61,6 +61,26 @@ async function loadAssignment(executor: DbExecutor, ctx: AuthContext, id: string
   const [row] = UUID.test(id) ? await query : []
   await requireRecord(ctx, row && { societyId: row.societyId }, 'Assignment')
   return row!
+}
+
+/**
+ * The resident's captured ID number, for the one read that may see it.
+ *
+ * Recoverable because the society may have to produce the document it recorded, and audited for
+ * exactly the same reason: who read it and why is part of the record.
+ */
+export function revealResidentIdNumber(ctx: AuthContext, id: string, reason: string) {
+  return db.transaction(async (tx) => {
+    const { assignment, societyId } = await loadAssignment(tx, ctx, id)
+    assertState(assignment.idDocumentEncrypted !== null, 'No ID document is on file for this resident')
+    await audit(tx, ctx, 'RESIDENT_ID_REVEALED', {
+      societyId,
+      assignmentId: id,
+      idDocumentType: assignment.idDocumentType,
+      reason,
+    })
+    return { idDocumentType: assignment.idDocumentType, idNumber: decryptIdNumber(assignment.idDocumentEncrypted) }
+  })
 }
 
 /** The profile columns the Add user form collects, as given; absent keys are left untouched. */
@@ -432,6 +452,6 @@ export async function listMyAssignments(ctx: AuthContext) {
 
   return mine.map((row) => ({
     ...row,
-    household: row.eligible ? household.filter((member) => member.flatId === row.flatId).map(({ flatId, ...member }) => member) : [],
+    household: row.eligible ? household.filter((member) => member.flatId === row.flatId).map(({ flatId: _flatId, ...member }) => member) : [],
   }))
 }

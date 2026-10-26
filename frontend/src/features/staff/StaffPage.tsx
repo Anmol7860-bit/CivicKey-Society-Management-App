@@ -13,6 +13,7 @@ import { getOccupancy, listGates, listSocieties, type Gender, type IdDocumentTyp
 import { FormGrid, Panel, RowButton, Tabs, useAction, useDeactivate } from '../society/parts'
 import { useResource } from '../society/useResource'
 import {
+  revealIdNumber,
   createStaff,
   listStaff,
   reissuePass,
@@ -103,8 +104,9 @@ const formOf = (member: Staff): FormState => ({
   consent: true,
 })
 
-function StaffRow({ member, onEdit, onDeactivate, onReissue }: {
+function StaffRow({ member, token, onEdit, onDeactivate, onReissue }: {
   member: Staff
+  token: string
   onEdit: (member: Staff) => void
   onDeactivate: (member: Staff) => void
   onReissue: (member: Staff) => void
@@ -139,6 +141,8 @@ function StaffRow({ member, onEdit, onDeactivate, onReissue }: {
       </p>
       {places && <p className="text-[12px] text-ink-soft">{t('area.admin.staff.serves', { flats: places })}</p>}
 
+      {member.idDocumentOnFile && <RevealId token={token} member={member} />}
+
       <div className="flex flex-wrap gap-2">
         <RowButton onClick={() => onEdit(member)}>{t('shell.edit')}</RowButton>
         {member.status === 'ACTIVE' && (
@@ -151,6 +155,78 @@ function StaffRow({ member, onEdit, onDeactivate, onReissue }: {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Reads the ID number that was captured, once, with a reason.
+ *
+ * The number is not in the staff list: the server keeps it encrypted and hands it over only to
+ * this request, which it audits. It is shown until the row is closed again and never stored here.
+ */
+function RevealId({ token, member }: { token: string; member: Staff }) {
+  const { t } = useTranslation()
+  const [asking, setAsking] = useState(false)
+  const [reason, setReason] = useState('')
+  const [shown, setShown] = useState<string | null>(null)
+  const action = useAction()
+
+  if (shown) {
+    return (
+      <p className="text-[12px] text-ink">
+        <span className="font-semibold">{shown}</span>{' '}
+        <button type="button" onClick={() => setShown(null)} className="rounded text-brand hover:underline">
+          {t('area.admin.staff.idHide')}
+        </button>
+      </p>
+    )
+  }
+
+  if (!asking) {
+    return (
+      <RowButton onClick={() => setAsking(true)}>{t('area.admin.staff.idReveal')}</RowButton>
+    )
+  }
+
+  return (
+    <form
+      className="flex flex-wrap items-end gap-2"
+      onSubmit={async (event) => {
+        event.preventDefault()
+        const ok = await action.run(async () => {
+          const { idNumber } = await revealIdNumber(token, member.id, reason.trim())
+          setShown(idNumber)
+        })
+        if (ok) {
+          setAsking(false)
+          setReason('')
+        }
+      }}
+      noValidate
+    >
+      <div className="w-[260px]">
+        <TextField
+          id={`staff-id-reason-${member.id}`}
+          label={t('area.admin.staff.idReason')}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          error={action.fieldError('reason') ?? action.error}
+          hint={t('area.admin.staff.idReasonHint')}
+          maxLength={200}
+          autoFocus
+        />
+      </div>
+      <div className="flex gap-2 pb-0.5">
+        <RowButton onClick={() => setAsking(false)}>{t('shell.cancel')}</RowButton>
+        <button
+          type="submit"
+          disabled={action.pending}
+          className="h-9 rounded-lg bg-brand px-3 text-[13px] font-semibold text-white disabled:opacity-60"
+        >
+          {t('area.admin.staff.idReveal')}
+        </button>
+      </div>
+    </form>
   )
 }
 
@@ -342,7 +418,7 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
         ) : staff.data?.length ? (
           <div className="overflow-hidden rounded-xl border border-line [&>*:first-child]:border-t-0">
             {staff.data.map((member) => (
-              <StaffRow key={member.id} member={member} onEdit={startEdit} onDeactivate={deactivate.ask} onReissue={handleReissue} />
+              <StaffRow key={member.id} member={member} token={accessToken} onEdit={startEdit} onDeactivate={deactivate.ask} onReissue={handleReissue} />
             ))}
           </div>
         ) : (

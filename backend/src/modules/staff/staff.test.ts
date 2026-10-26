@@ -2,7 +2,7 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { gates, societies, staff } from '../../db/schema.js'
+import { auditLogs, gates, societies, staff } from '../../db/schema.js'
 import { createFlat, createPhoto, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
 import { signAccessToken } from '../auth/tokens.js'
 
@@ -196,6 +196,26 @@ describe('the record', () => {
     expect(JSON.stringify(res.body)).not.toContain('123456789012')
     const [row] = await db.select().from(staff).where(eq(staff.id, res.body.data.id))
     expect(row!.idDocumentHash).toMatch(/^[0-9a-f]{64}$/)
+    // The number is kept, but as ciphertext: the column never holds it in the clear
+    expect(row!.idDocumentEncrypted).not.toContain('123456789012')
+    expect(Buffer.from(row!.idDocumentEncrypted!, 'base64').length).toBeGreaterThan(28)
+  })
+
+  it('gives the captured number back only to an audited read, with a reason', async () => {
+    const created = await register({ ...guard(), idDocumentType: 'AADHAAR', idNumber: '123456789012' })
+
+    expect((await api.post(`/staff/${created.body.data.id}/id-document`, {})).status).toBe(422)
+
+    const read = await api.post(`/staff/${created.body.data.id}/id-document`, { reason: 'Police verification visit' })
+    expect(read.status).toBe(200)
+    expect(read.body.data).toEqual({ idDocumentType: 'AADHAAR', idNumber: '123456789012' })
+
+    const [logged] = await db.select().from(auditLogs).where(eq(auditLogs.eventType, 'STAFF_ID_REVEALED'))
+    expect(logged!.metadata).toMatchObject({ reason: 'Police verification visit' })
+    expect(JSON.stringify(logged!.metadata)).not.toContain('123456789012')
+
+    const without = await register({ ...guard(), phone: '9833333333' })
+    expect((await api.post(`/staff/${without.body.data.id}/id-document`, { reason: 'Checking the file' })).status).toBe(400)
   })
 
   it('needs a reason to deactivate, and searches by name or number', async () => {

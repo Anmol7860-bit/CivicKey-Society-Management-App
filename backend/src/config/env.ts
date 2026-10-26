@@ -17,6 +17,16 @@ const envSchema = z.object({
    * the type and last 4 digits, since an unsalted hash of a 12-digit number is guessable.
    */
   ID_HASH_PEPPER: z.string().min(32, 'ID_HASH_PEPPER must be at least 32 characters').optional(),
+  /**
+   * The 32-byte AES-256-GCM key, hex or base64, that captured government ID numbers are encrypted
+   * with. The server refuses to start without a valid one: an ID captured without it would either
+   * be stored in the clear or be lost, and both are worse than not starting.
+   */
+  DATA_ENCRYPTION_KEY: z
+    .string()
+    .refine((value) => Buffer.from(value, /^[0-9a-f]{64}$/i.test(value) ? 'hex' : 'base64').length === 32, {
+      message: 'DATA_ENCRYPTION_KEY must be 32 bytes, as 64 hex characters or base64',
+    }),
 
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),

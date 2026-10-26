@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { idDocumentType } from '../../db/schema.js'
 import { env } from '../../config/env.js'
@@ -31,14 +31,44 @@ export interface IdentityInput {
   idDocumentLast4?: string | undefined
 }
 
+/** The data-encryption key, as 32 bytes. Startup has already refused to run without a valid one. */
+function dataKey() {
+  const raw = env.DATA_ENCRYPTION_KEY
+  return /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64')
+}
+
+/** base64(nonce || tag || ciphertext): one string per value, with its own nonce. */
+function encrypt(value: string) {
+  const nonce = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', dataKey(), nonce)
+  const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
+  return Buffer.concat([nonce, cipher.getAuthTag(), ciphertext]).toString('base64')
+}
+
 /**
- * Identity is kept as the document type, a keyed hash and the last 4 digits; the number itself is
- * never stored, returned or logged. Without a configured pepper the server refuses the full number
- * rather than storing a hash a 12-digit value could be guessed against.
+ * The stored number again, for the one authorised, audited read that may see it.
+ *
+ * The tag is checked by the decipher, so a row someone edited in the database fails here rather
+ * than returning a number that was never captured.
+ */
+export function decryptIdNumber(stored: string | null) {
+  if (!stored) return null
+  const bytes = Buffer.from(stored, 'base64')
+  const decipher = createDecipheriv('aes-256-gcm', dataKey(), bytes.subarray(0, 12))
+  decipher.setAuthTag(bytes.subarray(12, 28))
+  return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8')
+}
+
+/**
+ * Identity is kept as the document type, the encrypted number, a keyed lookup hash and the last 4
+ * digits. The number is recoverable, because a society has to be able to show an authority the
+ * document it recorded, but only through the audited read: it is never in an ordinary response or
+ * a log. Without a configured pepper the server refuses the full number rather than storing a hash
+ * a 12-digit value could be guessed against.
  */
 export function identityOf(body: IdentityInput) {
   const columns = { idDocumentType: body.idDocumentType ?? null, idDocumentLast4: body.idDocumentLast4 ?? null }
-  if (!body.idNumber) return { ...columns, idDocumentHash: null }
+  if (!body.idNumber) return { ...columns, idDocumentHash: null, idDocumentEncrypted: null }
   assertState(
     env.ID_HASH_PEPPER !== undefined,
     'This server cannot accept a full ID number; send only its last 4 characters',
@@ -47,12 +77,17 @@ export function identityOf(body: IdentityInput) {
     ...columns,
     idDocumentLast4: body.idNumber.slice(-4),
     idDocumentHash: createHmac('sha256', env.ID_HASH_PEPPER!).update(`${body.idDocumentType}:${body.idNumber}`).digest('hex'),
+    idDocumentEncrypted: encrypt(body.idNumber),
   }
 }
 
-/** The ID hash is stored for matching, never served: callers only learn whether one is on file. */
-export function withoutHash<T extends { idDocumentHash: string | null }>(row: T) {
-  const { idDocumentHash, ...rest } = row
+/**
+ * The stored ID never leaves in an ordinary response: the hash matches, the ciphertext is the
+ * record, and a caller only learns that a document is on file.
+ */
+export function withoutHash<T extends { idDocumentHash: string | null; idDocumentEncrypted?: string | null }>(row: T) {
+  const { idDocumentHash, idDocumentEncrypted, ...rest } = row
+  void idDocumentEncrypted
   return { ...rest, idDocumentOnFile: idDocumentHash !== null }
 }
 

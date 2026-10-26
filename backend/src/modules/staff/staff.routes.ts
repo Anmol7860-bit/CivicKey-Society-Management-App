@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
 import { parseOrThrow, validateBody } from '../../middleware/validateBody.js'
-import { createStaffSchema, listStaffSchema, updateStaffSchema } from './staff.schemas.js'
+import { createStaffSchema, listStaffSchema, revealIdSchema, updateStaffSchema } from './staff.schemas.js'
 import * as service from './staff.service.js'
 
 /**
@@ -24,6 +24,14 @@ export function createStaffRouter() {
       data: await service.createStaff(req.ctx!, req.params.societyId as string, req.body),
     })
   })
+  /**
+   * The captured ID number, read once with a reason. It is a POST because it is not a safe read:
+   * it writes the audit line that says who saw the number.
+   */
+  router.post('/staff/:id/id-document', ...manage, validateBody(revealIdSchema), async (req, res) => {
+    res.json({ data: await service.revealIdNumber(req.ctx!, req.params.id as string, req.body.reason) })
+  })
+
   router.put('/staff/:id', ...manage, validateBody(updateStaffSchema), async (req, res) => {
     res.json({
       data: await service.updateStaff(req.ctx!, req.params.id as string, req.body),

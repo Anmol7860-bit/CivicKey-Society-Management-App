@@ -10,6 +10,7 @@ import {
   updateResidentSchema,
   verifyResidentSchema,
 } from './resident.schemas.js'
+import { revealIdSchema } from '../staff/staff.schemas.js'
 import * as service from './resident.service.js'
 
 /** Resident and tenant assignments: register, verify, extend and close. Mounted at /api/v1. */
@@ -47,6 +48,11 @@ export function createResidentRouter() {
   router.post('/residents/:id/reject', ...manage, validateBody(rejectResidentSchema), async (req, res) => {
     res.json({ data: await service.rejectResident(req.ctx!, req.params.id as string, req.body) })
   })
+  /** The captured ID number, read once with a reason; the POST writes the audit line */
+  router.post('/residents/:id/id-document', ...manage, validateBody(revealIdSchema), async (req, res) => {
+    res.json({ data: await service.revealResidentIdNumber(req.ctx!, req.params.id as string, req.body.reason) })
+  })
+
   router.put('/residents/:id', ...manage, validateBody(updateResidentSchema), async (req, res) => {
     res.json({ data: await service.updateResident(req.ctx!, req.params.id as string, req.body) })
   })
