@@ -47,6 +47,8 @@ export function createApp({ logger = defaultLogger }: AppOptions = {}) {
   // A guard's offline batch is up to 50 recorded events, well past what the rest of the API sends.
   // It is registered first because the parser that runs first decides the limit.
   app.use('/api/v1/sync', express.json({ limit: '512kb' }))
+  // The gateway's signature covers the exact bytes it sent, so this one path keeps them
+  app.use('/api/v1/payments/razorpay/webhook', express.raw({ type: '*/*', limit: '100kb' }))
   app.use(express.json({ limit: '10kb' }))
   app.use(cookieParser())
 

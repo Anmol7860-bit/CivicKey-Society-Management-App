@@ -11,6 +11,8 @@ import {
   setRatesSchema,
 } from './billing.schemas.js'
 import * as service from './billing.service.js'
+import { handleWebhook, listReceipts, receiptFile, startCheckout } from './payment.service.js'
+import { readStoredFile } from '../file/file.service.js'
 
 /** Maintenance rates, invoices, cash receipts and the reports built from them. Mounted at /api/v1. */
 export function createBillingRouter() {
@@ -69,6 +71,40 @@ export function createBillingRouter() {
     res.json({
       data: await service.reversePayment(req.ctx!, req.params.paymentId as string, req.body),
     })
+  })
+
+  /**
+   * The resident opens the gateway's own page with what this returns. It settles nothing: the
+   * invoice stays unpaid until the signed webhook arrives, whatever the browser comes back saying.
+   */
+  router.post('/invoices/:invoiceId/checkout', requireAuth, requirePermission('BILL_PAY'), async (req, res) => {
+    res.status(201).json({ data: await startCheckout(req.ctx!, req.params.invoiceId as string) })
+  })
+
+  /**
+   * The gateway's webhook: unauthenticated by nature and trusted only because of its signature,
+   * which is checked against the raw body. The raw parser for this one path is registered in
+   * app.ts, before the JSON parser that would otherwise consume the bytes.
+   */
+  router.post('/payments/razorpay/webhook', async (req, res) => {
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? {}))
+    res.json({ data: await handleWebhook(raw, req.headers) })
+  })
+
+  const seeReceipts = [requireAuth, requirePermission('RECEIPT_VIEW_OWN', 'BILL_VIEW_OWN', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK')]
+
+  router.get('/invoices/:invoiceId/receipts', ...seeReceipts, async (req, res) => {
+    res.json({ data: await listReceipts(req.ctx!, req.params.invoiceId as string) })
+  })
+
+  /** The receipt PDF itself, read out of private storage for whoever may see the invoice */
+  router.get('/receipts/:receiptId/pdf', ...seeReceipts, async (req, res) => {
+    const { fileId, number } = await receiptFile(req.ctx!, req.params.receiptId as string)
+    const { bytes } = await readStoredFile(req.ctx!.societyId, fileId)
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `inline; filename="${number}.pdf"`)
+    res.setHeader('Cache-Control', 'private, max-age=86400')
+    res.send(bytes)
   })
 
   /** ?format=csv is the Download CSV button; the rows are identical either way */

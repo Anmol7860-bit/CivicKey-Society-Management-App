@@ -9,6 +9,7 @@ const STATUS_STYLE: Record<QueueStatus, string> = {
   SYNCING: 'bg-brand/10 text-brand',
   SYNCED: 'bg-emerald-50 text-emerald-800',
   FAILED_RETRY: 'bg-amber-50 text-amber-800',
+  NEEDS_REVIEW: 'bg-amber-50 text-amber-800',
   FAILED_ADMIN: 'bg-red-50 text-red-700',
 }
 

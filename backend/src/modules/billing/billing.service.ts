@@ -5,6 +5,9 @@ import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assertState, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
+import { effectiveApprover } from '../gate/gate.service.js'
+import { enqueueNotification } from '../notification/outbox.service.js'
+import { issueReceipt } from './receipt.service.js'
 import type {
   GenerateInvoicesBody,
   ListInvoicesQuery,
@@ -372,10 +375,15 @@ async function paidPaise(tx: DbExecutor, invoiceId: string) {
   return toPaise(amount(row?.paid ?? null))
 }
 
-/** The status always follows the money received, so it can never disagree with the payments. */
+/**
+ * The status always follows the money received, so it can never disagree with the payments.
+ *
+ * Settlement is all or nothing, so an invoice is PAID or it is not. One that is short again after
+ * a reversal goes back to UNPAID, and the nightly job calls it OVERDUE once the date has passed.
+ */
 async function settleInvoice(tx: DbExecutor, invoiceId: string, totalPaise: number) {
   const paid = await paidPaise(tx, invoiceId)
-  const status = paid >= totalPaise ? 'PAID' : paid > 0 ? 'PARTIALLY_PAID' : 'UNPAID'
+  const status = paid >= totalPaise ? 'PAID' : 'UNPAID'
   await tx.update(invoices).set({ status, updatedAt: new Date() }).where(eq(invoices.id, invoiceId))
   return {
     status,
@@ -391,33 +399,79 @@ async function settleInvoice(tx: DbExecutor, invoiceId: string, totalPaise: numb
 export function recordPayment(ctx: AuthContext, invoiceId: string, body: RecordPaymentBody) {
   return db.transaction(async (tx) => {
     const invoice = await loadInvoice(tx, ctx, invoiceId, 'update')
-    assertState(invoice.status !== 'CANCELLED', 'This invoice has been cancelled')
-    const totalPaise = toPaise(amount(invoice.total))
-    const outstanding = totalPaise - (await paidPaise(tx, invoiceId))
-    assertState(outstanding > 0, 'This invoice is already paid in full')
-    assertState(toPaise(body.amount) <= outstanding, `That is more than the ₹${asAmount(outstanding)} still due on this invoice`)
-
-    const [payment] = await tx
-      .insert(payments)
-      .values({
-        invoiceId,
-        amount: asAmount(toPaise(body.amount)),
-        receivedOn: body.receivedOn,
-        paidBy: body.paidBy ?? null,
-        note: body.note ?? null,
-        recordedBy: ctx.userId,
-      })
-      .returning()
-    const settled = await settleInvoice(tx, invoiceId, totalPaise)
+    const settlement = await settleInFull(tx, invoice, {
+      amountPaise: toPaise(body.amount),
+      receivedOn: body.receivedOn,
+      paidBy: body.paidBy ?? null,
+      note: body.note ?? null,
+      recordedBy: ctx.userId,
+    })
     await audit(tx, ctx, 'PAYMENT_RECORDED', {
       societyId: invoice.societyId,
       invoiceId,
-      paymentId: payment!.id,
-      receiptNumber: payment!.receiptNumber,
+      paymentId: settlement.payment.id,
+      receiptNumber: settlement.payment.receiptNumber,
       amount: body.amount,
+      method: 'CASH',
     })
-    return { ...payment!, amount: amount(payment!.amount), invoice: settled }
+    return { ...settlement.payment, amount: amount(settlement.payment.amount), invoice: settlement.invoice }
   })
+}
+
+export interface Settlement {
+  amountPaise: number
+  receivedOn: string
+  paidBy?: string | null
+  note?: string | null
+  recordedBy?: string | null
+}
+
+/**
+ * Settles an invoice with one payment for the whole outstanding amount, and issues its receipt.
+ *
+ * Partial settlement is not offered: a society's books balance per invoice, and an invoice that
+ * is half paid leaves every reminder, report and receipt ambiguous. Cash and a verified gateway
+ * webhook both arrive here, so there is one place where an invoice becomes PAID.
+ */
+export async function settleInFull(
+  tx: DbExecutor,
+  invoice: { id: string; societyId: string; flatId: string; status: string; total: string | null },
+  details: Settlement,
+) {
+  assertState(invoice.status !== 'CANCELLED', 'This invoice has been cancelled')
+  const totalPaise = toPaise(amount(invoice.total))
+  const outstanding = totalPaise - (await paidPaise(tx, invoice.id))
+  assertState(outstanding > 0, 'This invoice is already paid in full')
+  assertState(
+    details.amountPaise === outstanding,
+    `This invoice is settled in full only: ₹${asAmount(outstanding)} is due`,
+  )
+
+  const [payment] = await tx
+    .insert(payments)
+    .values({
+      invoiceId: invoice.id,
+      amount: asAmount(details.amountPaise),
+      receivedOn: details.receivedOn,
+      paidBy: details.paidBy ?? null,
+      note: details.note ?? null,
+      recordedBy: details.recordedBy ?? null,
+    })
+    .returning()
+  const settled = await settleInvoice(tx, invoice.id, totalPaise)
+  await issueReceipt(tx, payment!, invoice.societyId)
+  const approver = await effectiveApprover(invoice.flatId)
+  if (approver) {
+    await enqueueNotification(tx, {
+      societyId: invoice.societyId,
+      eventType: 'PAYMENT_RECORDED',
+      entityType: 'invoice',
+      entityId: invoice.id,
+      recipientIds: [approver.userId],
+      payload: { receiptNumber: payment!.receiptNumber, amount: fromPaise(details.amountPaise) },
+    })
+  }
+  return { payment: payment!, invoice: settled }
 }
 
 /**

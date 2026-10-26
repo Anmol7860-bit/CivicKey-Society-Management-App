@@ -1,7 +1,7 @@
 import { Router, raw } from 'express'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { AppError } from '../../lib/errors.js'
-import { MAX_BYTES, readImage, saveImage } from './file.service.js'
+import { MAX_BYTES, readStoredFile, saveImage } from './file.service.js'
 
 /**
  * Private image storage: the raw bytes go up, a reference comes back, and the only way to see the
@@ -26,7 +26,7 @@ export function createFileRouter() {
   )
 
   router.get('/files/:id', requireAuth, async (req, res) => {
-    const { contentType, bytes } = await readImage(req.ctx!.societyId, req.params.id as string)
+    const { contentType, bytes } = await readStoredFile(req.ctx!.societyId, req.params.id as string)
     res.setHeader('Content-Type', contentType)
     // The image is one person's photograph: a shared cache must never keep it
     res.setHeader('Cache-Control', 'private, max-age=86400')

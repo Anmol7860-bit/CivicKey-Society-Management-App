@@ -6,14 +6,37 @@ import { db } from '../../db/client.js'
 import { storedFiles } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
-import { EXTENSIONS, sniff, stripMetadata, type ImageType } from './strip.js'
+import { EXTENSIONS, sniff, stripMetadata } from './strip.js'
 
 export const MAX_BYTES = 5 * 1024 * 1024
 
 /** Where the bytes live: a private directory, never served as static files. */
 const directory = env.FILE_STORAGE_DIR
 
-const fileName = (id: string, contentType: string) => `${id}.${EXTENSIONS[contentType as ImageType] ?? 'bin'}`
+const EXTENSION: Record<string, string> = { ...EXTENSIONS, 'application/pdf': 'pdf' }
+
+const fileName = (id: string, contentType: string) => `${id}.${EXTENSION[contentType] ?? 'bin'}`
+
+/**
+ * Writes bytes this server produced, such as a rendered receipt, into the same private store.
+ *
+ * Nothing is sniffed or stripped here: the content type is the one this code chose. Uploads from
+ * outside go through saveImage, which trusts neither.
+ */
+export async function storeBytes(societyId: string, contentType: string, bytes: Buffer) {
+  const id = crypto.randomUUID()
+  try {
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, fileName(id, contentType)), bytes, { flag: 'wx' })
+  } catch (cause) {
+    throw new AppError(503, 'STORAGE_ERROR', 'The file could not be stored.', { details: String(cause) })
+  }
+  const [row] = await db
+    .insert(storedFiles)
+    .values({ id, societyId, contentType, byteSize: bytes.length })
+    .returning({ id: storedFiles.id })
+  return row!.id
+}
 
 /**
  * Stores an uploaded image and returns the reference other records keep.
@@ -58,7 +81,8 @@ export async function requireFile(societyId: string | null, id: string) {
   return row
 }
 
-export async function readImage(societyId: string | null, id: string) {
+/** Any stored file, images and generated PDFs alike. */
+export async function readStoredFile(societyId: string | null, id: string) {
   const row = await requireFile(societyId, id)
   try {
     return { contentType: row.contentType, bytes: await readFile(join(directory, fileName(row.id, row.contentType))) }

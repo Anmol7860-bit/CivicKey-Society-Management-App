@@ -1,7 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { cacheGet, cachePut, CACHE_MAX_AGE_MS } from './cache'
 import { closeDbForTests } from './db'
-import { enqueue, MAX_BATCH, MAX_RETRIES, readMetadata, readQueue, syncNow, type EventResultStatus } from './queue'
+import { enqueue, MAX_BATCH, readMetadata, readQueue, syncNow, type EventResultStatus } from './queue'
 
 const fetchMock = vi.fn()
 
@@ -135,7 +135,7 @@ describe('sync queue', () => {
   })
 
   it('reports the entry as waiting when the server answers the batch but not that event', async () => {
-    const record = await enqueue('VISITOR_REGISTER', { name: 'Ravi' })
+    await enqueue('VISITOR_REGISTER', { name: 'Ravi' })
     fetchMock.mockImplementation(() => reply(200, { data: { batchId: 'b1', results: [] } }))
 
     await syncNow('token')

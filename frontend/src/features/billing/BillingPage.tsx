@@ -27,7 +27,13 @@ import {
   type Preview,
 } from './api'
 
-const STATUS_TONE: Record<InvoiceStatus, Tone> = { UNPAID: 'warning', PARTIALLY_PAID: 'warning', PAID: 'positive', CANCELLED: 'neutral' }
+const STATUS_TONE: Record<InvoiceStatus, Tone> = {
+  UNPAID: 'warning',
+  OVERDUE: 'danger',
+  PARTIALLY_PAID: 'warning',
+  PAID: 'positive',
+  CANCELLED: 'neutral',
+}
 
 const thisMonth = () => today().slice(0, 7)
 /** Rupees, as the panels print them */

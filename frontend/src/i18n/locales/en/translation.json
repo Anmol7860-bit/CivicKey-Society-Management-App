@@ -375,7 +375,12 @@
           "description": "Bills appear here once the society generates them for the month."
         },
         "sinkingFund": "Sinking fund",
-        "parking": "Parking"
+        "parking": "Parking",
+        "payNow": "Pay {{amount}} now",
+        "payOpening": "Opening payment…",
+        "payPending": "The receipt appears here once your bank confirms the payment, usually within a minute.",
+        "receiptOpen": "Open the receipt",
+        "receiptPending": "That receipt is still being prepared. Try again in a minute."
       },
       "notifications": {
         "title": "Notifications",
@@ -1239,7 +1244,8 @@
           "OWNER_OCCUPIED": "Owner lives here",
           "RENTED": "Rented",
           "ACTIVE": "Active",
-          "INACTIVE": "Inactive"
+          "INACTIVE": "Inactive",
+          "OVERDUE": "Overdue"
         },
         "empty": {
           "title": "Nothing to report",

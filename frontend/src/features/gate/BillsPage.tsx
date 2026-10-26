@@ -1,12 +1,21 @@
-import { Receipt } from 'lucide-react'
+import { Download, Receipt } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Badge, type Tone } from '../../components/ui/Badge'
+import { Button } from '../../components/ui/Button'
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States'
-import { listMyInvoices, type InvoiceStatus, type MyInvoice } from '../billing/api'
-import { Panel } from '../society/parts'
+import type { AuthUser } from '../auth/api'
+import { listMyInvoices, receiptPdfUrl, startCheckout, type InvoiceStatus, type MyInvoice } from '../billing/api'
+import { openCheckout } from '../billing/checkout'
+import { Panel, useAction } from '../society/parts'
 import { useResource } from '../society/useResource'
 
-const TONE: Record<InvoiceStatus, Tone> = { UNPAID: 'warning', PARTIALLY_PAID: 'warning', PAID: 'positive', CANCELLED: 'neutral' }
+const TONE: Record<InvoiceStatus, Tone> = {
+  UNPAID: 'warning',
+  OVERDUE: 'danger',
+  PARTIALLY_PAID: 'warning',
+  PAID: 'positive',
+  CANCELLED: 'neutral',
+}
 const rupees = (value: number) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const month = (period: string) => new Date(period).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
 
@@ -20,8 +29,29 @@ function Line({ label, value }: { label: string; value: string }) {
 }
 
 /** The bill that still owes money, broken down the way the invoice was worked out. */
-function CurrentBill({ invoice }: { invoice: MyInvoice }) {
+function CurrentBill({
+  invoice,
+  user,
+  accessToken,
+  onPaid,
+}: {
+  invoice: MyInvoice
+  user: AuthUser
+  accessToken: string
+  onPaid: () => void
+}) {
   const { t } = useTranslation()
+  const pay = useAction()
+
+  async function handlePay() {
+    const started = await pay.run(async () => {
+      const checkout = await startCheckout(accessToken, invoice.id)
+      await openCheckout(checkout, user)
+    })
+    // The window closing proves nothing either way: the bill is re-read, and the webhook decides
+    if (started) onPaid()
+  }
+
   return (
     <Panel title={t('area.resident.bills.currentTitle', { month: month(invoice.period) })} description={t('area.resident.bills.due', { date: invoice.dueDate })}>
       <div className="flex flex-col gap-2">
@@ -43,16 +73,56 @@ function CurrentBill({ invoice }: { invoice: MyInvoice }) {
         )}
       </div>
 
-      <div className="rounded-xl border border-line bg-canvas p-3">
+      <div className="flex flex-col gap-2 rounded-xl border border-line bg-canvas p-3">
         <p className="m-0 text-[13px] font-semibold text-ink">{t('area.resident.bills.payTitle')}</p>
-        <p className="m-0 mt-1 text-[12px] text-muted">{t('area.resident.bills.payOffline')}</p>
+        <Button onClick={handlePay} disabled={pay.pending}>
+          {pay.pending ? t('area.resident.bills.payOpening') : t('area.resident.bills.payNow', { amount: rupees(invoice.outstanding || invoice.total) })}
+        </Button>
+        {pay.error && <p className="m-0 text-[12px] font-medium text-red-700">{pay.error}</p>}
+        <p className="m-0 text-[12px] text-muted">{t('area.resident.bills.payPending')}</p>
+        <p className="m-0 text-[12px] text-muted">{t('area.resident.bills.payOffline')}</p>
       </div>
     </Panel>
   )
 }
 
+/**
+ * Opens the receipt PDF for a settled bill.
+ *
+ * The file is fetched with the access token, which an anchor cannot send, so the click asks the
+ * server for the bytes and then hands the browser a blob URL to open.
+ */
+function ReceiptLink({ accessToken, invoiceId, number }: { accessToken: string; invoiceId: string; number: string }) {
+  const { t } = useTranslation()
+  const open = useAction()
+
+  async function handleOpen() {
+    await open.run(async () => {
+      const { listReceipts } = await import('../billing/api')
+      const receipts = await listReceipts(accessToken, invoiceId)
+      const ready = receipts.find((receipt) => receipt.status === 'READY')
+      if (!ready) throw new Error(t('area.resident.bills.receiptPending'))
+      const url = await receiptPdfUrl(accessToken, ready.id)
+      window.open(url, '_blank', 'noopener')
+    })
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleOpen}
+      disabled={open.pending}
+      title={open.error ?? t('area.resident.bills.receiptOpen')}
+      className="flex items-center gap-1.5 rounded text-[12px] font-semibold text-brand hover:underline"
+    >
+      <Download size={13} aria-hidden />
+      {number}
+    </button>
+  )
+}
+
 /** Bills and receipts for the resident's own flat, read straight from the invoices. */
-export function BillsPage({ accessToken }: { accessToken: string }) {
+export function BillsPage({ user, accessToken }: { user: AuthUser; accessToken: string }) {
   const { t } = useTranslation()
   const invoices = useResource(() => listMyInvoices(accessToken), [accessToken])
 
@@ -60,7 +130,7 @@ export function BillsPage({ accessToken }: { accessToken: string }) {
   if (invoices.error) return <ErrorState message={invoices.error} onRetry={invoices.reload} />
 
   const rows = invoices.data ?? []
-  const current = rows.find((invoice) => invoice.status === 'UNPAID' || invoice.status === 'PARTIALLY_PAID')
+  const current = rows.find((invoice) => invoice.status !== 'PAID' && invoice.status !== 'CANCELLED')
 
   return (
     <div className="flex flex-col gap-4">
@@ -71,7 +141,7 @@ export function BillsPage({ accessToken }: { accessToken: string }) {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {current ? (
-          <CurrentBill invoice={current} />
+          <CurrentBill invoice={current} user={user} accessToken={accessToken} onPaid={invoices.reload} />
         ) : (
           <Panel>
             <EmptyState icon={Receipt} title={t('area.resident.bills.settled.title')} description={t('area.resident.bills.settled.description')} />
@@ -105,7 +175,9 @@ export function BillsPage({ accessToken }: { accessToken: string }) {
                           <Badge tone={TONE[invoice.status]}>{t(`area.admin.reports.values.${invoice.status}`)}</Badge>
                         </td>
                         <td className="px-3 py-2 text-[13px] text-muted">{last?.receivedOn ?? '—'}</td>
-                        <td className="px-3 py-2 text-[12px] font-semibold text-ink-soft">{last?.receiptNumber ?? '—'}</td>
+                        <td className="px-3 py-2 text-[12px] font-semibold text-ink-soft">
+                          {last ? <ReceiptLink accessToken={accessToken} invoiceId={invoice.id} number={last.receiptNumber} /> : '—'}
+                        </td>
                       </tr>
                     )
                   })}

@@ -2,6 +2,7 @@ import { and, eq, isNull, lte, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
 import { blocks, flats, invoices, communityTasks, notificationOutbox, visits } from '../../db/schema.js'
 import { logger } from '../../lib/logger.js'
+import { renderPendingReceipts } from '../billing/receipt.service.js'
 import { effectiveApprover } from '../gate/gate.service.js'
 import { enqueueNotification } from './outbox.service.js'
 
@@ -136,6 +137,21 @@ async function taskDeadlines() {
  * The notice days are fixed, and each one is sent once because the outbox is checked for an
  * identical event on the same day before a new one is written.
  */
+/**
+ * Calls an unpaid invoice OVERDUE once its due date has passed.
+ *
+ * A report and a reminder should not disagree about whether a bill is late, so lateness is a
+ * stored status rather than a date comparison repeated in every query.
+ */
+async function markOverdue() {
+  const late = await db
+    .update(invoices)
+    .set({ status: 'OVERDUE', updatedAt: new Date() })
+    .where(and(eq(invoices.status, 'UNPAID'), sql`${invoices.dueDate} < current_date`))
+    .returning({ id: invoices.id })
+  return late.length
+}
+
 async function billReminders() {
   const rows = await db
     .select({
@@ -152,7 +168,7 @@ async function billReminders() {
     .innerJoin(blocks, eq(blocks.id, flats.blockId))
     .where(
       and(
-        sql`${invoices.status} in ('UNPAID','PARTIALLY_PAID')`,
+        sql`${invoices.status} in ('UNPAID','OVERDUE','PARTIALLY_PAID')`,
         sql`(current_date - ${invoices.dueDate})::int in (-3, 1, 7, 15)`,
       ),
     )
@@ -190,12 +206,15 @@ async function billReminders() {
 
 /** One pass of every scheduled job. Returns what each did, which is what the tests assert on. */
 export async function runJobsOnce() {
-  const results = { reminders: 0, escalations: 0, tasks: 0, bills: 0 }
+  const results = { reminders: 0, escalations: 0, tasks: 0, overdue: 0, bills: 0, receipts: 0 }
   const steps = [
     ['reminders', sendApprovalReminders],
     ['escalations', escalateUnanswered],
     ['tasks', taskDeadlines],
+    // Lateness is decided before the reminders go out, so they agree with the invoice's status
+    ['overdue', markOverdue],
     ['bills', billReminders],
+    ['receipts', renderPendingReceipts],
   ] as const
 
   // Each job is independent: one failing must not stop the others from running this tick

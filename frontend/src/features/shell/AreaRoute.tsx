@@ -119,7 +119,7 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
     ) : item.key === 'notifications' ? (
       <NotificationsPage user={user} accessToken={accessToken} />
     ) : item.key === 'bills' ? (
-      <BillsPage accessToken={accessToken} />
+      <BillsPage user={user} accessToken={accessToken} />
     ) : item.key === 'staff' ? (
       <StaffPage user={user} accessToken={accessToken} />
     ) : item.key === 'staffMovement' ? (

@@ -26,6 +26,8 @@ export type ErrorCode =
   | 'SYNC_IN_PROGRESS'
   | 'INVALID_FILE'
   | 'STORAGE_ERROR'
+  | 'PAYMENT_NOT_CONFIGURED'
+  | 'PAYMENT_GATEWAY_ERROR'
   | 'INTERNAL_ERROR'
 
 interface AppErrorOptions {

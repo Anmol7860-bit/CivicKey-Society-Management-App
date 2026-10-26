@@ -2,7 +2,7 @@ import { send } from '../auth/api'
 import { call } from '../society/api'
 
 export type ChargeBasis = 'PER_SQFT' | 'PER_FLAT'
-export type InvoiceStatus = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'CANCELLED'
+export type InvoiceStatus = 'UNPAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'PAID' | 'CANCELLED'
 export type ReportName = 'COLLECTIONS' | 'OCCUPANCY'
 
 export interface BillingRate {
@@ -156,4 +156,35 @@ export async function downloadReport(token: string, societyId: string, query: { 
   link.click()
   URL.revokeObjectURL(url)
   return undefined
+}
+
+export interface Checkout {
+  attemptId: string
+  orderId: string
+  amount: number
+  currency: string
+  keyId: string
+}
+
+export interface ReceiptRow {
+  id: string
+  number: string
+  status: 'PENDING_PDF' | 'READY' | 'FAILED'
+  amount: string
+  receivedOn: string
+  createdAt: string
+}
+
+/** Asks the server to start a hosted checkout. Nothing is paid until the gateway tells the server. */
+export const startCheckout = (token: string, invoiceId: string) =>
+  call<Checkout>(token, 'POST', `/invoices/${invoiceId}/checkout`, {})
+
+export const listReceipts = (token: string, invoiceId: string) =>
+  call<ReceiptRow[]>(token, 'GET', `/invoices/${invoiceId}/receipts`)
+
+/** The receipt PDF, fetched with the token and handed to the browser as a blob URL. */
+export async function receiptPdfUrl(token: string, receiptId: string) {
+  const res = await fetch(`/api/v1/receipts/${receiptId}/pdf`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!res.ok) throw new Error('That receipt is not ready yet.')
+  return URL.createObjectURL(await res.blob())
 }

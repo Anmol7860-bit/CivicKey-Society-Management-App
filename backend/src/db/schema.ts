@@ -55,7 +55,12 @@ export const policeVerification = pgEnum('police_verification', ['NOT_STARTED', 
 /** How the monthly maintenance charge is worked out */
 export const chargeBasis = pgEnum('charge_basis', ['PER_SQFT', 'PER_FLAT'])
 
-export const invoiceStatus = pgEnum('invoice_status', ['UNPAID', 'PARTIALLY_PAID', 'PAID', 'CANCELLED'])
+/**
+ * Where an invoice stands. OVERDUE is UNPAID past its due date, set by the nightly job so a
+ * report and a reminder agree with each other. PARTIALLY_PAID survives for rows recorded before
+ * full settlement became the rule; nothing produces it any more.
+ */
+export const invoiceStatus = pgEnum('invoice_status', ['UNPAID', 'OVERDUE', 'PARTIALLY_PAID', 'PAID', 'CANCELLED'])
 
 export const societies = pgTable(
   'societies',
@@ -652,6 +657,101 @@ export const payments = pgTable(
     check('payments_amount_positive', sql`${table.amount} > 0`),
     check('payments_reversal_fields', sql`(${table.reversedAt} is null) = (${table.reversedBy} is null)`),
   ],
+)
+
+
+/**
+ * A hosted-checkout attempt. The browser's return page proves nothing: this row only ever moves
+ * to SUCCESS from a signed webhook, and a webhook that does not match what was asked for leaves
+ * it REVIEW_REQUIRED with the invoice unpaid.
+ */
+export const paymentAttemptStatus = pgEnum('payment_attempt_status', [
+  'INITIATING',
+  'CREATED',
+  'PENDING',
+  'SUCCESS',
+  'FAILED',
+  'REVIEW_REQUIRED',
+])
+
+export const paymentAttempts = pgTable(
+  'payment_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    /** What the resident was asked to pay, in paise, exactly as the order was created */
+    amountPaise: integer('amount_paise').notNull(),
+    status: paymentAttemptStatus('status').notNull().default('INITIATING'),
+    /** The gateway's order id; one order per attempt */
+    providerOrderId: varchar('provider_order_id', { length: 64 }).unique(),
+    providerPaymentId: varchar('provider_payment_id', { length: 64 }),
+    /** Why an attempt needs a person to look at it, or why the gateway failed it */
+    failureReason: varchar('failure_reason', { length: 300 }),
+    startedBy: uuid('started_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('payment_attempts_invoice_id_idx').on(table.invoiceId),
+    check('payment_attempts_amount_positive', sql`${table.amountPaise} > 0`),
+    // Only one attempt per invoice may ever succeed: a second settlement is a bug, not a payment
+    uniqueIndex('payment_attempts_one_success_per_invoice')
+      .on(table.invoiceId)
+      .where(sql`status = 'SUCCESS'`),
+  ],
+)
+
+/**
+ * Every webhook the gateway delivers, kept by its own event id.
+ *
+ * The gateway retries until it is acknowledged, so the same event arrives more than once. The
+ * unique id is what makes handling it exactly once a database guarantee rather than a hope.
+ */
+export const gatewayEvents = pgTable(
+  'gateway_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    provider: varchar('provider', { length: 20 }).notNull().default('razorpay'),
+    providerEventId: varchar('provider_event_id', { length: 100 }).notNull(),
+    eventType: varchar('event_type', { length: 60 }).notNull(),
+    payload: jsonb('payload').notNull(),
+    handledAt: timestamp('handled_at', { withTimezone: true }),
+    result: varchar('result', { length: 60 }),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('gateway_events_provider_event_unique').on(table.provider, table.providerEventId)],
+)
+
+/** A receipt's PDF is written after the money is settled, so a slow render never holds up a payment. */
+export const receiptStatus = pgEnum('receipt_status', ['PENDING_PDF', 'READY', 'FAILED'])
+
+export const receipts = pgTable(
+  'receipts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Exactly one receipt per settlement */
+    paymentId: uuid('payment_id')
+      .notNull()
+      .unique()
+      .references(() => payments.id),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    number: varchar('number', { length: 24 }).notNull().unique(),
+    status: receiptStatus('status').notNull().default('PENDING_PDF'),
+    /** The rendered PDF in private storage, once it exists */
+    fileId: uuid('file_id').references(() => storedFiles.id),
+    attempts: integer('attempts').notNull().default(0),
+    failureReason: varchar('failure_reason', { length: 300 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('receipts_status_idx').on(table.status)],
 )
 
 
@@ -1287,7 +1387,10 @@ export const storedFiles = pgTable(
   },
   (table) => [
     index('stored_files_society_id_idx').on(table.societyId),
-    check('stored_files_image_type', sql`${table.contentType} in ('image/jpeg', 'image/png', 'image/webp')`),
+    check(
+      'stored_files_image_type',
+      sql`${table.contentType} in ('image/jpeg', 'image/png', 'image/webp', 'application/pdf')`,
+    ),
     check('stored_files_byte_size', sql`${table.byteSize} > 0 and ${table.byteSize} <= 5242880`),
   ],
 )
@@ -1308,3 +1411,5 @@ export type FlatVehicle = typeof flatVehicles.$inferSelect
 export type AccessRequest = typeof accessRequests.$inferSelect
 export type CommunityTask = typeof communityTasks.$inferSelect
 export type StoredFile = typeof storedFiles.$inferSelect
+export type PaymentAttempt = typeof paymentAttempts.$inferSelect
+export type Receipt = typeof receipts.$inferSelect

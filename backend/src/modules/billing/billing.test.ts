@@ -2,7 +2,7 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { flats, invoices, payments } from '../../db/schema.js'
+import { flats, invoices, payments, receipts } from '../../db/schema.js'
 import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
 import { signAccessToken } from '../auth/tokens.js'
 
@@ -179,52 +179,37 @@ describe('payments', () => {
     return row!
   }
 
-  it('records cash with a receipt number and settles the invoice', async () => {
+  it('records cash with a receipt number and settles the invoice in one go', async () => {
     const row = await invoice()
 
-    const part = await api.post(`/invoices/${row.id}/payments`, {
-      amount: 1000,
+    const paid = await api.post(`/invoices/${row.id}/payments`, {
+      amount: 4600,
       receivedOn: '2026-02-05',
       paidBy: 'Riya Sharma',
     })
-    expect(part.status).toBe(201)
-    expect(part.body.data.receiptNumber).toMatch(/^RCT-\d{4}-\d{6}$/)
-    expect(part.body.data.invoice).toMatchObject({
-      status: 'PARTIALLY_PAID',
-      paid: 1000,
-      outstanding: 3600,
-    })
 
-    const rest = await api.post(`/invoices/${row.id}/payments`, {
-      amount: 3600,
-      receivedOn: '2026-02-06',
-    })
-    expect(rest.body.data.invoice.status).toBe('PAID')
-    expect((await api.get(`/invoices/${row.id}/payments`)).body.data).toHaveLength(2)
+    expect(paid.status).toBe(201)
+    expect(paid.body.data.receiptNumber).toMatch(/^RCT-\d{4}-\d{6}$/)
+    expect(paid.body.data.invoice).toMatchObject({ status: 'PAID', paid: 4600, outstanding: 0 })
+    expect((await api.get(`/invoices/${row.id}/payments`)).body.data).toHaveLength(1)
+
+    // A settlement always has exactly one receipt, waiting for its PDF
+    const [receipt] = await db.select().from(receipts)
+    expect(receipt).toMatchObject({ number: paid.body.data.receiptNumber, status: 'PENDING_PDF' })
   })
 
-  it('refuses more than is due, and anything at all once the invoice is paid', async () => {
+  it('takes the whole amount or nothing: part of a bill is not a payment', async () => {
     const row = await invoice()
 
-    const tooMuch = await api.post(`/invoices/${row.id}/payments`, {
-      amount: 5000,
-      receivedOn: '2026-02-05',
-    })
+    const tooMuch = await api.post(`/invoices/${row.id}/payments`, { amount: 5000, receivedOn: '2026-02-05' })
     expect(tooMuch.status).toBe(400)
-    expect(tooMuch.body.error.message).toMatch(/still due/)
+    expect(tooMuch.body.error.message).toMatch(/settled in full/)
 
-    await api.post(`/invoices/${row.id}/payments`, {
-      amount: 4600,
-      receivedOn: '2026-02-05',
-    })
-    expect(
-      (
-        await api.post(`/invoices/${row.id}/payments`, {
-          amount: 1,
-          receivedOn: '2026-02-05',
-        })
-      ).status,
-    ).toBe(400)
+    const part = await api.post(`/invoices/${row.id}/payments`, { amount: 1000, receivedOn: '2026-02-05' })
+    expect(part.status).toBe(400)
+
+    await api.post(`/invoices/${row.id}/payments`, { amount: 4600, receivedOn: '2026-02-05' })
+    expect((await api.post(`/invoices/${row.id}/payments`, { amount: 4600, receivedOn: '2026-02-05' })).status).toBe(400)
   })
 
   it('reverses a receipt instead of deleting it, and puts the money back on the invoice', async () => {
@@ -265,21 +250,21 @@ describe('reports', () => {
     await generate({ period: '2026-02' })
     const [row] = await db.select().from(invoices)
     await api.post(`/invoices/${row!.id}/payments`, {
-      amount: 600,
+      amount: 4600,
       receivedOn: '2026-02-05',
     })
 
     const report = await api.get(`/societies/${TEST_SOCIETY_ID}/reports?report=COLLECTIONS&period=2026-02`)
     expect(report.body.data.totals).toEqual({
       billed: 4600,
-      paid: 600,
-      outstanding: 4000,
+      paid: 4600,
+      outstanding: 0,
     })
 
     const csv = await api.get(`/societies/${TEST_SOCIETY_ID}/reports?report=COLLECTIONS&period=2026-02&format=csv`)
     expect(csv.headers['content-type']).toMatch(/text\/csv/)
     expect(csv.text.split('\n')[0]).toBe('"flat","period","billed","paid","outstanding","dueDate","status"')
-    expect(csv.text).toContain('"A-101-101","2026-02-01","4600","600","4000"')
+    expect(csv.text).toContain('"A-101-101","2026-02-01","4600","4600","0"')
   })
 
   it('reports occupancy from the assignments themselves', async () => {

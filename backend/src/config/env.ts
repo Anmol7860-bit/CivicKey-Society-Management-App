@@ -37,6 +37,14 @@ const envSchema = z.object({
   JOB_INTERVAL_SECONDS: z.coerce.number().int().min(0).default(15),
   /** Keys the throttle buckets, so the table holds no phone numbers or addresses */
   AUTH_RATE_KEY: z.string().min(16).default('dev-only-auth-rate-key-change-me'),
+  /**
+   * Razorpay hosted checkout. Test credentials in development; live ones belong in the
+   * deployment's secrets. With the key pair unset, checkout answers 503 and only cash works.
+   * Without the webhook secret no webhook is ever trusted, so no payment can settle online.
+   */
+  RAZORPAY_KEY_ID: z.string().min(1).optional(),
+  RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
   /** Where uploaded photos are written. Private by design: nothing serves this directory. */
   FILE_STORAGE_DIR: z.string().min(1).default(fileURLToPath(new URL('../../var/uploads', import.meta.url))),
   LOGIN_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),

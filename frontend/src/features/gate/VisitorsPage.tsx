@@ -26,12 +26,13 @@ import {
 
 const PURPOSES: VisitPurpose[] = ['GUEST', 'DELIVERY', 'CAB', 'SERVICE', 'OTHER']
 const STATUS_TONE: Record<VisitStatus, Tone> = {
-  WAITING: 'warning',
+  AWAITING_APPROVAL: 'warning',
+  AWAITING_MANUAL: 'warning',
   APPROVED: 'positive',
   LEAVE_AT_GATE: 'neutral',
   DENIED: 'danger',
-  INSIDE: 'brand',
-  LEFT: 'neutral',
+  ENTERED: 'brand',
+  CLOSED: 'neutral',
 }
 const PASS_TONE: Record<PassStatus, Tone> = { ACTIVE: 'positive', USED: 'neutral', CANCELLED: 'danger' }
 
