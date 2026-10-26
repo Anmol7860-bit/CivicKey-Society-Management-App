@@ -22,6 +22,14 @@ vi.mock('../gate/api', async () => ({
   listMyAccessRequests: vi.fn().mockResolvedValue([]),
   flatDirectory: vi.fn().mockResolvedValue([]),
 }))
+vi.mock('../notification/api', async () => ({
+  ...(await vi.importActual<typeof import('../notification/api')>('../notification/api')),
+  listNotifications: vi.fn().mockResolvedValue({ items: [], unread: 3 }),
+}))
+vi.mock('../notification/useNotifications', async () => ({
+  ...(await vi.importActual<typeof import('../notification/useNotifications')>('../notification/useNotifications')),
+  useLiveNotifications: vi.fn(),
+}))
 vi.mock('../billing/api', async () => ({
   ...(await vi.importActual<typeof import('../billing/api')>('../billing/api')),
   listMyInvoices: vi.fn().mockResolvedValue([]),
@@ -65,6 +73,12 @@ describe('role destinations', () => {
     expect(screen.queryByRole('link', { name: 'Approve visitor' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Own activity & history' })).toBeInTheDocument()
     // The resident's own feed fills it; a committee member without VISIT_VIEW_OWN sees the empty note
+  })
+
+  it('shows the resident how many notices are unread', async () => {
+    renderAt('/resident/dashboard', user('RESIDENT', RESIDENT))
+
+    expect(await screen.findByRole('link', { name: 'Notifications, 3 unread' })).toHaveTextContent('3')
   })
 
   it('gives a Guard gate operations only', () => {

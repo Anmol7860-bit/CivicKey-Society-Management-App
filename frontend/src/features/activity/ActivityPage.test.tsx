@@ -4,6 +4,8 @@ import { MemoryRouter } from 'react-router'
 import * as billing from '../billing/api'
 import type { MyInvoice } from '../billing/api'
 import * as gate from '../gate/api'
+import * as notification from '../notification/api'
+import type { Notification } from '../notification/api'
 import type { AccessRequest, Visit, VisitorPass } from '../gate/api'
 import type { AuthUser } from '../auth/api'
 import { ActivityPage } from './ActivityPage'
@@ -11,8 +13,10 @@ import { NotificationsPage } from './NotificationsPage'
 
 vi.mock('../gate/api')
 vi.mock('../billing/api')
+vi.mock('../notification/api')
 const gateApi = vi.mocked(gate)
 const billingApi = vi.mocked(billing)
+const notificationApi = vi.mocked(notification)
 
 const user: AuthUser = {
   id: 'u1',
@@ -194,34 +198,49 @@ describe('Notifications', () => {
     )
   }
 
-  beforeEach(() => localStorage.clear())
+  const notice = (overrides: Partial<Notification> = {}): Notification => ({
+    id: 'n1',
+    eventType: 'VISITOR_WAITING_APPROVAL',
+    entityType: 'visit',
+    entityId: 'v1',
+    title: 'Amit Kulkarni is at your gate',
+    body: 'Approve or deny the visit from the visitors page.',
+    readAt: null,
+    createdAt: '2026-10-23T10:00:00.000Z',
+    ...overrides,
+  })
 
-  it('separates what needs an answer from what has merely happened', async () => {
+  beforeEach(() => {
+    notificationApi.listNotifications.mockResolvedValue({ items: [notice()], unread: 1 })
+    notificationApi.markAllRead.mockResolvedValue({ marked: 1 })
+  })
+
+  it('separates what needs an answer from what was sent', async () => {
     showNotifications()
 
     const pending = (await screen.findByText('Needs your attention')).closest('section')!
     expect(within(pending).getByText(/Amit Kulkarni is at the gate/)).toBeInTheDocument()
     expect(within(pending).getByText(/Your October 2026 bill/)).toBeInTheDocument()
 
-    const recent = screen.getByText('Recently').closest('section')!
-    expect(within(recent).getByText(/Mahesh the plumber/)).toBeInTheDocument()
-    expect(within(recent).queryByText(/Amit Kulkarni/)).not.toBeInTheDocument()
+    const sent = screen.getByText('Sent to you').closest('section')!
+    expect(within(sent).getByText('Amit Kulkarni is at your gate')).toBeInTheDocument()
   })
 
-  it('marks what has been read, and keeps it read', async () => {
+  it('marks everything read on the server, not in this browser', async () => {
     showNotifications()
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Mark 2 as read' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Mark 1 as read' }))
 
-    expect(screen.queryByRole('button', { name: /Mark/ })).not.toBeInTheDocument()
-    expect(localStorage.getItem('civickey:notifications-seen')).not.toBeNull()
+    expect(notificationApi.markAllRead).toHaveBeenCalledWith('token')
   })
 
   it('says when nothing is waiting on the resident', async () => {
     gateApi.listMyVisits.mockResolvedValue([visit({ status: 'CLOSED', exitedAt: '2026-10-23T12:00:00.000Z' })])
     billingApi.listMyInvoices.mockResolvedValue([invoice({ status: 'PAID', paid: 4125, outstanding: 0 })])
+    notificationApi.listNotifications.mockResolvedValue({ items: [], unread: 0 })
     showNotifications()
 
     expect(await screen.findByText('Nothing waiting on you')).toBeInTheDocument()
+    expect(await screen.findByText('Nothing to show')).toBeInTheDocument()
   })
 })

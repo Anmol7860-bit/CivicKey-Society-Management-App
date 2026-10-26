@@ -116,7 +116,8 @@
     "edit": "Edit",
     "rename": "Rename",
     "deactivate": "Deactivate",
-    "remove": "Remove"
+    "remove": "Remove",
+    "notificationsUnread": "Notifications, {{count}} unread"
   },
   "area": {
     "resident": {
@@ -381,10 +382,8 @@
         "intro": "What still needs an answer from you, and what has changed since you last looked.",
         "pendingTitle": "Needs your attention",
         "pendingDescription": "Visitors waiting at the gate and bills still to pay.",
-        "recentTitle": "Recently",
-        "recentDescription": "The last few things that happened on your flat.",
         "markRead": "Mark {{count}} as read",
-        "footnote": "CivicKey does not send SMS or push messages yet, so this page is where notices appear.",
+        "footnote": "Turn on push to hear about visitors while this page is closed. Email goes out for bills and receipts.",
         "clear": {
           "title": "Nothing waiting on you",
           "description": "No visitor is at the gate and no bill is outstanding."
@@ -392,6 +391,14 @@
         "empty": {
           "title": "Nothing to show",
           "description": "Once visitors, passes and bills start moving, they appear here."
+        },
+        "sentTitle": "Sent to you",
+        "sentDescription": "The notices CivicKey sent you, newest first.",
+        "unread": "Unread",
+        "push": {
+          "offer": "Get alerted on this device when a visitor is at your gate.",
+          "enable": "Turn on push",
+          "denied": "This browser is blocking notifications. Allow them in your browser settings to use push."
         }
       },
       "activityTitle": "Own activity & history"

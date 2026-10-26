@@ -144,7 +144,7 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
   }
 
   return (
-    <AppShell user={user} onLogout={onLogout}>
+    <AppShell user={user} accessToken={accessToken} onLogout={onLogout}>
       {user.role === 'GUARD' && <AutoSync accessToken={accessToken} />}
       {content}
     </AppShell>

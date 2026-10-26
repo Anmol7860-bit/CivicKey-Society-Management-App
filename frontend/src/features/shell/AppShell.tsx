@@ -4,11 +4,13 @@ import { useTranslation } from 'react-i18next'
 import { NavLink } from 'react-router'
 import buildingOnBrand from '../../assets/icons/building-2-on-brand.svg'
 import type { AuthUser } from '../auth/api'
+import { useLiveNotifications, useNotifications } from '../notification/useNotifications'
 import { SyncSummary } from '../sync/SyncPage'
 import { allowed, AREAS } from './areas'
 
 interface ShellProps {
   user: AuthUser
+  accessToken: string
   onLogout: () => Promise<void>
   children: ReactNode
 }
@@ -81,11 +83,14 @@ function LogoutButton({ onLogout, className }: { onLogout: () => Promise<void>; 
   )
 }
 
-export function AppShell({ user, onLogout, children }: ShellProps) {
+export function AppShell({ user, accessToken, onLogout, children }: ShellProps) {
   const { t } = useTranslation()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const config = AREAS[user.role]
   const notifications = config.nav.find((item) => item.key === 'notifications')
+  // The shell is on every signed-in page, so the live connection and the unread count live here
+  useLiveNotifications(accessToken)
+  const { unread } = useNotifications(accessToken)
 
   return (
     <div className="flex min-h-dvh flex-col" data-area={config.area}>
@@ -116,10 +121,19 @@ export function AppShell({ user, onLogout, children }: ShellProps) {
           {notifications && allowed(user, notifications) && (
             <NavLink
               to={`/${config.area}/${notifications.path}`}
-              aria-label={t(`area.${config.area}.nav.notifications`)}
-              className="hidden rounded text-muted hover:text-ink sm:inline"
+              aria-label={
+                unread > 0
+                  ? t('shell.notificationsUnread', { count: unread })
+                  : t(`area.${config.area}.nav.notifications`)
+              }
+              className="relative hidden rounded text-muted hover:text-ink sm:inline"
             >
               <Bell size={18} aria-hidden />
+              {unread > 0 && (
+                <span className="absolute -top-1.5 -right-2 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white">
+                  {unread > 9 ? '9+' : unread}
+                </span>
+              )}
             </NavLink>
           )}
           <details className="relative hidden sm:block">

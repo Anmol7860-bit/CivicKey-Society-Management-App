@@ -11,10 +11,12 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     server: {
       proxy: {
-        // Forwards API calls to the Express backend during development
+        // Forwards API calls to the Express backend during development; ws carries the
+        // notification socket, which lives under /api/v1/socket.io
         '/api': {
           target: env.VITE_API_PROXY_TARGET || 'http://localhost:4000',
           changeOrigin: true,
+          ws: true,
         },
       },
     },
