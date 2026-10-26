@@ -125,15 +125,11 @@
       "nav": {
         "overview": "Overview",
         "visitorApproval": "Visitor approval",
-        "visitorPasses": "Visitor passes",
         "dailyHelp": "Daily help",
         "bills": "Bills & payments",
         "notifications": "Notifications",
         "activity": "My activity",
         "myFlat": "My flat"
-      },
-      "primary": {
-        "approveVisitor": "Approve visitor"
       },
       "stats": {
         "awaiting": "Awaiting approval",
@@ -149,10 +145,6 @@
         "visitorApproval": {
           "label": "Visitor approval",
           "description": "Review and approve requests"
-        },
-        "visitorPass": {
-          "label": "Create visitor pass",
-          "description": "Issue a time-bound QR pass"
         },
         "bills": {
           "label": "Bills & payments",
@@ -218,9 +210,11 @@
         }
       },
       "visitors": {
+        "breadcrumb": "Resident · Flat {{block}}-{{flat}} / Visitors",
         "title": "Visitors and passes",
         "intro": "Only visitors for your own flat are shown here.",
         "waitingTitle": "Waiting at the gate",
+        "photoHint": "Photo taken by guard",
         "name": "Name",
         "purpose": "Purpose",
         "people": "People",
@@ -289,8 +283,14 @@
         "noAttendance": "Nothing recorded in the last two weeks.",
         "empty": {
           "title": "No daily help yet",
-          "description": "Ask the society office to register your maid, cook or driver, and they get a gate pass."
-        }
+          "description": "Add your maid, cook or driver below. The office verifies ID and photo, then issues a gate pass."
+        },
+        "intro": "Your maid, cook or driver: what the office verified, when they came in, and who to add.",
+        "police": "Police: {{status}}",
+        "noId": "No ID on file",
+        "photoOnFile": "Photo on file",
+        "noPhoto": "No photo on file",
+        "pass": "Pass {{code}}"
       },
       "vehicles": {
         "title": "Vehicles",
@@ -334,6 +334,16 @@
           "PENDING": "Waiting",
           "APPROVED": "Approved",
           "REJECTED": "Rejected"
+        },
+        "only": {
+          "HOUSEHOLD_MEMBER": {
+            "title": "Add a family member",
+            "description": "The society admin checks ID before the account is created."
+          },
+          "DAILY_HELP": {
+            "title": "Add daily help",
+            "description": "Give the name and timings. The office verifies ID and photo, then issues the gate pass."
+          }
         }
       },
       "bills": {
@@ -393,7 +403,6 @@
         "visitorRegistration": "Visitor registration",
         "passValidation": "Pass validation",
         "gate": "Gate entry / exit",
-        "staffVerification": "Staff verification",
         "sync": "Sync status"
       },
       "primary": {
@@ -525,7 +534,6 @@
         "reports": "Reports",
         "tasks": "Community tasks",
         "visitorApproval": "Visitor approval",
-        "visitorPasses": "Visitor passes",
         "bills": "Bills & payments",
         "activity": "My activity",
         "myFlat": "My flat"

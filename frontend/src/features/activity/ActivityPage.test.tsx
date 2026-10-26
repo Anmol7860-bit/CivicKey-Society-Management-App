@@ -48,6 +48,7 @@ const visit = (overrides: Partial<Visit> = {}): Visit => ({
   createdAt: '2026-10-23T10:00:00.000Z',
   flat,
   gateName: 'Main gate',
+  registeredByName: 'Mahesh Patil',
   passCode: null,
   ...overrides,
 })

@@ -181,6 +181,7 @@ const visitColumns = {
   flat: place,
   gateName: gates.name,
   passCode: visitorPasses.entryCode,
+  registeredByName: users.name,
 }
 
 function visitQuery() {
@@ -192,10 +193,11 @@ function visitQuery() {
     .innerJoin(floors, eq(floors.id, flats.floorId))
     .leftJoin(gates, eq(gates.id, visits.gateId))
     .leftJoin(visitorPasses, eq(visitorPasses.id, visits.passId))
+    .leftJoin(users, eq(users.id, visits.registeredBy))
     .$dynamic()
 }
 
-type VisitRow = { visit: typeof visits.$inferSelect; flat: { number: string; blockName: string; floorLabel: string }; gateName: string | null; passCode: string | null }
+type VisitRow = { visit: typeof visits.$inferSelect; flat: { number: string; blockName: string; floorLabel: string }; gateName: string | null; passCode: string | null; registeredByName?: string | null }
 
 const serializeVisit = (row: VisitRow) => ({
   ...row.visit,
@@ -203,6 +205,7 @@ const serializeVisit = (row: VisitRow) => ({
   flat: { ...row.flat, label: label(row.flat) },
   gateName: row.gateName,
   passCode: row.passCode,
+  registeredByName: row.registeredByName ?? null,
 })
 
 /**

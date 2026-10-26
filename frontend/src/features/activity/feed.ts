@@ -63,7 +63,7 @@ function passEvents(passes: VisitorPass[]): FeedEvent[] {
     if (pass.status === 'CANCELLED') {
       return { id: `pass-${pass.id}`, kind: 'PASS', at: pass.createdAt, event: 'passCancelled', values, tone: 'neutral' }
     }
-    return { id: `pass-${pass.id}`, kind: 'PASS', at: pass.createdAt, event: 'passCreated', values, tone: 'brand', to: 'visitor-passes' }
+    return { id: `pass-${pass.id}`, kind: 'PASS', at: pass.createdAt, event: 'passCreated', values, tone: 'brand', to: 'visitor-approval' }
   })
 }
 

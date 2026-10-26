@@ -37,6 +37,7 @@ const waiting = {
   createdAt: new Date().toISOString(),
   flat: { number: '101', blockName: 'A', floorLabel: '1st Floor', label: 'A-101' },
   gateName: 'Main gate',
+  registeredByName: 'Mahesh Patil',
 }
 
 beforeEach(() => {
@@ -52,7 +53,9 @@ it('shows who is at the gate and sends the approval', async () => {
 
   expect(await screen.findByText('Waiting at the gate')).toBeInTheDocument()
   expect(screen.getByText('Amit Kulkarni')).toBeInTheDocument()
-  expect(screen.getByText('Main gate')).toBeInTheDocument()
+  expect(screen.getByText('Main gate · Mahesh Patil')).toBeInTheDocument()
+  expect(screen.getByText('Photo taken by guard')).toBeInTheDocument()
+  expect(screen.getByText('Resident · Flat A-101 / Visitors')).toBeInTheDocument()
 
   await userEvent.click(screen.getByRole('button', { name: 'Approve entry' }))
   await waitFor(() => expect(mocked.decideVisit).toHaveBeenCalledWith('token', 'v1', { decision: 'APPROVED' }))

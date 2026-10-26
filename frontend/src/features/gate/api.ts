@@ -38,6 +38,8 @@ export interface Visit {
   createdAt: string
   flat: FlatLabel
   gateName: string | null
+  /** The guard who registered the visit, shown beside the gate */
+  registeredByName: string | null
   passCode: string | null
 }
 

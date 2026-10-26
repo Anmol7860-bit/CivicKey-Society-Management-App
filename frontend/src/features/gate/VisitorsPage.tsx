@@ -72,7 +72,15 @@ function WaitingCard({ visit, onDecided, token }: { visit: Visit; onDecided: () 
         <Badge tone="warning">{ago(visit.createdAt)}</Badge>
       </div>
 
-      <dl className="grid grid-cols-[84px_1fr] gap-x-3 gap-y-1.5 text-[13px]">
+      <div className="flex flex-wrap gap-4">
+        <span className="flex size-[84px] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-line bg-canvas p-2 text-center text-[11px] leading-[15px] text-muted">
+          {visit.photoReference ? (
+            <img src={visit.photoReference} alt={visit.visitorName} className="size-full rounded-lg object-cover" />
+          ) : (
+            t('area.resident.visitors.photoHint')
+          )}
+        </span>
+        <dl className="grid min-w-[200px] flex-1 grid-cols-[84px_1fr] gap-x-3 gap-y-1.5 text-[13px]">
         <dt className="text-muted">{t('area.resident.visitors.name')}</dt>
         <dd className="m-0 font-semibold text-ink">{visit.visitorName}</dd>
         <dt className="text-muted">{t('area.resident.visitors.purpose')}</dt>
@@ -89,8 +97,12 @@ function WaitingCard({ visit, onDecided, token }: { visit: Visit; onDecided: () 
           </>
         )}
         <dt className="text-muted">{t('area.resident.visitors.gate')}</dt>
-        <dd className="m-0 text-ink-soft">{visit.gateName ?? '—'}</dd>
-      </dl>
+        <dd className="m-0 text-ink-soft">
+          {visit.gateName ?? '—'}
+          {visit.registeredByName ? ` · ${visit.registeredByName}` : ''}
+        </dd>
+        </dl>
+      </div>
 
       <TextField
         id={`deny-reason-${visit.id}`}
@@ -220,6 +232,7 @@ export function VisitorsPage({ accessToken }: { accessToken: string }) {
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-1">
+        <p className="text-[12px] font-semibold text-muted">{t('area.resident.visitors.breadcrumb', { flat: flat?.flat.number ?? '—', block: flat?.block.name ?? '' })}</p>
         <h1 className="text-[22px] leading-7 font-bold text-ink">{t('area.resident.visitors.title')}</h1>
         <p className="text-[13px] text-muted">{t('area.resident.visitors.intro')}</p>
       </header>
