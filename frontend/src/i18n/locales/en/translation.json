@@ -500,6 +500,22 @@
         "recordExit": "Record exit",
         "insideSince": "Inside since {{at}}",
         "comparePhoto": "The flats they serve are told automatically.",
+        "reject": "Reject",
+        "rejectTitle": "Refuse this entry",
+        "rejectReason": "Reason",
+        "rejectNote": "What happened",
+        "rejectConfirm": "Record refusal",
+        "rejected": "{{name}} was refused. The reason is on the record.",
+        "rejectReasons": {
+          "VERIFICATION_FAILED": "Verification failed",
+          "STAFF_INACTIVE": "Staff access is inactive",
+          "INVALID_PASS": "Invalid staff pass",
+          "NOT_REGISTERED": "Not registered",
+          "WRONG_SOCIETY": "Not assigned to this society",
+          "ALREADY_INSIDE": "Already inside",
+          "SECURITY_CONCERN": "Security concern",
+          "OTHER": "Other"
+        },
         "approvedTitle": "Approved, waiting at the gate",
         "approvedDescription": "The resident said yes. Record the entry when they come in.",
         "insideTitle": "Inside the premises now",
@@ -580,7 +596,8 @@
         "visitorApproval": "Visitor approval",
         "bills": "Bills & payments",
         "activity": "My activity",
-        "myFlat": "My flat"
+        "myFlat": "My flat",
+        "staffMovement": "Staff movement"
       },
       "primary": {
         "addUser": "Add user"
@@ -1346,7 +1363,44 @@
           "description": "Raise a task when something in the common areas needs doing."
         }
       },
-      "activityTitle": "Security & community activity"
+      "activityTitle": "Security & community activity",
+      "staffMovement": {
+        "title": "Staff movement",
+        "intro": "What the gate recorded: staff entries, exits and refused entries. Read only; a profile going inactive keeps its history.",
+        "filtersTitle": "Narrow it down",
+        "filtersDescription": "Filters apply to the list below. Leave one empty to include everything.",
+        "staffType": "Staff type",
+        "staffTypePlaceholder": "Housekeeping",
+        "event": "Event",
+        "allEvents": "All events",
+        "events": {
+          "ENTRY": "Entry",
+          "EXIT": "Exit",
+          "ENTRY_REJECTED": "Entry refused"
+        },
+        "verification": "Verification",
+        "allVerifications": "Verified and refused",
+        "verified": "Verified",
+        "rejected": "Refused",
+        "from": "From",
+        "to": "To",
+        "listTitle": "Movements",
+        "listDescription": "{{count}} events, newest first.",
+        "showMore": "Show {{count}} more",
+        "columns": {
+          "when": "When",
+          "staff": "Staff",
+          "type": "Type",
+          "event": "Event",
+          "gate": "Gate",
+          "by": "Recorded by",
+          "reason": "Reason"
+        },
+        "empty": {
+          "title": "No staff movement recorded",
+          "description": "Nothing matches these filters. The gate records an event the moment a guard verifies someone."
+        }
+      }
     }
   },
   "sync": {

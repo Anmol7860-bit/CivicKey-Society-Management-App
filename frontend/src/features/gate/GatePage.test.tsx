@@ -88,7 +88,7 @@ it('checks a staff pass and records the entry', async () => {
       flatsServed: [{ flatId: 'fl1', number: '101', blockName: 'A', label: 'A-101', timeWindow: '7-9 am' }],
     } as never,
   })
-  mocked.recordStaffEntry.mockResolvedValue({ id: 'a1' })
+  mocked.recordStaffEntry.mockResolvedValue({ id: 'a1', enteredAt: new Date().toISOString() })
   show()
 
   await userEvent.type(screen.getByLabelText('Staff pass number'), 'CK-SEEDHELP')
@@ -98,7 +98,40 @@ it('checks a staff pass and records the entry', async () => {
   expect(screen.getByText('Maid · A-101')).toBeInTheDocument()
 
   await userEvent.click(screen.getByRole('button', { name: 'Record entry' }))
-  await waitFor(() => expect(mocked.recordStaffEntry).toHaveBeenCalledWith('token', 'st1'))
+  // Every tap carries a request id, so a retry after a lost response cannot record a second entry
+  await waitFor(() =>
+    expect(mocked.recordStaffEntry).toHaveBeenCalledWith('token', 'st1', { idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/) }),
+  )
+})
+
+it('records a refused entry with its reason instead of letting the staff member in', async () => {
+  mocked.checkStaffPass.mockResolvedValue({
+    valid: true,
+    reason: null,
+    staff: { id: 'st1', name: 'Sunita Devi', kind: 'DAILY_HELP', workType: 'Maid', passValidUntil: null, inside: false, enteredAt: null, flatsServed: [] } as never,
+  })
+  mocked.rejectStaffEntry.mockResolvedValue({ id: 'r1' })
+  show()
+
+  await userEvent.type(screen.getByLabelText('Staff pass number'), 'CK-SEEDHELP')
+  await userEvent.click(screen.getAllByRole('button', { name: 'Check' })[1]!)
+  await userEvent.click(await screen.findByRole('button', { name: 'Reject' }))
+
+  // A refusal of Other has to say what happened, so the button waits for a description
+  await userEvent.selectOptions(screen.getByLabelText('Reason'), 'OTHER')
+  expect(screen.getByRole('button', { name: 'Record refusal' })).toBeDisabled()
+  await userEvent.type(screen.getByLabelText(/^What happened/), 'Could not match the photo')
+  await userEvent.click(screen.getByRole('button', { name: 'Record refusal' }))
+
+  await waitFor(() =>
+    expect(mocked.rejectStaffEntry).toHaveBeenCalledWith('token', 'st1', {
+      reason: 'OTHER',
+      note: 'Could not match the photo',
+      idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    }),
+  )
+  expect(mocked.recordStaffEntry).not.toHaveBeenCalled()
+  expect(await screen.findByText('Sunita Devi was refused. The reason is on the record.')).toBeInTheDocument()
 })
 
 it('records an exit from the inside list', async () => {

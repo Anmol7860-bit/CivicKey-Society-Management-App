@@ -15,6 +15,9 @@ import {
   markLeaveSchema,
   recordEntrySchema,
   registerVisitSchema,
+  staffMovementHistorySchema,
+  staffMovementSchema,
+  staffRejectionSchema,
   visitorLookupSchema,
 } from './gate.schemas.js'
 import * as service from './gate.service.js'
@@ -32,6 +35,8 @@ export function createGateRouter() {
   // The scope checks read the loaded permissions, so every route below names the ones it accepts
   const ownFlatOrOffice = [requireAuth, requirePermission('VISIT_VIEW_OWN', 'USER_MANAGE')]
   const ownFlatOrStaffOffice = [requireAuth, requirePermission('VISIT_VIEW_OWN', 'STAFF_MANAGE')]
+  // The office audits staff movement; a guard reads back only the gate they are standing at
+  const movementHistory = [requireAuth, requirePermission('STAFF_MANAGE', 'AUDIT_VIEW', 'PASS_VALIDATE')]
 
   // --- The guard's screens -------------------------------------------------
   router.get('/societies/:societyId/gate-summary', ...atGate, async (req, res) => {
@@ -75,11 +80,25 @@ export function createGateRouter() {
   router.post('/visits/:id/exit', requireAuth, requirePermission('VISIT_EXIT'), async (req, res) => {
     res.json({ data: await service.recordExit(req.ctx!, req.params.id as string) })
   })
-  router.post('/staff/:id/entry', requireAuth, requirePermission('VISIT_ENTRY_RECORD'), validateBody(recordEntrySchema), async (req, res) => {
-    res.status(201).json({ data: await service.recordStaffEntry(req.ctx!, req.params.id as string, req.body.gateId) })
+  // --- Staff movement ------------------------------------------------------
+  router.get('/staff/:id/verification', ...validate, async (req, res) => {
+    res.json({ data: await service.staffVerification(req.ctx!, req.params.id as string) })
   })
-  router.post('/staff/:id/exit', requireAuth, requirePermission('VISIT_EXIT'), async (req, res) => {
-    res.json({ data: await service.recordStaffExit(req.ctx!, req.params.id as string) })
+  router.get('/societies/:societyId/staff-inside', ...atGate, async (req, res) => {
+    res.json({ data: await service.staffInside(req.ctx!, req.params.societyId as string) })
+  })
+  router.get('/societies/:societyId/staff-movements', ...movementHistory, async (req, res) => {
+    const query = parseOrThrow(staffMovementHistorySchema, req.query)
+    res.json({ data: await service.staffMovementHistory(req.ctx!, req.params.societyId as string, query) })
+  })
+  router.post('/staff/:id/movement/entry-rejection', ...validate, validateBody(staffRejectionSchema), async (req, res) => {
+    res.status(201).json({ data: await service.rejectStaffEntry(req.ctx!, req.params.id as string, req.body) })
+  })
+  router.post('/staff/:id/entry', requireAuth, requirePermission('VISIT_ENTRY_RECORD'), validateBody(staffMovementSchema), async (req, res) => {
+    res.status(201).json({ data: await service.recordStaffEntry(req.ctx!, req.params.id as string, req.body) })
+  })
+  router.post('/staff/:id/exit', requireAuth, requirePermission('VISIT_EXIT'), validateBody(staffMovementSchema), async (req, res) => {
+    res.json({ data: await service.recordStaffExit(req.ctx!, req.params.id as string, req.body) })
   })
 
   // --- The resident's screens ----------------------------------------------

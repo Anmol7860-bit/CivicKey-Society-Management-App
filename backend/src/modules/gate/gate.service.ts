@@ -9,6 +9,7 @@ import {
   gates,
   staff,
   staffAttendance,
+  staffEntryRejections,
   staffFlats,
   staffLeave,
   users,
@@ -19,11 +20,43 @@ import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assertFlatAccess, assertSameSociety, assertState, deny, permissionDenied, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
-import type { CreatePassBody, DecideVisitBody, ListVisitsQuery, RegisterVisitBody } from './gate.schemas.js'
+import type {
+  CreatePassBody,
+  DecideVisitBody,
+  ListVisitsQuery,
+  RegisterVisitBody,
+  StaffMovementBody,
+  StaffMovementHistoryQuery,
+  StaffRejectionBody,
+} from './gate.schemas.js'
 
 const WAITING = 'WAITING'
 const APPROVED = 'APPROVED'
 const INSIDE = 'INSIDE'
+
+/** YYYY-MM-DD as the society reads it; toISOString would shift the date behind UTC. */
+const isoDay = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+/** Midnight to midnight for the day asked for, in the server's zone, which is the society's. */
+function dayWindow(on?: string) {
+  const from = on ? new Date(`${on}T00:00:00`) : new Date()
+  from.setHours(0, 0, 0, 0)
+  const to = new Date(from)
+  to.setDate(to.getDate() + 1)
+  return { from, to }
+}
+
+/** Maps a unique violation, including one lost to a concurrent insert, to 409. */
+async function unique<T>(write: PromiseLike<T>, message: string) {
+  try {
+    return await write
+  } catch (error) {
+    const pgError = error as { code?: string; cause?: { code?: string } }
+    if ((pgError.code ?? pgError.cause?.code) === '23505') throw new AppError(409, 'ALREADY_EXISTS', message)
+    throw error
+  }
+}
 
 function audit(executor: DbExecutor, ctx: AuthContext, eventType: AuditEventType, metadata: Record<string, unknown>) {
   return recordAuditEvent(executor, { eventType, actorUserId: ctx.userId, metadata })
@@ -443,30 +476,242 @@ async function loadStaff(ctx: AuthContext, id: string) {
   return requireRecord(ctx, row, 'Staff member')
 }
 
-export async function recordStaffEntry(ctx: AuthContext, id: string, gateId?: string) {
-  const member = await loadStaff(ctx, id)
-  assertState(member.status === 'ACTIVE', 'This staff member is not active')
-  const open = await openAttendance([id])
-  assertState(open.length === 0, 'This staff member is already inside')
+/** The gate the movement happened at must be one of this society's, and still in use. */
+async function assertGate(ctx: AuthContext, gateId?: string) {
+  if (!gateId) return
+  const [gate] = UUID.test(gateId) ? await db.select({ societyId: gates.societyId, status: gates.status }).from(gates).where(eq(gates.id, gateId)) : []
+  await requireRecord(ctx, gate, 'Gate')
+  assertState(gate!.status === 'ACTIVE', 'This gate is not in use')
+}
 
-  const [row] = await db.insert(staffAttendance).values({ staffId: id, gateId: gateId ?? null, entryBy: ctx.userId }).returning()
-  await audit(db, ctx, 'STAFF_ENTRY_RECORDED', { staffId: id, name: member.name })
+/** The movement a request id already produced, so a retry of the same tap is answered, not repeated. */
+async function movementFor(staffId: string, key: string | undefined, column: AnyColumn) {
+  if (!key) return undefined
+  const [row] = await db.select().from(staffAttendance).where(and(eq(staffAttendance.staffId, staffId), eq(column, key)))
+  return row
+}
+
+/**
+ * Records the staff member in. The open-row index does the deciding, so two guards scanning at the
+ * same moment produce one entry and one "already inside" rather than two rows.
+ */
+export async function recordStaffEntry(ctx: AuthContext, id: string, body: StaffMovementBody = {}) {
+  const member = await loadStaff(ctx, id)
+  await assertGate(ctx, body.gateId)
+
+  const already = await movementFor(id, body.idempotencyKey, staffAttendance.entryKey)
+  if (already) return already
+
+  assertState(member.status === 'ACTIVE', 'This staff member is not active')
+  const [row] = await unique(
+    db
+      .insert(staffAttendance)
+      .values({ staffId: id, gateId: body.gateId ?? null, entryBy: ctx.userId, entryKey: body.idempotencyKey ?? null })
+      .returning(),
+    'This staff member is already inside',
+  )
+  await audit(db, ctx, 'STAFF_ENTRY_RECORDED', { staffId: id, name: member.name, gateId: body.gateId ?? null })
   return row!
 }
 
-export async function recordStaffExit(ctx: AuthContext, id: string) {
+export async function recordStaffExit(ctx: AuthContext, id: string, body: StaffMovementBody = {}) {
   const member = await loadStaff(ctx, id)
-  const [open] = await openAttendance([id])
-  assertState(Boolean(open), 'This staff member is not inside')
+  await assertGate(ctx, body.gateId)
 
+  const already = await movementFor(id, body.idempotencyKey, staffAttendance.exitKey)
+  if (already) return already
+
+  // The condition is part of the update, so the row only closes once however many requests arrive
   const [row] = await db
     .update(staffAttendance)
-    .set({ exitedAt: new Date(), exitBy: ctx.userId })
-    .where(and(eq(staffAttendance.id, open!.id), isNull(staffAttendance.exitedAt)))
+    .set({ exitedAt: new Date(), exitBy: ctx.userId, exitKey: body.idempotencyKey ?? null, ...(body.gateId ? { gateId: body.gateId } : {}) })
+    .where(and(eq(staffAttendance.staffId, id), isNull(staffAttendance.exitedAt)))
     .returning()
   assertState(Boolean(row), 'This staff member is not inside')
-  await audit(db, ctx, 'STAFF_EXIT_RECORDED', { staffId: id, name: member.name })
+  await audit(db, ctx, 'STAFF_EXIT_RECORDED', { staffId: id, name: member.name, gateId: body.gateId ?? null })
   return row!
+}
+
+/**
+ * The guard refused the entry. No attendance row is created, so the refusal and its reason are
+ * kept in their own record and read back beside the entries and exits.
+ */
+export async function rejectStaffEntry(ctx: AuthContext, id: string, body: StaffRejectionBody) {
+  const member = await loadStaff(ctx, id)
+  await assertGate(ctx, body.gateId)
+
+  if (body.idempotencyKey) {
+    const [already] = await db
+      .select()
+      .from(staffEntryRejections)
+      .where(and(eq(staffEntryRejections.staffId, id), eq(staffEntryRejections.idempotencyKey, body.idempotencyKey)))
+    if (already) return already
+  }
+
+  const [row] = await unique(
+    db
+      .insert(staffEntryRejections)
+      .values({
+        staffId: id,
+        gateId: body.gateId ?? null,
+        reason: body.reason,
+        note: body.note ?? null,
+        rejectedBy: ctx.userId,
+        idempotencyKey: body.idempotencyKey ?? null,
+      })
+      .returning(),
+    'This refusal was already recorded',
+  )
+  await audit(db, ctx, 'STAFF_ENTRY_REJECTED', { staffId: id, name: member.name, reason: body.reason, gateId: body.gateId ?? null })
+  return row!
+}
+
+/**
+ * What the guard is shown before recording anything: who this is, whether the profile still allows
+ * entry, and whether they are already inside. The identity hash and home address never leave.
+ */
+export async function staffVerification(ctx: AuthContext, id: string) {
+  const member = await loadStaff(ctx, id)
+  const [served, open] = await Promise.all([flatsServedBy([id]), openAttendance([id])])
+  const passExpired = member.passValidUntil !== null && member.passValidUntil < isoDay(new Date())
+  const inside = open.length > 0
+  return {
+    staffId: member.id,
+    name: member.name,
+    phone: member.phone,
+    staffType: member.workType ?? member.kind,
+    kind: member.kind,
+    photoReference: member.photoReference,
+    policeVerification: member.policeVerification,
+    active: member.status === 'ACTIVE',
+    passCode: member.passCode,
+    passValidUntil: member.passValidUntil,
+    currentlyInside: inside,
+    movementState: inside ? ('INSIDE' as const) : ('NOT_INSIDE' as const),
+    enteredAt: open[0]?.enteredAt ?? null,
+    flatsServed: served.filter((flat) => flat.staffId === id).map((flat) => ({ ...flat, label: `${flat.blockName}-${flat.number}` })),
+    /** Why entry cannot be recorded, or null when it can */
+    blockedReason: member.status !== 'ACTIVE' ? 'STAFF_INACTIVE' : passExpired ? 'INVALID_PASS' : inside ? 'ALREADY_INSIDE' : null,
+  }
+}
+
+/** Staff inside right now, without the visitors the gate screen mixes them with. */
+export async function staffInside(ctx: AuthContext, societyId: string) {
+  await assertSameSociety(ctx, societyId)
+  const rows = await db
+    .select({ attendance: staffAttendance, staff, gateName: gates.name })
+    .from(staffAttendance)
+    .innerJoin(staff, eq(staff.id, staffAttendance.staffId))
+    .leftJoin(gates, eq(gates.id, staffAttendance.gateId))
+    .where(and(eq(staff.societyId, societyId), isNull(staffAttendance.exitedAt)))
+    .orderBy(desc(staffAttendance.enteredAt))
+  const served = await flatsServedBy(rows.map((row) => row.staff.id))
+  return rows.map((row) => ({
+    staffId: row.staff.id,
+    name: row.staff.name,
+    staffType: row.staff.workType ?? row.staff.kind,
+    kind: row.staff.kind,
+    enteredAt: row.attendance.enteredAt,
+    gateName: row.gateName,
+    flats: served.filter((flat) => flat.staffId === row.staff.id).map((flat) => `${flat.blockName}-${flat.number}`),
+  }))
+}
+
+export interface StaffMovement {
+  id: string
+  staffId: string
+  name: string
+  staffType: string
+  kind: string
+  eventType: 'ENTRY' | 'EXIT' | 'ENTRY_REJECTED'
+  verificationStatus: 'VERIFIED' | 'REJECTED'
+  at: Date
+  gateName: string | null
+  performedBy: string | null
+  rejectionReason: string | null
+  rejectionNote: string | null
+}
+
+/**
+ * Entries, exits and refusals as one list, newest first. An attendance row is two events, which is
+ * why the page is cut after the rows are merged rather than in the query.
+ */
+export async function staffMovementHistory(ctx: AuthContext, societyId: string, query: StaffMovementHistoryQuery) {
+  await assertSameSociety(ctx, societyId)
+  const limit = query.limit ?? 50
+  const offset = query.offset ?? 0
+  const from = query.dateFrom ? new Date(`${query.dateFrom}T00:00:00`) : undefined
+  const to = query.dateTo ? dayWindow(query.dateTo).to : undefined
+
+  const staffFilters = [eq(staff.societyId, societyId)]
+  if (query.staffId) staffFilters.push(eq(staff.id, query.staffId))
+  if (query.staffType) staffFilters.push(or(ilike(staff.workType, query.staffType), eq(sql`${staff.kind}::text`, query.staffType))!)
+
+  const wantsVerified = query.verificationStatus !== 'REJECTED'
+  const wantsRejected = query.verificationStatus !== 'VERIFIED' && query.eventType !== 'ENTRY' && query.eventType !== 'EXIT'
+
+  const [sessions, rejections] = await Promise.all([
+    wantsVerified
+      ? db
+          .select({ attendance: staffAttendance, staff, gateName: gates.name, entryByName: users.name })
+          .from(staffAttendance)
+          .innerJoin(staff, eq(staff.id, staffAttendance.staffId))
+          .leftJoin(gates, eq(gates.id, staffAttendance.gateId))
+          .leftJoin(users, eq(users.id, staffAttendance.entryBy))
+          .where(and(...staffFilters, ...(query.gateId ? [eq(staffAttendance.gateId, query.gateId)] : [])))
+          .orderBy(desc(staffAttendance.enteredAt))
+          .limit(limit + offset + 1)
+      : [],
+    wantsRejected
+      ? db
+          .select({ rejection: staffEntryRejections, staff, gateName: gates.name, byName: users.name })
+          .from(staffEntryRejections)
+          .innerJoin(staff, eq(staff.id, staffEntryRejections.staffId))
+          .leftJoin(gates, eq(gates.id, staffEntryRejections.gateId))
+          .leftJoin(users, eq(users.id, staffEntryRejections.rejectedBy))
+          .where(and(...staffFilters, ...(query.gateId ? [eq(staffEntryRejections.gateId, query.gateId)] : [])))
+          .orderBy(desc(staffEntryRejections.rejectedAt))
+          .limit(limit + offset + 1)
+      : [],
+  ])
+
+  const events: StaffMovement[] = []
+  for (const row of sessions) {
+    const common = {
+      id: row.attendance.id,
+      staffId: row.staff.id,
+      name: row.staff.name,
+      staffType: row.staff.workType ?? row.staff.kind,
+      kind: row.staff.kind,
+      verificationStatus: 'VERIFIED' as const,
+      gateName: row.gateName,
+      performedBy: row.entryByName,
+      rejectionReason: null,
+      rejectionNote: null,
+    }
+    if (query.eventType !== 'EXIT') events.push({ ...common, eventType: 'ENTRY', at: row.attendance.enteredAt })
+    if (row.attendance.exitedAt && query.eventType !== 'ENTRY') events.push({ ...common, eventType: 'EXIT', at: row.attendance.exitedAt })
+  }
+  for (const row of rejections) {
+    events.push({
+      id: row.rejection.id,
+      staffId: row.staff.id,
+      name: row.staff.name,
+      staffType: row.staff.workType ?? row.staff.kind,
+      kind: row.staff.kind,
+      eventType: 'ENTRY_REJECTED',
+      verificationStatus: 'REJECTED',
+      at: row.rejection.rejectedAt,
+      gateName: row.gateName,
+      performedBy: row.byName,
+      rejectionReason: row.rejection.reason,
+      rejectionNote: row.rejection.note,
+    })
+  }
+
+  const inRange = events.filter((event) => (!from || event.at >= from) && (!to || event.at < to))
+  inRange.sort((a, b) => b.at.getTime() - a.at.getTime())
+  return { total: inRange.length, movements: inRange.slice(offset, offset + limit) }
 }
 
 /** The daily help panel in the resident's app: who works here, and where they are today. */
@@ -666,19 +911,6 @@ export async function gateSummary(ctx: AuthContext, societyId: string) {
     today: Number(row?.today ?? 0),
     expected: Number(expected?.passes ?? 0),
   }
-}
-
-/** YYYY-MM-DD as the society reads it; toISOString would shift the date behind UTC. */
-const isoDay = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-
-/** Midnight to midnight for the day asked for, in the server's zone, which is the society's. */
-function dayWindow(on?: string) {
-  const from = on ? new Date(`${on}T00:00:00`) : new Date()
-  from.setHours(0, 0, 0, 0)
-  const to = new Date(from)
-  to.setDate(to.getDate() + 1)
-  return { from, to }
 }
 
 export interface Movement {

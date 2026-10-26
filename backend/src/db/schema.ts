@@ -768,10 +768,60 @@ export const staffAttendance = pgTable(
     entryBy: uuid('entry_by').references(() => users.id),
     exitedAt: timestamp('exited_at', { withTimezone: true }),
     exitBy: uuid('exit_by').references(() => users.id),
+    /** The guard's request id for the entry; a retry of the same tap finds this row instead of adding one */
+    entryKey: varchar('entry_key', { length: 150 }),
+    /** The same, for the exit */
+    exitKey: varchar('exit_key', { length: 150 }),
   },
   (table) => [
     index('staff_attendance_staff_id_entered_at_idx').on(table.staffId, table.enteredAt),
+    index('staff_attendance_entered_at_idx').on(table.enteredAt),
+    // Two guards scanning the same person at once: the database decides, not the screen
+    uniqueIndex('staff_attendance_one_open_per_staff').on(table.staffId).where(sql`${table.exitedAt} is null`),
+    uniqueIndex('staff_attendance_entry_key_unique').on(table.staffId, table.entryKey),
+    uniqueIndex('staff_attendance_exit_key_unique').on(table.staffId, table.exitKey),
     check('staff_attendance_exit_after_entry', sql`${table.exitedAt} is null or ${table.exitedAt} >= ${table.enteredAt}`),
+  ],
+)
+
+export const staffRejectionReason = pgEnum('staff_rejection_reason', [
+  'STAFF_INACTIVE',
+  'NOT_REGISTERED',
+  'WRONG_SOCIETY',
+  'VERIFICATION_FAILED',
+  'INVALID_PASS',
+  'ALREADY_INSIDE',
+  'SECURITY_CONCERN',
+  'OTHER',
+])
+
+/**
+ * An entry the guard refused at the gate. A refusal creates no attendance row, so it is kept here
+ * and read back beside the entries and exits as the third kind of movement event.
+ */
+export const staffEntryRejections = pgTable(
+  'staff_entry_rejections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    staffId: uuid('staff_id')
+      .notNull()
+      .references(() => staff.id),
+    gateId: uuid('gate_id').references(() => gates.id),
+    reason: staffRejectionReason('reason').notNull(),
+    /** Required when the reason is OTHER, so "Other" never stands on its own in an audit */
+    note: varchar('note', { length: 200 }),
+    rejectedBy: uuid('rejected_by').references(() => users.id),
+    rejectedAt: timestamp('rejected_at', { withTimezone: true }).notNull().defaultNow(),
+    idempotencyKey: varchar('idempotency_key', { length: 150 }),
+  },
+  (table) => [
+    index('staff_entry_rejections_staff_id_rejected_at_idx').on(table.staffId, table.rejectedAt),
+    index('staff_entry_rejections_rejected_at_idx').on(table.rejectedAt),
+    uniqueIndex('staff_entry_rejections_key_unique').on(table.staffId, table.idempotencyKey),
+    check(
+      'staff_entry_rejections_other_needs_note',
+      sql`${table.reason} <> 'OTHER' or (${table.note} is not null and btrim(${table.note}) <> '')`,
+    ),
   ],
 )
 

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
+import { Select } from '../../components/ui/Select'
 import { EmptyState, ErrorState, Skeleton, SuccessNote } from '../../components/ui/States'
 import { TextField } from '../../components/ui/TextField'
 import type { AuthUser } from '../auth/api'
@@ -10,6 +11,7 @@ import { Panel, RowButton, useAction } from '../society/parts'
 import { useResource } from '../society/useResource'
 import {
   checkStaffPass,
+  rejectStaffEntry,
   listInside,
   listVisits,
   recordEntry,
@@ -20,6 +22,7 @@ import {
   validatePass,
   type PassCheck,
   type StaffCheck,
+  type StaffRejectionReason,
   type Visit,
 } from './api'
 
@@ -67,10 +70,38 @@ function PassResult({ check, onAllow, pending }: { check: PassCheck; onAllow: ()
   )
 }
 
+const REJECTION_REASONS: StaffRejectionReason[] = [
+  'VERIFICATION_FAILED',
+  'STAFF_INACTIVE',
+  'INVALID_PASS',
+  'NOT_REGISTERED',
+  'WRONG_SOCIETY',
+  'ALREADY_INSIDE',
+  'SECURITY_CONCERN',
+  'OTHER',
+]
+
 /** The staff card: photo on file, what they do, the flats they serve, and the pass's validity. */
-function StaffResult({ check, onEntry, onExit, pending }: { check: StaffCheck; onEntry: () => void; onExit: () => void; pending: boolean }) {
+function StaffResult({
+  check,
+  onEntry,
+  onExit,
+  onReject,
+  pending,
+}: {
+  check: StaffCheck
+  onEntry: () => void
+  onExit: () => void
+  onReject: (reason: StaffRejectionReason, note?: string) => void
+  pending: boolean
+}) {
   const { t } = useTranslation()
+  const [rejecting, setRejecting] = useState(false)
+  const [reason, setReason] = useState<StaffRejectionReason>('VERIFICATION_FAILED')
+  const [note, setNote] = useState('')
   if (!check.staff) return <ErrorState message={check.reason ?? t('area.guard.gate.staffUnknown')} />
+  // The server refuses OTHER without a description, so the button waits for one
+  const canReject = reason !== 'OTHER' || note.trim().length > 2
 
   return (
     <div className={`flex flex-col gap-3 rounded-xl border p-4 ${check.valid ? 'border-line bg-white' : 'border-red-300 bg-red-50'}`}>
@@ -93,7 +124,7 @@ function StaffResult({ check, onEntry, onExit, pending }: { check: StaffCheck; o
         </dd>
       </dl>
       {check.valid && (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <div className="w-[160px]">
             <Button type="button" disabled={pending || check.staff.inside} onClick={onEntry}>
               {t('area.guard.gate.recordEntry')}
@@ -102,9 +133,56 @@ function StaffResult({ check, onEntry, onExit, pending }: { check: StaffCheck; o
           <RowButton disabled={pending || !check.staff.inside} onClick={onExit}>
             {t('area.guard.gate.recordExit')}
           </RowButton>
+          {!check.staff.inside && (
+            <RowButton tone="danger" disabled={pending} onClick={() => setRejecting(!rejecting)}>
+              {t('area.guard.gate.reject')}
+            </RowButton>
+          )}
         </div>
       )}
       {check.staff.inside && <p className="text-[12px] text-muted">{t('area.guard.gate.insideSince', { at: time(check.staff.enteredAt) })}</p>}
+
+      {rejecting && (
+        <div className="flex flex-col gap-3 rounded-xl border border-line bg-canvas p-3">
+          <p className="m-0 text-[13px] font-semibold text-ink">{t('area.guard.gate.rejectTitle')}</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[200px] flex-1">
+              <Select
+                id="staff-reject-reason"
+                label={t('area.guard.gate.rejectReason')}
+                options={REJECTION_REASONS.map((value) => ({ value, label: t(`area.guard.gate.rejectReasons.${value}`) }))}
+                value={reason}
+                onChange={(event) => setReason(event.target.value as StaffRejectionReason)}
+              />
+            </div>
+            {reason === 'OTHER' && (
+              <div className="min-w-[200px] flex-1">
+                <TextField
+                  id="staff-reject-note"
+                  label={t('area.guard.gate.rejectNote')}
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  maxLength={200}
+                  required
+                />
+              </div>
+            )}
+            <div className="h-[46px] flex items-center">
+              <RowButton
+                tone="danger"
+                disabled={pending || !canReject}
+                onClick={() => {
+                  onReject(reason, note.trim() || undefined)
+                  setRejecting(false)
+                  setNote('')
+                }}
+              >
+                {t('area.guard.gate.rejectConfirm')}
+              </RowButton>
+            </div>
+          </div>
+        </div>
+      )}
       <p className="text-[12px] text-muted">{t('area.guard.gate.comparePhoto')}</p>
     </div>
   )
@@ -119,6 +197,9 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
   const [checkedPass, setCheckedPass] = useState<PassCheck | null>(null)
   const [checkedStaff, setCheckedStaff] = useState<StaffCheck | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  // One request id per tap. A retry after a lost response reuses it, so the server answers with
+  // the movement it already recorded instead of adding a second one.
+  const [tap, setTap] = useState(() => crypto.randomUUID())
   const passAction = useAction()
   const staffAction = useAction()
   const entryAction = useAction()
@@ -168,10 +249,13 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
   }
 
   async function markExit(row: { id: string; kind: 'VISITOR' | 'STAFF'; name: string }) {
-    const ok = await entryAction.run(() => (row.kind === 'VISITOR' ? recordExit(accessToken, row.id) : recordStaffExit(accessToken, row.id)))
+    const ok = await entryAction.run(() =>
+      row.kind === 'VISITOR' ? recordExit(accessToken, row.id) : recordStaffExit(accessToken, row.id, { idempotencyKey: tap }),
+    )
     if (ok) {
       setDone(t('area.guard.gate.exitRecorded', { name: row.name }))
       setCheckedStaff(null)
+      setTap(crypto.randomUUID())
       reload()
     }
   }
@@ -243,14 +327,27 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
               pending={entryAction.pending}
               onEntry={async () => {
                 if (!checkedStaff.staff) return
-                const ok = await entryAction.run(() => recordStaffEntry(accessToken, checkedStaff.staff!.id))
+                const ok = await entryAction.run(() => recordStaffEntry(accessToken, checkedStaff.staff!.id, { idempotencyKey: tap }))
                 if (ok) {
                   setDone(t('area.guard.gate.letIn', { name: checkedStaff.staff.name }))
                   setCheckedStaff({ ...checkedStaff, staff: { ...checkedStaff.staff, inside: true, enteredAt: new Date().toISOString() } })
+                  setTap(crypto.randomUUID())
                   reload()
                 }
               }}
               onExit={() => checkedStaff.staff && markExit({ id: checkedStaff.staff.id, kind: 'STAFF', name: checkedStaff.staff.name })}
+              onReject={async (reason, note) => {
+                if (!checkedStaff.staff) return
+                const ok = await entryAction.run(() =>
+                  rejectStaffEntry(accessToken, checkedStaff.staff!.id, { reason, idempotencyKey: tap, ...(note ? { note } : {}) }),
+                )
+                if (ok) {
+                  setDone(t('area.guard.gate.rejected', { name: checkedStaff.staff.name }))
+                  setCheckedStaff(null)
+                  setPassCode('')
+                  setTap(crypto.randomUUID())
+                }
+              }}
             />
           )}
         </Panel>

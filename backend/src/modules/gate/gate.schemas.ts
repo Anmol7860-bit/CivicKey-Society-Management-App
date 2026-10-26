@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { vehicleType, visitPurpose, visitorPassType } from '../../db/schema.js'
+import { staffRejectionReason, vehicleType, visitPurpose, visitorPassType } from '../../db/schema.js'
 
 const name = z.string().trim().min(2, 'Give the name').max(120)
 const phone = z
@@ -90,6 +90,43 @@ export const listVisitsSchema = z.strictObject({
   search: z.string().trim().min(1).max(60).optional(),
 })
 
+/**
+ * A request id for one tap of Entry, Exit or Reject. The guard's screen sends the same one on a
+ * retry, so a lost response cannot become a second movement.
+ */
+const idempotencyKey = z.string().trim().min(8, 'A request id is at least 8 characters').max(150)
+
+export const staffMovementSchema = z.strictObject({
+  gateId: uuid.optional(),
+  idempotencyKey: idempotencyKey.optional(),
+})
+
+export const staffRejectionSchema = z
+  .strictObject({
+    gateId: uuid.optional(),
+    reason: z.enum(staffRejectionReason.enumValues),
+    /** Required for OTHER, so a refusal is never unexplained */
+    note: z.string().trim().min(3, 'Say what happened').max(200).optional(),
+    idempotencyKey: idempotencyKey.optional(),
+  })
+  .refine((body) => body.reason !== 'OTHER' || body.note !== undefined, {
+    message: 'Describe the reason',
+    path: ['note'],
+  })
+
+export const staffMovementHistorySchema = z.strictObject({
+  staffId: uuid.optional(),
+  /** The work type as written on the profile, or the staff kind */
+  staffType: z.string().trim().min(2).max(60).optional(),
+  gateId: uuid.optional(),
+  dateFrom: isoDate.optional(),
+  dateTo: isoDate.optional(),
+  eventType: z.enum(['ENTRY', 'EXIT', 'ENTRY_REJECTED']).optional(),
+  verificationStatus: z.enum(['VERIFIED', 'REJECTED']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+})
+
 /** One day of the gate log; defaults to today, which is the shift the guard is standing in */
 export const gateLogSchema = z.strictObject({ on: isoDate.optional() })
 
@@ -126,6 +163,9 @@ export type RegisterVisitBody = z.infer<typeof registerVisitSchema>
 export type DecideVisitBody = z.infer<typeof decideVisitSchema>
 export type ListVisitsQuery = z.infer<typeof listVisitsSchema>
 export type GateLogQuery = z.infer<typeof gateLogSchema>
+export type StaffMovementBody = z.infer<typeof staffMovementSchema>
+export type StaffRejectionBody = z.infer<typeof staffRejectionSchema>
+export type StaffMovementHistoryQuery = z.infer<typeof staffMovementHistorySchema>
 export type AddVehicleBody = z.infer<typeof addVehicleSchema>
 export type AccessRequestBody = z.infer<typeof accessRequestSchema>
 export type DecideAccessRequestBody = z.infer<typeof decideAccessRequestSchema>

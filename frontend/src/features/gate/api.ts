@@ -1,5 +1,5 @@
 import { call, type Gender, type IdDocumentType, type Status } from '../society/api'
-import type { Staff } from '../staff/api'
+import type { PoliceVerification, Staff, StaffKind } from '../staff/api'
 
 export type VisitPurpose = 'GUEST' | 'DELIVERY' | 'CAB' | 'SERVICE' | 'OTHER'
 export type VisitStatus = 'WAITING' | 'APPROVED' | 'LEAVE_AT_GATE' | 'DENIED' | 'INSIDE' | 'LEFT'
@@ -146,6 +146,73 @@ export interface DailyHelp extends Omit<Staff, 'flatsServed'> {
   lastSeen: { enteredAt: string; exitedAt: string | null } | null
 }
 
+export type StaffRejectionReason =
+  | 'STAFF_INACTIVE'
+  | 'NOT_REGISTERED'
+  | 'WRONG_SOCIETY'
+  | 'VERIFICATION_FAILED'
+  | 'INVALID_PASS'
+  | 'ALREADY_INSIDE'
+  | 'SECURITY_CONCERN'
+  | 'OTHER'
+
+/** What the gate is told about a staff member before anything is recorded */
+export interface StaffVerification {
+  staffId: string
+  name: string
+  phone: string
+  staffType: string
+  kind: StaffKind
+  photoReference: string | null
+  policeVerification: PoliceVerification
+  active: boolean
+  passCode: string
+  passValidUntil: string | null
+  currentlyInside: boolean
+  movementState: 'INSIDE' | 'NOT_INSIDE'
+  enteredAt: string | null
+  flatsServed: { flatId: string; label: string; timeWindow?: string | null }[]
+  /** Why entry cannot be recorded, or null when it can */
+  blockedReason: StaffRejectionReason | null
+}
+
+export interface StaffInsideRow {
+  staffId: string
+  name: string
+  staffType: string
+  kind: StaffKind
+  enteredAt: string
+  gateName: string | null
+  flats: string[]
+}
+
+export interface StaffMovement {
+  id: string
+  staffId: string
+  name: string
+  staffType: string
+  kind: StaffKind
+  eventType: 'ENTRY' | 'EXIT' | 'ENTRY_REJECTED'
+  verificationStatus: 'VERIFIED' | 'REJECTED'
+  at: string
+  gateName: string | null
+  performedBy: string | null
+  rejectionReason: StaffRejectionReason | null
+  rejectionNote: string | null
+}
+
+export interface StaffMovementFilters {
+  staffId?: string
+  staffType?: string
+  gateId?: string
+  dateFrom?: string
+  dateTo?: string
+  eventType?: 'ENTRY' | 'EXIT' | 'ENTRY_REJECTED'
+  verificationStatus?: 'VERIFIED' | 'REJECTED'
+  limit?: number
+  offset?: number
+}
+
 export interface Movement {
   id: string
   kind: 'VISITOR' | 'STAFF'
@@ -247,9 +314,36 @@ export const checkStaffPass = (token: string, societyId: string, passCode: strin
 export const recordEntry = (token: string, visitId: string, gateId?: string) =>
   call<Visit>(token, 'POST', `/visits/${visitId}/entry`, gateId ? { gateId } : {})
 export const recordExit = (token: string, visitId: string) => call<Visit>(token, 'POST', `/visits/${visitId}/exit`, {})
-export const recordStaffEntry = (token: string, staffId: string, gateId?: string) =>
-  call<{ id: string }>(token, 'POST', `/staff/${staffId}/entry`, gateId ? { gateId } : {})
-export const recordStaffExit = (token: string, staffId: string) => call<{ id: string }>(token, 'POST', `/staff/${staffId}/exit`, {})
+/**
+ * The request id for one tap. The same movement sent twice - a retry after a lost response, or a
+ * double tap - is answered with the movement already recorded rather than a second one.
+ */
+interface StaffMovementBody {
+  gateId?: string
+  idempotencyKey?: string
+}
+export const recordStaffEntry = (token: string, staffId: string, body: StaffMovementBody = {}) =>
+  call<{ id: string; enteredAt: string }>(token, 'POST', `/staff/${staffId}/entry`, body)
+export const recordStaffExit = (token: string, staffId: string, body: StaffMovementBody = {}) =>
+  call<{ id: string; exitedAt: string | null }>(token, 'POST', `/staff/${staffId}/exit`, body)
+export const rejectStaffEntry = (
+  token: string,
+  staffId: string,
+  body: StaffMovementBody & { reason: StaffRejectionReason; note?: string },
+) => call<{ id: string }>(token, 'POST', `/staff/${staffId}/movement/entry-rejection`, body)
+
+export const staffVerification = (token: string, staffId: string) =>
+  call<StaffVerification>(token, 'GET', `/staff/${staffId}/verification`)
+export const listStaffInside = (token: string, societyId: string) =>
+  call<StaffInsideRow[]>(token, 'GET', `/societies/${societyId}/staff-inside`)
+export function listStaffMovements(token: string, societyId: string, filters: StaffMovementFilters = {}) {
+  const query = new URLSearchParams(
+    Object.entries(filters)
+      .filter(([, value]) => value !== undefined && value !== '')
+      .map(([key, value]) => [key, String(value)]),
+  ).toString()
+  return call<{ total: number; movements: StaffMovement[] }>(token, 'GET', `/societies/${societyId}/staff-movements${query ? `?${query}` : ''}`)
+}
 
 // --- The resident's screens -------------------------------------------------
 export const listMyVisits = (token: string) => call<Visit[]>(token, 'GET', '/me/visits')

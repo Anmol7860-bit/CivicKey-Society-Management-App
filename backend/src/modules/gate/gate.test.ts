@@ -2,7 +2,7 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { gates, staff, staffFlats, visitorPasses } from '../../db/schema.js'
+import { gates, societies, staff, staffFlats, visitorPasses } from '../../db/schema.js'
 import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
 import { signAccessToken } from '../auth/tokens.js'
 
@@ -209,8 +209,9 @@ describe('staff at the gate', () => {
     expect((await api.get('/me/daily-help', resident)).body.data[0]).toMatchObject({ name: 'Sunita Devi', inside: true, timeWindow: '7-9 am' })
     expect((await api.get(`/societies/${TEST_SOCIETY_ID}/inside`, guard)).body.data[0]).toMatchObject({ kind: 'STAFF', flat: 'A-101-101' })
 
-    // Entering twice without an exit is refused, so the list cannot show one person twice
-    expect((await api.post(`/staff/${member.id}/entry`, {})).status).toBe(400)
+    // Entering twice without an exit is refused by the one-open-row index, so the list cannot
+    // show one person twice however many guards tap at once
+    expect((await api.post(`/staff/${member.id}/entry`, {})).status).toBe(409)
     await api.post(`/staff/${member.id}/exit`, {})
     expect((await api.get('/me/daily-help', resident)).body.data[0].inside).toBe(false)
     expect((await api.post(`/staff/${member.id}/exit`, {})).status).toBe(400)
@@ -273,6 +274,206 @@ describe('vehicles and requests to the office', () => {
     expect((await api.post(`/access-requests/${asked.body.data.id}/decision`, { status: 'REJECTED' }, admin)).status).toBe(400)
     // A resident may never decide their own request
     expect((await api.get(`/societies/${TEST_SOCIETY_ID}/access-requests`, resident)).status).toBe(403)
+  })
+})
+
+describe('staff movement and verification', () => {
+  async function seedStaff(overrides: Record<string, unknown> = {}) {
+    const [member] = await db
+      .insert(staff)
+      .values({
+        societyId: TEST_SOCIETY_ID,
+        kind: 'DAILY_HELP',
+        name: 'Ahmed Khan',
+        phone: '9876543230',
+        passCode: 'CK-MOVE01',
+        workType: 'Housekeeping',
+        ...overrides,
+      })
+      .returning()
+    await db.insert(staffFlats).values({ staffId: member!.id, flatId })
+    return member!
+  }
+
+  // AC1, AC2: the guard is shown who this is and whether entry can be recorded
+  it('returns only what the gate needs to verify a staff member', async () => {
+    const member = await seedStaff()
+    const check = await api.get(`/staff/${member.id}/verification`, guard)
+
+    expect(check.status).toBe(200)
+    expect(check.body.data).toMatchObject({
+      staffId: member.id,
+      name: 'Ahmed Khan',
+      staffType: 'Housekeeping',
+      active: true,
+      currentlyInside: false,
+      movementState: 'NOT_INSIDE',
+      blockedReason: null,
+    })
+    expect(check.body.data.flatsServed[0].label).toBe('A-101-101')
+    // Identity is never served, only whether it is on file
+    expect(check.body.data.idDocumentHash).toBeUndefined()
+    expect((await api.get(`/staff/${crypto.randomUUID()}/verification`, guard)).status).toBe(404)
+  })
+
+  // AC3: an inactive profile cannot produce an entry
+  it('refuses entry for an inactive staff member and says why', async () => {
+    const member = await seedStaff({ status: 'INACTIVE' })
+    expect((await api.get(`/staff/${member.id}/verification`, guard)).body.data).toMatchObject({
+      active: false,
+      blockedReason: 'STAFF_INACTIVE',
+    })
+
+    const entry = await api.post(`/staff/${member.id}/entry`, { gateId })
+    expect(entry.status).toBe(400)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-inside`, guard)).body.data).toEqual([])
+  })
+
+  // AC4, AC26: another society's staff member is not reachable at this gate
+  it('keeps staff movement inside the society', async () => {
+    await db.insert(societies).values({ id: OTHER_SOCIETY_ID, name: 'Other Society' })
+    const [outsider] = await db
+      .insert(staff)
+      .values({ societyId: OTHER_SOCIETY_ID, kind: 'DAILY_HELP', name: 'Other Help', phone: '9876543231', passCode: 'CK-OTHER1' })
+      .returning()
+
+    expect((await api.get(`/staff/${outsider!.id}/verification`, guard)).status).toBe(403)
+    expect((await api.post(`/staff/${outsider!.id}/entry`, { gateId })).status).toBe(403)
+    expect((await api.get(`/societies/${OTHER_SOCIETY_ID}/staff-inside`, guard)).status).toBe(403)
+  })
+
+  // AC5, AC7, AC12: one entry, one exit, both timestamped by the server
+  it('records an entry and an exit with the server’s own timestamps', async () => {
+    const member = await seedStaff()
+    const before = Date.now()
+    const entry = await api.post(`/staff/${member.id}/entry`, { gateId })
+
+    expect(entry.status).toBe(201)
+    expect(new Date(entry.body.data.enteredAt).getTime()).toBeGreaterThanOrEqual(before - 1000)
+    expect(entry.body.data.exitedAt).toBeNull()
+    expect((await api.get(`/staff/${member.id}/verification`, guard)).body.data).toMatchObject({
+      currentlyInside: true,
+      movementState: 'INSIDE',
+      blockedReason: 'ALREADY_INSIDE',
+    })
+
+    const insideNow = await api.get(`/societies/${TEST_SOCIETY_ID}/staff-inside`, guard)
+    expect(insideNow.body.data).toHaveLength(1)
+    expect(insideNow.body.data[0]).toMatchObject({ name: 'Ahmed Khan', staffType: 'Housekeeping', gateName: 'Main gate', flats: ['A-101-101'] })
+
+    const exit = await api.post(`/staff/${member.id}/exit`, { gateId })
+    expect(exit.status).toBe(200)
+    expect(exit.body.data.exitedAt).not.toBeNull()
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-inside`, guard)).body.data).toEqual([])
+  })
+
+  // AC8: no exit without a matching entry
+  it('refuses an exit, and a second exit, when the staff member is not inside', async () => {
+    const member = await seedStaff()
+    expect((await api.post(`/staff/${member.id}/exit`, {})).status).toBe(400)
+
+    await api.post(`/staff/${member.id}/entry`, {})
+    expect((await api.post(`/staff/${member.id}/exit`, {})).status).toBe(200)
+    expect((await api.post(`/staff/${member.id}/exit`, {})).status).toBe(400)
+  })
+
+  // AC10: the same tap, retried, is answered rather than repeated
+  it('answers a retried entry or exit with the movement it already recorded', async () => {
+    const member = await seedStaff()
+    const first = await api.post(`/staff/${member.id}/entry`, { gateId, idempotencyKey: 'tap-entry-0001' })
+    const retry = await api.post(`/staff/${member.id}/entry`, { gateId, idempotencyKey: 'tap-entry-0001' })
+
+    expect(retry.status).toBe(201)
+    expect(retry.body.data.id).toBe(first.body.data.id)
+    expect(retry.body.data.enteredAt).toBe(first.body.data.enteredAt)
+
+    const out = await api.post(`/staff/${member.id}/exit`, { idempotencyKey: 'tap-exit-0001' })
+    const outAgain = await api.post(`/staff/${member.id}/exit`, { idempotencyKey: 'tap-exit-0001' })
+    expect(outAgain.status).toBe(200)
+    expect(outAgain.body.data.exitedAt).toBe(out.body.data.exitedAt)
+
+    // A different request id after the exit is a fresh entry, which is a real second visit
+    const second = await api.post(`/staff/${member.id}/entry`, { idempotencyKey: 'tap-entry-0002' })
+    expect(second.body.data.id).not.toBe(first.body.data.id)
+  })
+
+  // AC6, AC11: two guards, one entry
+  it('lets only one of two simultaneous entries through', async () => {
+    const member = await seedStaff()
+    const otherGuardUser = await createUser({ phone: '9000000009', email: null, role: 'GUARD' })
+    const otherGuard = await tokenFor(otherGuardUser)
+
+    const results = await Promise.all([
+      api.post(`/staff/${member.id}/entry`, { gateId }),
+      api.post(`/staff/${member.id}/entry`, { gateId }, otherGuard),
+    ])
+    expect(results.filter((result) => result.status === 201)).toHaveLength(1)
+    expect(results.filter((result) => result.status === 409)).toHaveLength(1)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-inside`, guard)).body.data).toHaveLength(1)
+  })
+
+  // AC9: a refusal is a record of its own, with a reason
+  it('records a refused entry with its reason and creates no entry', async () => {
+    const member = await seedStaff()
+    const rejected = await api.post(`/staff/${member.id}/movement/entry-rejection`, { gateId, reason: 'VERIFICATION_FAILED' })
+
+    expect(rejected.status).toBe(201)
+    expect(rejected.body.data).toMatchObject({ reason: 'VERIFICATION_FAILED', note: null })
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-inside`, guard)).body.data).toEqual([])
+    expect((await api.get(`/staff/${member.id}/verification`, guard)).body.data.currentlyInside).toBe(false)
+
+    // OTHER must say what happened, and a retry of the same tap records one refusal
+    expect((await api.post(`/staff/${member.id}/movement/entry-rejection`, { reason: 'OTHER' })).status).toBe(422)
+    const other = await api.post(`/staff/${member.id}/movement/entry-rejection`, { reason: 'OTHER', note: 'Could not match the photo', idempotencyKey: 'tap-reject-01' })
+    const otherAgain = await api.post(`/staff/${member.id}/movement/entry-rejection`, { reason: 'OTHER', note: 'Could not match the photo', idempotencyKey: 'tap-reject-01' })
+    expect(otherAgain.body.data.id).toBe(other.body.data.id)
+  })
+
+  // AC13, AC23, AC24: history survives deactivation and filters down
+  it('reads back entries, exits and refusals, filtered, and keeps them after deactivation', async () => {
+    const member = await seedStaff()
+    await api.post(`/staff/${member.id}/entry`, { gateId })
+    await api.post(`/staff/${member.id}/exit`, {})
+    await api.post(`/staff/${member.id}/movement/entry-rejection`, { gateId, reason: 'SECURITY_CONCERN' })
+
+    const all = await api.get(`/societies/${TEST_SOCIETY_ID}/staff-movements`, admin)
+    expect(all.status).toBe(200)
+    expect(all.body.data.total).toBe(3)
+    expect(all.body.data.movements.map((row: { eventType: string }) => row.eventType).sort()).toEqual(['ENTRY', 'ENTRY_REJECTED', 'EXIT'])
+    expect(all.body.data.movements.every((row: { performedBy: string | null }) => row.performedBy !== null)).toBe(true)
+
+    const refusals = await api.get(`/societies/${TEST_SOCIETY_ID}/staff-movements?verificationStatus=REJECTED`, admin)
+    expect(refusals.body.data.movements).toHaveLength(1)
+    expect(refusals.body.data.movements[0]).toMatchObject({ eventType: 'ENTRY_REJECTED', rejectionReason: 'SECURITY_CONCERN', staffType: 'Housekeeping' })
+
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-movements?eventType=EXIT`, admin)).body.data.total).toBe(1)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-movements?staffType=Housekeeping`, admin)).body.data.total).toBe(3)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-movements?dateFrom=2020-01-01&dateTo=2020-01-02`, admin)).body.data.total).toBe(0)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-movements?limit=1`, admin)).body.data.movements).toHaveLength(1)
+
+    // The profile goes inactive; what the gate recorded stays
+    await db.update(staff).set({ status: 'INACTIVE' }).where(eq(staff.id, member.id))
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-movements`, admin)).body.data.total).toBe(3)
+  })
+
+  // AC14, AC25: a resident records nothing and reads no one else's movement
+  it('refuses staff movement and its history to a resident', async () => {
+    const member = await seedStaff()
+    expect((await api.post(`/staff/${member.id}/entry`, { gateId }, resident)).status).toBe(403)
+    expect((await api.post(`/staff/${member.id}/movement/entry-rejection`, { reason: 'STAFF_INACTIVE' }, resident)).status).toBe(403)
+    expect((await api.get(`/staff/${member.id}/verification`, resident)).status).toBe(403)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-movements`, resident)).status).toBe(403)
+  })
+
+  // Test case 16: a gate from another society, or one taken out of use, is not a valid place
+  it('refuses a movement at a gate that is not this society’s or not in use', async () => {
+    const member = await seedStaff()
+    expect((await api.post(`/staff/${member.id}/entry`, { gateId: crypto.randomUUID() })).status).toBe(404)
+
+    await db.update(gates).set({ status: 'INACTIVE' }).where(eq(gates.id, gateId))
+    expect((await api.post(`/staff/${member.id}/entry`, { gateId })).status).toBe(400)
+    // Without a gate the entry still records; not every society configures them
+    expect((await api.post(`/staff/${member.id}/entry`, {})).status).toBe(201)
   })
 })
 
