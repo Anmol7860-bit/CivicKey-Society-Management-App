@@ -17,6 +17,7 @@ import { createResidentRouter } from './modules/resident/resident.routes.js'
 import { createSocietyRouter } from './modules/society/society.routes.js'
 import { createTaskRouter } from './modules/task/task.routes.js'
 import { createStaffRouter } from './modules/staff/staff.routes.js'
+import { createSyncRouter } from './modules/sync/sync.routes.js'
 
 const REQUEST_ID_PATTERN = /^[\w-]{1,64}$/
 
@@ -55,6 +56,7 @@ export function createApp({ logger = defaultLogger }: AppOptions = {}) {
   app.use('/api/v1', createGateRouter())
   app.use('/api/v1', createTaskRouter())
   app.use('/api/v1', createAuditRouter())
+  app.use('/api/v1', createSyncRouter())
 
   app.use(notFoundHandler)
   app.use(errorHandler)

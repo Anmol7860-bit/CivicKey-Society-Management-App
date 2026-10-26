@@ -245,7 +245,13 @@ const serializeVisit = (row: VisitRow) => ({
  * The guard's form. With an entry code the visit is approved outright, since the resident
  * approved it when they issued the pass; without one it waits on the resident's answer.
  */
-export async function registerVisit(ctx: AuthContext, societyId: string, body: RegisterVisitBody) {
+export async function registerVisit(
+  ctx: AuthContext,
+  societyId: string,
+  body: RegisterVisitBody,
+  /** Set when the visit is replayed from a guard's offline queue; unique, so a replay cannot duplicate it */
+  clientEventId?: string,
+) {
   await assertSameSociety(ctx, societyId)
   const flat = await loadFlat(db, ctx, body.flatId)
   assertState(flat.societyId === societyId, 'That flat belongs to another society')
@@ -270,6 +276,7 @@ export async function registerVisit(ctx: AuthContext, societyId: string, body: R
       societyId,
       passId,
       status,
+      clientEventId,
       registeredBy: ctx.userId,
       ...(status === APPROVED ? { decidedBy: ctx.userId, decidedAt: new Date(), decisionReason: 'Arrived with a valid pass' } : {}),
     })

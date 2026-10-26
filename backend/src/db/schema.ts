@@ -738,6 +738,8 @@ export const visits = pgTable(
     decidedBy: uuid('decided_by').references(() => users.id),
     decidedAt: timestamp('decided_at', { withTimezone: true }),
     decisionReason: varchar('decision_reason', { length: 200 }),
+    /** The guard device's request id when the visit was registered offline; one visit per id */
+    clientEventId: uuid('client_event_id'),
     enteredAt: timestamp('entered_at', { withTimezone: true }),
     entryBy: uuid('entry_by').references(() => users.id),
     exitedAt: timestamp('exited_at', { withTimezone: true }),
@@ -747,11 +749,52 @@ export const visits = pgTable(
   },
   (table) => [
     index('visits_society_id_status_idx').on(table.societyId, table.status),
+    uniqueIndex('visits_client_event_id_unique').on(table.clientEventId),
     index('visits_flat_id_created_at_idx').on(table.flatId, table.createdAt),
     check('visits_phone_digits', sql`${table.visitorPhone} ~ '^[6-9][0-9]{9}$'`),
     check('visits_people_range', sql`${table.people} between 1 and 50`),
     check('visits_decision_recorded', sql`(${table.decidedAt} is null) or (${table.status} <> 'WAITING')`),
     check('visits_exit_after_entry', sql`${table.exitedAt} is null or (${table.enteredAt} is not null and ${table.exitedAt} >= ${table.enteredAt})`),
+  ],
+)
+
+export const clientEventResult = pgEnum('client_event_result', [
+  /** Claimed by a request that has not finished; reclaimed if it is left behind */
+  'IN_PROGRESS',
+  'APPLIED',
+  'DUPLICATE_IGNORED',
+  'REJECTED',
+  'NEEDS_REVIEW',
+])
+
+/**
+ * One row per request id a guard device has sent. The primary key is the idempotency rule: an
+ * event that has already been processed is answered from here instead of being applied again.
+ *
+ * A transient failure is not recorded. The business change rolled back, so there is nothing to
+ * remember, and the next attempt must be free to run. Only a decided outcome is kept.
+ */
+export const processedClientEvents = pgTable(
+  'processed_client_events',
+  {
+    clientEventId: uuid('client_event_id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    operationType: varchar('operation_type', { length: 40 }).notNull(),
+    resultStatus: clientEventResult('result_status').notNull().default('IN_PROGRESS'),
+    /** The visit the event created or changed, once it is known */
+    entityId: uuid('entity_id'),
+    /** The error code for a refusal, or why a review is needed */
+    resultCode: varchar('result_code', { length: 60 }),
+    /** When the guard's device recorded it, which may be well before it reached the server */
+    clientTs: timestamp('client_ts', { withTimezone: true }),
+    serverTs: timestamp('server_ts', { withTimezone: true }).notNull().defaultNow(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('processed_client_events_user_id_server_ts_idx').on(table.userId, table.serverTs),
+    index('processed_client_events_result_status_idx').on(table.resultStatus),
   ],
 )
 

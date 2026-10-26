@@ -22,6 +22,7 @@ export type ErrorCode =
   | 'DUPLICATE_FLOOR_LABEL'
   | 'DUPLICATE_FLAT_NUMBER'
   | 'RESOURCE_HAS_CHILDREN'
+  | 'SYNC_IN_PROGRESS'
   | 'INTERNAL_ERROR'
 
 interface AppErrorOptions {

@@ -134,6 +134,13 @@
       "when": 1792991668780,
       "tag": "0018_staff_movement",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792996290064,
+      "tag": "0019_offline_sync_events",
+      "breakpoints": true
     }
   ]
 }
