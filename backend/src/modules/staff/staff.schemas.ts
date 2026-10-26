@@ -40,8 +40,8 @@ const common = {
   gender: z.enum(gender.enumValues).optional(),
   homeAddress: z.string().trim().max(500).optional(),
   workingDays: workingDays.optional(),
-  /** Where the photo and masked ID copy are filed, until this deployment stores files itself */
-  photoReference: z.string().trim().min(1).max(200).optional(),
+  /** The stored image this person is identified by, as returned by POST /files */
+  photoReference: z.uuid('A photograph is required'),
   passValidFrom: isoDate.optional(),
   passValidUntil: isoDate.nullable().optional(),
   ...identitySchema,
@@ -79,6 +79,7 @@ export const updateStaffSchema = identityRefinements(
       ...common,
       name: common.name.optional(),
       phone: mobile.optional(),
+      photoReference: common.photoReference.optional(),
       /** Replaces the whole set when given; leave it out to keep the flats as they are */
       flatsServed: flatsServed.optional(),
       status: z.enum(['ACTIVE', 'INACTIVE']).optional(),

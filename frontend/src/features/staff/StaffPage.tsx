@@ -8,6 +8,7 @@ import { Select } from '../../components/ui/Select'
 import { EmptyState, ErrorState, Skeleton, SuccessNote } from '../../components/ui/States'
 import { TextField } from '../../components/ui/TextField'
 import type { AuthUser } from '../auth/api'
+import { PhotoField } from '../file/PhotoField'
 import { getOccupancy, listGates, listSocieties, type Gender, type IdDocumentType } from '../society/api'
 import { FormGrid, Panel, RowButton, Tabs, useAction, useDeactivate } from '../society/parts'
 import { useResource } from '../society/useResource'
@@ -439,14 +440,14 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
                 error={action.fieldError('homeAddress')}
                 maxLength={500}
               />
-              <TextField
+              <PhotoField
                 id="staff-photo"
                 label={t('area.admin.staff.photo')}
+                accessToken={accessToken}
                 value={form.photoReference}
-                onChange={(event) => set('photoReference', event.target.value)}
+                onChange={(reference) => set('photoReference', reference)}
                 error={action.fieldError('photoReference')}
-                hint={t('area.admin.staff.photoHint')}
-                maxLength={200}
+                required
               />
             </FormGrid>
 

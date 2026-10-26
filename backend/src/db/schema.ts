@@ -1266,6 +1266,32 @@ export const communityTasks = pgTable(
   ],
 )
 
+/**
+ * An uploaded image, kept on this server's disk rather than in the database.
+ *
+ * The row is the permission record: the bytes live under a private directory named by `id`, and
+ * the only way to read them is the authenticated endpoint, which checks this row's society. A
+ * photo column elsewhere stores the reference this row hands out, never a path.
+ */
+export const storedFiles = pgTable(
+  'stored_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    uploadedBy: uuid('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
+    contentType: varchar('content_type', { length: 40 }).notNull(),
+    byteSize: integer('byte_size').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('stored_files_society_id_idx').on(table.societyId),
+    check('stored_files_image_type', sql`${table.contentType} in ('image/jpeg', 'image/png', 'image/webp')`),
+    check('stored_files_byte_size', sql`${table.byteSize} > 0 and ${table.byteSize} <= 5242880`),
+  ],
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Role = (typeof userRole.enumValues)[number]
@@ -1281,3 +1307,4 @@ export type VisitorPass = typeof visitorPasses.$inferSelect
 export type FlatVehicle = typeof flatVehicles.$inferSelect
 export type AccessRequest = typeof accessRequests.$inferSelect
 export type CommunityTask = typeof communityTasks.$inferSelect
+export type StoredFile = typeof storedFiles.$inferSelect

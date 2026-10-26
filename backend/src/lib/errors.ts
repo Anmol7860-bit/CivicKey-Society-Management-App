@@ -24,6 +24,8 @@ export type ErrorCode =
   | 'RESOURCE_HAS_CHILDREN'
   | 'GATE_ACCESS_DENIED'
   | 'SYNC_IN_PROGRESS'
+  | 'INVALID_FILE'
+  | 'STORAGE_ERROR'
   | 'INTERNAL_ERROR'
 
 interface AppErrorOptions {

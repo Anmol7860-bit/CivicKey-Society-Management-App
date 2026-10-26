@@ -7,6 +7,7 @@ import type { AuthContext } from '../../middleware/requireAuth.js'
 import { identityOf, withoutHash } from '../access/identity.js'
 import { assertState, deny, permissionDenied, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
+import { requireFile } from '../file/file.service.js'
 import type { CreateStaffBody, ListStaffQuery, UpdateStaffBody } from './staff.schemas.js'
 
 type Kind = (typeof staff.$inferSelect)['kind']
@@ -186,6 +187,8 @@ export function createStaff(ctx: AuthContext, societyId: string, body: CreateSta
     // idNumber never becomes a column: identityOf() turns it into the hash and the last 4
     const { flatsServed, idNumber: _idNumber, ...fields } = body
     if (fields.gateId) await assertGateInSociety(tx, societyId, fields.gateId)
+    // A staff profile is never created pointing at a photo that was not stored
+    await requireFile(societyId, fields.photoReference)
     await assertFlatsInSociety(tx, societyId, flatsServed?.map((entry) => entry.flatId) ?? [])
 
     const [created] = await unique(
@@ -219,6 +222,7 @@ export function updateStaff(ctx: AuthContext, id: string, body: UpdateStaffBody)
     const { reason, flatsServed, idNumber, ...changes } = body
     void idNumber
     if (changes.gateId) await assertGateInSociety(tx, current.societyId, changes.gateId)
+    if (changes.photoReference) await requireFile(current.societyId, changes.photoReference)
     if (flatsServed)
       await assertFlatsInSociety(
         tx,

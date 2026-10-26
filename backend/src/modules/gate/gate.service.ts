@@ -20,6 +20,7 @@ import {
 import { AppError } from '../../lib/errors.js'
 import { enqueueNotification } from '../notification/outbox.service.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
+import { requireFile } from '../file/file.service.js'
 import { assertFlatAccess, assertSameSociety, assertState, deny, permissionDenied, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import type {
@@ -300,6 +301,8 @@ export async function registerVisit(
   const flat = await loadFlat(db, ctx, body.flatId)
   assertState(flat.societyId === societyId, 'That flat belongs to another society')
   assertState(flat.status === 'ACTIVE', 'This flat is not active')
+  // A visitor photo is optional, but a reference that was never stored is not accepted
+  if (body.photoReference) await requireFile(societyId, body.photoReference)
 
   let passId: string | null = null
   let status: typeof AWAITING_APPROVAL | typeof AWAITING_MANUAL | typeof APPROVED | typeof ENTERED = AWAITING_APPROVAL

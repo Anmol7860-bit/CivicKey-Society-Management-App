@@ -61,7 +61,8 @@ export const registerVisitSchema = z.strictObject({
   people: people.default(1),
   vehicleNumber: vehicleNumber.optional(),
   note: note.optional(),
-  photoReference: z.string().trim().max(200).optional(),
+  /** The stored image of the visitor, as returned by POST /files */
+  photoReference: z.uuid().optional(),
   /** Present when the visitor arrived holding a pass, which approves the visit outright */
   entryCode: z
     .string()

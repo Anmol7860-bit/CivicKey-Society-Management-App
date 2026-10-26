@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { gates, societies, staff } from '../../db/schema.js'
-import { createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
+import { createFlat, createPhoto, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
 import { signAccessToken } from '../auth/tokens.js'
 
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
@@ -12,6 +12,7 @@ const app = createApp()
 let auth: string
 let gateId: string
 let flatId: string
+let photoId: string
 
 async function tokenFor(user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) {
   return `Bearer ${await signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID })}`
@@ -31,6 +32,7 @@ const guard = () => ({
   agency: 'SafeGuard',
   gateId,
   shift: 'MORNING' as const,
+  photoReference: photoId,
 })
 const help = () => ({
   kind: 'DAILY_HELP' as const,
@@ -40,6 +42,7 @@ const help = () => ({
   workingDays: ['MON', 'WED', 'TUE'] as const,
   flatsServed: [{ flatId, timeWindow: '7-9 am' }],
   passValidFrom: '2026-01-01',
+  photoReference: photoId,
 })
 
 const register = (body: object) => api.post(`/societies/${TEST_SOCIETY_ID}/staff`, body)
@@ -55,6 +58,7 @@ beforeEach(async () => {
   const [gate] = await db.insert(gates).values({ societyId: TEST_SOCIETY_ID, code: 'MAIN', name: 'Main gate' }).returning()
   gateId = gate!.id
   flatId = (await createFlat()).id
+  photoId = await createPhoto()
 })
 
 describe('authorization', () => {

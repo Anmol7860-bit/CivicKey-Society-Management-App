@@ -10,6 +10,7 @@ import {
   floors,
   permissions,
   societies,
+  storedFiles,
   userPermissions,
   users,
   type NewUser,
@@ -86,6 +87,19 @@ export async function createFlat(societyId = TEST_SOCIETY_ID, number = '101') {
   const [floor] = await db.insert(floors).values({ blockId: block!.id, floorLabel: '1st Floor' }).returning()
   const [flat] = await db.insert(flats).values({ blockId: block!.id, floorId: floor!.id, number }).returning()
   return flat!
+}
+
+/**
+ * A stored photo, as POST /files would have left one, for the records that require a reference.
+ * Only the row matters to validation; tests that care about the bytes upload them properly.
+ */
+export async function createPhoto(societyId = TEST_SOCIETY_ID) {
+  await db.insert(societies).values({ id: societyId, name: 'Society' }).onConflictDoNothing()
+  const [file] = await db
+    .insert(storedFiles)
+    .values({ societyId, contentType: 'image/jpeg', byteSize: 1024 })
+    .returning()
+  return file!.id
 }
 
 export function postLogin(app: App, body: unknown) {

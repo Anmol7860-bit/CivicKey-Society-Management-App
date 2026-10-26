@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 
 const envSchema = z.object({
@@ -36,6 +37,8 @@ const envSchema = z.object({
   JOB_INTERVAL_SECONDS: z.coerce.number().int().min(0).default(15),
   /** Keys the throttle buckets, so the table holds no phone numbers or addresses */
   AUTH_RATE_KEY: z.string().min(16).default('dev-only-auth-rate-key-change-me'),
+  /** Where uploaded photos are written. Private by design: nothing serves this directory. */
+  FILE_STORAGE_DIR: z.string().min(1).default(fileURLToPath(new URL('../../var/uploads', import.meta.url))),
   LOGIN_RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
 })
 

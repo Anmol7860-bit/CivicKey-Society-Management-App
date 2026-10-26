@@ -1,4 +1,3 @@
-import { Camera } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/Button'
@@ -6,6 +5,7 @@ import { Select } from '../../components/ui/Select'
 import { ErrorState, Skeleton, SuccessNote } from '../../components/ui/States'
 import { TextField } from '../../components/ui/TextField'
 import type { AuthUser } from '../auth/api'
+import { PhotoField } from '../file/PhotoField'
 import { FormGrid, Panel, RowButton, useAction } from '../society/parts'
 import { useResource } from '../society/useResource'
 import { flatDirectory, lookupVisitor, registerVisit, validatePass, type VisitPurpose } from './api'
@@ -235,14 +235,12 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
               onChange={(event) => set('note', event.target.value)}
               maxLength={200}
             />
-            <TextField
+            <PhotoField
               id="visit-photo"
               label={t('area.guard.register.photo')}
+              accessToken={accessToken}
               value={form.photoReference}
-              onChange={(event) => set('photoReference', event.target.value)}
-              hint={t('area.guard.register.photoHint')}
-              maxLength={200}
-              leading={<Camera size={15} className="text-muted" aria-hidden />}
+              onChange={(reference) => set('photoReference', reference)}
             />
           </FormGrid>
 

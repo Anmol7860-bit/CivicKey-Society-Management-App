@@ -9,6 +9,7 @@ import { EmptyState, ErrorState, Skeleton, SuccessNote } from '../../components/
 import { TextField } from '../../components/ui/TextField'
 import { listMyFlats } from '../society/api'
 import { FormGrid, Panel, RowButton, useAction } from '../society/parts'
+import { PrivateImage } from '../file/PhotoField'
 import { useResource } from '../society/useResource'
 import {
   cancelPass,
@@ -75,7 +76,12 @@ function WaitingCard({ visit, onDecided, token }: { visit: Visit; onDecided: () 
       <div className="flex flex-wrap gap-4">
         <span className="flex size-[84px] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-line bg-canvas p-2 text-center text-[11px] leading-[15px] text-muted">
           {visit.photoReference ? (
-            <img src={visit.photoReference} alt={visit.visitorName} className="size-full rounded-lg object-cover" />
+            <PrivateImage
+              accessToken={token}
+              reference={visit.photoReference}
+              alt={visit.visitorName}
+              className="size-full rounded-lg object-cover"
+            />
           ) : (
             t('area.resident.visitors.photoHint')
           )}

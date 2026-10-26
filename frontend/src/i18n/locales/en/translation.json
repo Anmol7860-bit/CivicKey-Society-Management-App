@@ -471,8 +471,7 @@
         "people": "Number of people",
         "vehicle": "Vehicle number",
         "note": "Purpose or note",
-        "photo": "Photo reference",
-        "photoHint": "Where the gate photo is filed until this deployment stores files.",
+        "photo": "Visitor photo",
         "send": "Send for resident approval",
         "clear": "Clear",
         "afterSending": "No answer in 2 minutes? Call the intercom, then record your own decision at the gate.",
@@ -1073,8 +1072,7 @@
         "chooseShift": "Choose a shift",
         "noGates": "Add a gate under Society & users first.",
         "homeAddress": "Home address",
-        "photo": "Photo reference",
-        "photoHint": "Where the photo is filed. Uploads are not stored yet.",
+        "photo": "Photograph",
         "flatsServed": "Flats served",
         "flatsServedHint": "The flat’s residents see this person under Daily help and are told when they enter or leave.",
         "flat": "Flat",
@@ -1454,5 +1452,10 @@
       "NEEDS_REVIEW": "Needs review"
     },
     "savedHere": "Saved on this device — waiting to sync."
+  },
+  "photo": {
+    "hint": "JPEG, PNG or WebP, up to 5 MB. The photo is kept privately and shown only inside CivicKey.",
+    "preview": "Photo",
+    "uploading": "Uploading…"
   }
 }
