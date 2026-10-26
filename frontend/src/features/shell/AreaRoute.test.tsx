@@ -59,9 +59,10 @@ describe('role destinations', () => {
   it('gives a Resident their navigation, greeting and actions', () => {
     renderAt('/resident/overview', user('RESIDENT', RESIDENT))
 
-    expect(navLabels()).toEqual(['Overview', 'My flat', 'Visitor approval', 'Visitor passes', 'Daily help', 'Bills & payments', 'Notifications', 'My activity'])
+    expect(navLabels()).toEqual(['Overview', 'My flat', 'Visitor approval', 'Daily help', 'Bills & payments', 'Notifications', 'My activity'])
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Good (morning|afternoon|evening), Maya$/)
-    expect(screen.getAllByRole('link', { name: 'Approve visitor' })[0]).toHaveAttribute('href', '/resident/visitor-approval')
+    // The overview carries no primary action button; Visitor approval is reached from the nav and shortcuts
+    expect(screen.queryByRole('link', { name: 'Approve visitor' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Own activity & history' })).toBeInTheDocument()
     // The resident's own feed fills it; a committee member without VISIT_VIEW_OWN sees the empty note
   })
@@ -69,7 +70,7 @@ describe('role destinations', () => {
   it('gives a Guard gate operations only', () => {
     renderAt('/guard/operations', user('GUARD', GUARD))
 
-    expect(navLabels()).toEqual(['Gate overview', 'Visitor registration', 'Pass validation', 'Gate entry / exit', 'Staff verification', 'Sync status'])
+    expect(navLabels()).toEqual(['Gate overview', 'Visitor registration', 'Pass validation', 'Gate entry / exit', 'Sync status'])
     expect(screen.getByRole('heading', { name: 'Gate operations' })).toBeInTheDocument()
     expect(screen.queryByText(/Bill/)).not.toBeInTheDocument()
   })

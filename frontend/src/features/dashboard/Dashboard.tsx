@@ -22,7 +22,7 @@ export function Dashboard({ user, accessToken }: { user: AuthUser; accessToken: 
   const residentSummary = useResidentSummary(user, accessToken)
   const config = AREAS[user.role]
   const prefix = `area.${config.area}`
-  const primary = allowed(user, config.primaryAction) ? config.primaryAction : null
+  const primary = config.primaryAction && allowed(user, config.primaryAction) ? config.primaryAction : null
   const stats = config.stats.filter((stat) => allowed(user, stat))
   const shortcuts = config.shortcuts.filter((shortcut) => allowed(user, shortcut))
   // Built from the summary calls this page already made, so the panel costs no extra request

@@ -1,6 +1,5 @@
 import {
   ArrowLeftRight,
-  BadgeCheck,
   Bell,
   Building2,
   ChartNoAxesCombined,
@@ -43,7 +42,8 @@ export interface AreaConfig {
   /** The nav destination that renders the dashboard */
   home: string
   nav: Destination[]
-  primaryAction: Destination
+  /** The one button in the overview header; omitted when the role's overview carries none */
+  primaryAction?: Destination
   stats: Gated[]
   shortcuts: Destination[]
 }
@@ -60,13 +60,11 @@ export const AREAS: Record<Role, AreaConfig> = {
       { key: 'overview', path: 'overview', icon: LayoutDashboard },
       { key: 'myFlat', path: 'my-flat', icon: Home, anyOf: ['VISIT_VIEW_OWN'] },
       { key: 'visitorApproval', path: 'visitor-approval', icon: UserCheck, anyOf: ['VISITOR_APPROVE'] },
-      { key: 'visitorPasses', path: 'visitor-passes', icon: QrCode, anyOf: ['VISITOR_PASS_CREATE'] },
       { key: 'dailyHelp', path: 'daily-help', icon: HeartHandshake },
       { key: 'bills', path: 'bills', icon: CreditCard, anyOf: ['BILL_VIEW_OWN', 'BILL_PAY', 'RECEIPT_VIEW_OWN'] },
       { key: 'notifications', path: 'notifications', icon: Bell },
       { key: 'activity', path: 'activity', icon: History, anyOf: ['VISIT_VIEW_OWN'] },
     ],
-    primaryAction: { key: 'approveVisitor', path: 'visitor-approval', icon: UserCheck, anyOf: ['VISITOR_APPROVE'] },
     stats: [
       { key: 'awaiting', icon: UserCheck, anyOf: ['VISITOR_APPROVE'] },
       { key: 'passes', icon: QrCode, anyOf: ['VISITOR_PASS_CREATE'] },
@@ -74,7 +72,6 @@ export const AREAS: Record<Role, AreaConfig> = {
     ],
     shortcuts: [
       { key: 'visitorApproval', path: 'visitor-approval', icon: UserCheck, anyOf: ['VISITOR_APPROVE'] },
-      { key: 'visitorPass', path: 'visitor-passes', icon: QrCode, anyOf: ['VISITOR_PASS_CREATE'] },
       { key: 'bills', path: 'bills', icon: CreditCard, anyOf: ['BILL_VIEW_OWN', 'BILL_PAY'] },
     ],
   },
@@ -86,7 +83,6 @@ export const AREAS: Record<Role, AreaConfig> = {
       { key: 'visitorRegistration', path: 'visitor-registration', icon: UserPlus, anyOf: ['VISIT_REGISTER'] },
       { key: 'passValidation', path: 'pass-validation', icon: ScanLine, anyOf: ['PASS_VALIDATE'] },
       { key: 'gate', path: 'gate', icon: ArrowLeftRight, anyOf: ['VISIT_ENTRY_RECORD', 'VISIT_EXIT', 'VISIT_DECIDE'] },
-      { key: 'staffVerification', path: 'staff-verification', icon: BadgeCheck, anyOf: ['PASS_VALIDATE'] },
       { key: 'sync', path: 'sync', icon: RefreshCw },
     ],
     primaryAction: { key: 'registerVisitor', path: 'visitor-registration', icon: UserPlus, anyOf: ['VISIT_REGISTER'] },
@@ -117,7 +113,6 @@ export const AREAS: Record<Role, AreaConfig> = {
       // staff Admin — who holds none of them — never sees them.
       { key: 'myFlat', path: 'my-flat', icon: Home, anyOf: ['VISIT_VIEW_OWN'] },
       { key: 'visitorApproval', path: 'visitor-approval', icon: UserCheck, anyOf: ['VISITOR_APPROVE'] },
-      { key: 'visitorPasses', path: 'visitor-passes', icon: QrCode, anyOf: ['VISITOR_PASS_CREATE'] },
       { key: 'bills', path: 'bills', icon: CreditCard, anyOf: ['BILL_VIEW_OWN', 'BILL_PAY', 'RECEIPT_VIEW_OWN'] },
       { key: 'activity', path: 'activity', icon: History, anyOf: ['VISIT_VIEW_OWN'] },
     ],

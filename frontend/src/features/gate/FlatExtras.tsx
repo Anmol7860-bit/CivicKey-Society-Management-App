@@ -1,11 +1,12 @@
 import { Car, HeartHandshake } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Badge } from '../../components/ui/Badge'
+import { Badge, type Tone } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
 import { EmptyState, ErrorState, Skeleton, SuccessNote } from '../../components/ui/States'
 import { TextField } from '../../components/ui/TextField'
+import type { PoliceVerification } from '../staff/api'
 import { FormGrid, Panel, RowButton, useAction } from '../society/parts'
 import { useResource } from '../society/useResource'
 import {
@@ -23,10 +24,11 @@ import {
 } from './api'
 
 const VEHICLE_TYPES: VehicleType[] = ['CAR', 'BIKE', 'SCOOTER', 'BICYCLE', 'OTHER']
+const VERIFICATION_TONE: Record<PoliceVerification, Tone> = { NOT_STARTED: 'neutral', SUBMITTED: 'warning', VERIFIED: 'positive', REJECTED: 'danger' }
 const time = (value: string | null) => (value ? new Date(value).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) : '—')
 const day = (value: string) => new Date(value).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
 
-/** Staff who work for this flat: where they are today, and the attendance behind it. */
+/** Staff who work for this flat: who they are, how the office verified them, and where they are today. */
 export function DailyHelpPanel({ accessToken }: { accessToken: string }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState<string | null>(null)
@@ -68,6 +70,22 @@ export function DailyHelpPanel({ accessToken }: { accessToken: string }) {
                   )}
                 </span>
               </div>
+
+              <p className="m-0 flex flex-wrap items-center gap-2 text-[12px] text-muted">
+                <Badge tone={VERIFICATION_TONE[member.policeVerification]}>
+                  {t('area.resident.dailyHelp.police', { status: t(`area.admin.staff.verification.${member.policeVerification}`) })}
+                </Badge>
+                <span>
+                  {member.idDocumentOnFile && member.idDocumentType
+                    ? t('area.admin.staff.idOnFile', {
+                        type: t(`area.admin.society.residents.idType.${member.idDocumentType}`),
+                        last4: member.idDocumentLast4 ?? '',
+                      })
+                    : t('area.resident.dailyHelp.noId')}
+                </span>
+                <span>{member.photoReference ? t('area.resident.dailyHelp.photoOnFile') : t('area.resident.dailyHelp.noPhoto')}</span>
+                <span>{t('area.resident.dailyHelp.pass', { code: member.passCode })}</span>
+              </p>
 
               <div className="flex flex-wrap gap-2">
                 <RowButton onClick={() => showAttendance(member.id)}>
@@ -206,16 +224,20 @@ export function VehiclesPanel({ accessToken, flatId }: { accessToken: string; fl
   )
 }
 
-/** The two things a resident asks the office for: a household account, or a new daily help. */
-export function RequestsPanel({ accessToken, flatId }: { accessToken: string; flatId?: string }) {
+/**
+ * The two things a resident asks the office for: a household account, or a new daily help.
+ * `only` pins the panel to one of them, so each lives on the screen it belongs to.
+ */
+export function RequestsPanel({ accessToken, flatId, only }: { accessToken: string; flatId?: string; only?: AccessRequestKind }) {
   const { t } = useTranslation()
-  const [kind, setKind] = useState<AccessRequestKind>('HOUSEHOLD_MEMBER')
+  const [kind, setKind] = useState<AccessRequestKind>(only ?? 'HOUSEHOLD_MEMBER')
   const [form, setForm] = useState({ name: '', phone: '', relationship: '', accessLevel: 'FULL' as 'FULL' | 'VIEW_ONLY', timings: '' })
   const [sent, setSent] = useState<string | null>(null)
   const action = useAction()
   const requests = useResource(() => listMyAccessRequests(accessToken), [accessToken])
 
   const household = kind === 'HOUSEHOLD_MEMBER'
+  const shown = (requests.data ?? []).filter((request) => !only || request.kind === only).slice(0, 5)
   const ready = form.name.trim().length > 1 && /^[6-9]\d{9}$/.test(form.phone.trim())
 
   async function handleSend(event: FormEvent) {
@@ -240,11 +262,15 @@ export function RequestsPanel({ accessToken, flatId }: { accessToken: string; fl
   }
 
   return (
-    <Panel title={t('area.resident.requests.title')} description={t('area.resident.requests.description')}>
+    <Panel
+      title={only ? t(`area.resident.requests.only.${only}.title`) : t('area.resident.requests.title')}
+      description={only ? t(`area.resident.requests.only.${only}.description`) : t('area.resident.requests.description')}
+    >
       {sent && <SuccessNote message={t('area.resident.requests.sent', { name: sent })} onDismiss={() => setSent(null)} />}
 
-      <div className="flex flex-wrap gap-2">
-        {(['HOUSEHOLD_MEMBER', 'DAILY_HELP'] as const).map((value) => (
+      {!only && (
+        <div className="flex flex-wrap gap-2">
+          {(['HOUSEHOLD_MEMBER', 'DAILY_HELP'] as const).map((value) => (
           <button
             key={value}
             type="button"
@@ -254,10 +280,11 @@ export function RequestsPanel({ accessToken, flatId }: { accessToken: string; fl
               kind === value ? 'bg-brand text-white' : 'border border-line-strong bg-white text-ink-soft'
             }`}
           >
-            {t(`area.resident.requests.kinds.${value}`)}
-          </button>
-        ))}
-      </div>
+              {t(`area.resident.requests.kinds.${value}`)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {flatId ? (
         <form className="flex flex-col gap-3" onSubmit={handleSend} noValidate>
@@ -325,9 +352,9 @@ export function RequestsPanel({ accessToken, flatId }: { accessToken: string; fl
         <p className="text-[13px] text-muted">{t('area.resident.requests.needFullAccess')}</p>
       )}
 
-      {requests.data && requests.data.length > 0 && (
+      {shown.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-line">
-          {requests.data.slice(0, 5).map((request) => (
+          {shown.map((request) => (
             <div key={request.id} className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-2.5 first:border-t-0">
               <span className="text-[13px] font-semibold text-ink">{request.name}</span>
               <span className="text-[12px] text-muted">{t(`area.resident.requests.kinds.${request.kind}`)}</span>

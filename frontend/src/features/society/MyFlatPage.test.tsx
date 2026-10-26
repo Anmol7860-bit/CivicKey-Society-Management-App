@@ -5,7 +5,7 @@ import * as api from './api'
 import { MyFlatPage } from './MyFlatPage'
 
 vi.mock('./api')
-// The page now carries the daily help, vehicles and requests panels from page 7 of the design
+// The page carries the vehicles and household-request panels; daily help has its own screen
 vi.mock('../gate/api')
 const mocked = vi.mocked(api)
 
@@ -41,7 +41,6 @@ const gate = vi.mocked(gateApi)
 beforeEach(() => {
   vi.resetAllMocks()
   // resetAllMocks clears the panels' loaders too, so they are given empty answers each time
-  gate.listMyDailyHelp.mockResolvedValue([])
   gate.listMyVehicles.mockResolvedValue([])
   gate.listMyAccessRequests.mockResolvedValue([])
 })
@@ -55,6 +54,16 @@ it('shows the approved assignment, the flat and the household', async () => {
   expect(screen.getByText('Riya Sharma')).toBeInTheDocument()
   // The last 4 are on file; the number itself never leaves the server
   expect(screen.getByText('Aadhaar ····4321')).toBeInTheDocument()
+})
+
+it('leaves daily help to its own screen', async () => {
+  mocked.listMyFlats.mockResolvedValue([assignment()])
+  render(<MyFlatPage accessToken="token" />)
+
+  await screen.findByRole('heading', { name: 'Block B · 2nd Floor · Flat 204' })
+  expect(gate.listMyDailyHelp).not.toHaveBeenCalled()
+  expect(screen.queryByRole('heading', { name: 'Daily help' })).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Add a family member' })).toBeInTheDocument()
 })
 
 it('says access has ceased once the tenancy has ended, and hides the household', async () => {

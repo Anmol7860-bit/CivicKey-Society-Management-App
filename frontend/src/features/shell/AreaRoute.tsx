@@ -7,6 +7,7 @@ import type { AuthUser } from '../auth/api'
 import { Dashboard } from '../dashboard/Dashboard'
 import { BillingPage } from '../billing/BillingPage'
 import { BillsPage } from '../gate/BillsPage'
+import { DailyHelpPage } from '../gate/DailyHelpPage'
 import { GatePage } from '../gate/GatePage'
 import { VisitorRegistrationPage } from '../gate/VisitorRegistrationPage'
 import { VisitorsPage } from '../gate/VisitorsPage'
@@ -97,14 +98,17 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
       <AddUserPage accessToken={accessToken} />
     ) : item.key === 'society' ? (
       <SocietyPage user={user} accessToken={accessToken} />
-    ) : item.key === 'myFlat' || item.key === 'dailyHelp' ? (
+    ) : item.key === 'myFlat' ? (
       <MyFlatPage accessToken={accessToken} />
+    ) : item.key === 'dailyHelp' ? (
+      <DailyHelpPage accessToken={accessToken} />
     ) : item.key === 'visitorRegistration' ? (
       <VisitorRegistrationPage user={user} accessToken={accessToken} />
-    ) : item.key === 'passValidation' || item.key === 'gate' || item.key === 'staffVerification' ? (
-      // One gate screen: the PDF puts pass validation, staff verification and who is inside together
+    ) : item.key === 'passValidation' || item.key === 'gate' ? (
+      // One gate screen: pass validation, staff verification and who is inside, as the PDF has them.
+      // Staff verification has no nav entry of its own; the guard reaches it from either gate page.
       <GatePage user={user} accessToken={accessToken} />
-    ) : item.key === 'visitorApproval' || item.key === 'visitorPasses' ? (
+    ) : item.key === 'visitorApproval' ? (
       <VisitorsPage accessToken={accessToken} />
     ) : item.key === 'activity' ? (
       <ActivityPage user={user} accessToken={accessToken} />

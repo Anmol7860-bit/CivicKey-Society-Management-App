@@ -2,7 +2,7 @@ import { Home } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Badge } from '../../components/ui/Badge'
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States'
-import { DailyHelpPanel, RequestsPanel, VehiclesPanel } from '../gate/FlatExtras'
+import { RequestsPanel, VehiclesPanel } from '../gate/FlatExtras'
 import { listMyFlats, type MyAssignment } from './api'
 import { Panel } from './parts'
 import { useResource } from './useResource'
@@ -114,9 +114,8 @@ export function MyFlatPage({ accessToken }: { accessToken: string }) {
 
       {mine.data && mine.data.length > 0 && (
         <>
-          <DailyHelpPanel accessToken={accessToken} />
           <VehiclesPanel accessToken={accessToken} flatId={writableFlatId} />
-          <RequestsPanel accessToken={accessToken} flatId={writableFlatId} />
+          <RequestsPanel accessToken={accessToken} flatId={writableFlatId} only="HOUSEHOLD_MEMBER" />
         </>
       )}
     </div>
