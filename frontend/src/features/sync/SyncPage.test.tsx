@@ -42,7 +42,16 @@ it('shows entries waiting to sync and uploads them when the guard presses Sync n
   expect(screen.getByRole('status')).toHaveTextContent('1 entry waiting to sync')
   expect(screen.getByRole('link', { name: /1 entry waiting to sync/ })).toHaveAttribute('href', '/guard/sync')
 
-  fetchMock.mockResolvedValue(new Response('{}', { status: 201 }))
+  // Backend back: it answers the batch with a result for each event the device sent
+  fetchMock.mockImplementation((_url: string, init: { body: string }) => {
+    const results = JSON.parse(init.body).events.map((event: { clientEventId: string }) => ({
+      clientEventId: event.clientEventId,
+      status: 'APPLIED',
+      entityId: null,
+      code: null,
+    }))
+    return Promise.resolve(new Response(JSON.stringify({ data: { batchId: 'b1', results } }), { status: 200 }))
+  })
   await userEvent.click(screen.getByRole('button', { name: 'Sync now' }))
 
   expect(await within(table).findByText('Synced')).toBeInTheDocument()

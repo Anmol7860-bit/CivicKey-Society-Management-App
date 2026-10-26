@@ -52,7 +52,7 @@ beforeEach(async () => {
   })
   await grantPermissions(admin.id, ['GUARD_MANAGE', 'STAFF_MANAGE', 'SOCIETY_MANAGE'])
   auth = await tokenFor(admin)
-  const [gate] = await db.insert(gates).values({ societyId: TEST_SOCIETY_ID, name: 'Main gate' }).returning()
+  const [gate] = await db.insert(gates).values({ societyId: TEST_SOCIETY_ID, code: 'MAIN', name: 'Main gate' }).returning()
   gateId = gate!.id
   flatId = (await createFlat()).id
 })
@@ -121,6 +121,7 @@ describe('guards', () => {
       .insert(gates)
       .values({
         societyId: TEST_SOCIETY_ID,
+        code: 'SERVICE',
         name: 'Service gate',
         status: 'INACTIVE',
       })

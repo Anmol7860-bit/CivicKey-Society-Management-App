@@ -98,7 +98,7 @@ try {
   // A gate and a rate, so Staff management and Billing have something to work with on first run
   const [gate] = await db
     .insert(gates)
-    .values({ societyId: SOCIETY_ID, name: 'Main gate' })
+    .values({ societyId: SOCIETY_ID, code: 'MAIN', name: 'Main gate' })
     .onConflictDoNothing()
     .returning()
   const gateId = (gate ?? (await db.select().from(gates).where(eq(gates.societyId, SOCIETY_ID)))[0])?.id

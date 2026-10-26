@@ -42,6 +42,9 @@ export function createApp({ logger = defaultLogger }: AppOptions = {}) {
   app.use(pinoHttp({ logger, genReqId: requestId }))
   app.use(helmet())
   app.use(cors({ origin: env.CORS_ORIGIN.split(','), credentials: true }))
+  // A guard's offline batch is up to 50 recorded events, well past what the rest of the API sends.
+  // It is registered first because the parser that runs first decides the limit.
+  app.use('/api/v1/sync', express.json({ limit: '512kb' }))
   app.use(express.json({ limit: '10kb' }))
   app.use(cookieParser())
 

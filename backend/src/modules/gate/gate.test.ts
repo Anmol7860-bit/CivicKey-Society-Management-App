@@ -65,7 +65,7 @@ beforeEach(async () => {
 
   flatId = (await createFlat()).id
   await addResident(flatId, residentUser.id)
-  const [gate] = await db.insert(gates).values({ societyId: TEST_SOCIETY_ID, name: 'Main gate' }).returning()
+  const [gate] = await db.insert(gates).values({ societyId: TEST_SOCIETY_ID, code: 'MAIN', name: 'Main gate' }).returning()
   gateId = gate!.id
 })
 

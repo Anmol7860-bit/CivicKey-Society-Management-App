@@ -157,10 +157,17 @@ export async function listGates(ctx: AuthContext, societyId: string) {
   return db.select().from(gates).where(eq(gates.societyId, societyId)).orderBy(sql`lower(${gates.name})`)
 }
 
+/** MAIN GATE -> MAINGATE. Trimmed to the column width; a clash is reported like any duplicate. */
+function gateCodeFrom(name: string) {
+  return name.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 40) || 'GATE'
+}
+
 export function createGate(ctx: AuthContext, societyId: string, body: CreateGateBody) {
   return db.transaction(async (tx) => {
     await loadSociety(tx, ctx, societyId, 'share')
-    const [gate] = await unique(tx.insert(gates).values({ societyId, ...body }).returning(), duplicateGate)
+    // The code is what the gate is called on site; derived from the name when the form omits it
+    const code = body.code ?? gateCodeFrom(body.name)
+    const [gate] = await unique(tx.insert(gates).values({ societyId, ...body, code }).returning(), duplicateGate)
     await audit(tx, ctx, 'GATE_CREATED', { societyId, gateId: gate!.id, name: gate!.name })
     return gate!
   })

@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto'
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, lte, or, sql, type AnyColumn } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, or, sql, type AnyColumn } from 'drizzle-orm'
 import { db } from '../../db/client.js'
 import {
   blocks,
@@ -7,6 +7,7 @@ import {
   flats,
   floors,
   gates,
+  guardGateAssignments,
   staff,
   staffAttendance,
   staffEntryRejections,
@@ -245,21 +246,33 @@ const serializeVisit = (row: VisitRow) => ({
  * The guard's form. With an entry code the visit is approved outright, since the resident
  * approved it when they issued the pass; without one it waits on the resident's answer.
  */
+export interface RegisterVisitOptions {
+  /** Set when the visit is replayed from a guard's offline queue; unique, so a replay cannot duplicate it */
+  clientEventId?: string
+  /**
+   * The guard admitted this visitor during an outage. The visit is recorded as physically inside
+   * with no resident decision, flagged for the office, and timestamped when it actually happened.
+   */
+  manualOffline?: { reason: string; at: Date }
+}
+
 export async function registerVisit(
   ctx: AuthContext,
   societyId: string,
   body: RegisterVisitBody,
-  /** Set when the visit is replayed from a guard's offline queue; unique, so a replay cannot duplicate it */
-  clientEventId?: string,
+  { clientEventId, manualOffline }: RegisterVisitOptions = {},
 ) {
   await assertSameSociety(ctx, societyId)
+  await assertGate(ctx, body.gateId)
   const flat = await loadFlat(db, ctx, body.flatId)
   assertState(flat.societyId === societyId, 'That flat belongs to another society')
   assertState(flat.status === 'ACTIVE', 'This flat is not active')
 
   let passId: string | null = null
-  let status: typeof WAITING | typeof APPROVED = WAITING
-  if (body.entryCode) {
+  let status: typeof WAITING | typeof APPROVED | typeof INSIDE = WAITING
+  if (manualOffline) {
+    status = INSIDE
+  } else if (body.entryCode) {
     const checked = await validatePass(ctx, societyId, body.entryCode)
     if (!checked.valid) throw new AppError(400, 'INVALID_STATE', checked.reason ?? 'This pass cannot be used')
     assertState(checked.pass!.flatId === flat.id, 'That pass was issued for another flat')
@@ -279,9 +292,25 @@ export async function registerVisit(
       clientEventId,
       registeredBy: ctx.userId,
       ...(status === APPROVED ? { decidedBy: ctx.userId, decidedAt: new Date(), decisionReason: 'Arrived with a valid pass' } : {}),
+      // No decidedBy: nobody approved this, and the record must not suggest anyone did
+      ...(manualOffline
+        ? {
+            source: 'MANUAL_OFFLINE' as const,
+            needsReview: true,
+            reviewReason: manualOffline.reason.slice(0, 120),
+            enteredAt: manualOffline.at,
+            entryBy: ctx.userId,
+          }
+        : {}),
     })
     .returning()
-  await audit(db, ctx, 'VISIT_REGISTERED', { visitId: visit!.id, flat: label(flat), name: visit!.visitorName, status })
+  await audit(db, ctx, manualOffline ? 'VISIT_MANUAL_OFFLINE_ENTRY' : 'VISIT_REGISTERED', {
+    visitId: visit!.id,
+    flat: label(flat),
+    name: visit!.visitorName,
+    status,
+    ...(manualOffline ? { reason: manualOffline.reason, recordedAt: manualOffline.at.toISOString() } : {}),
+  })
   return serializeVisit({ visit: visit!, flat, gateName: null, passCode: body.entryCode ?? null })
 }
 
@@ -379,6 +408,7 @@ export async function decideVisit(ctx: AuthContext, id: string, body: DecideVisi
 export async function recordEntry(ctx: AuthContext, id: string, gateId?: string) {
   const row = await loadVisit(ctx, id)
   await assertSameSociety(ctx, row.visit.societyId)
+  await assertGate(ctx, gateId ?? row.visit.gateId ?? undefined)
   assertState(row.visit.status === APPROVED, 'Only an approved visit can be let in')
 
   const entered = await db.transaction(async (tx) => {
@@ -489,6 +519,32 @@ async function assertGate(ctx: AuthContext, gateId?: string) {
   const [gate] = UUID.test(gateId) ? await db.select({ societyId: gates.societyId, status: gates.status }).from(gates).where(eq(gates.id, gateId)) : []
   await requireRecord(ctx, gate, 'Gate')
   assertState(gate!.status === 'ACTIVE', 'This gate is not in use')
+  await assertGateAssigned(ctx, gateId)
+}
+
+/**
+ * A guard works only the gates they are posted to. Anyone else with a gate permission - the
+ * office, a committee member reading the log - is not posted anywhere, so the check is for guards.
+ *
+ * A guard with no posting at all is left alone: a society that has not started assigning gates
+ * would otherwise lock its own guards out of the gate.
+ */
+export async function assertGateAssigned(ctx: AuthContext, gateId: string) {
+  if (ctx.role !== 'GUARD') return
+  const postings = await db
+    .select({ gateId: guardGateAssignments.gateId })
+    .from(guardGateAssignments)
+    .where(
+      and(
+        eq(guardGateAssignments.guardUserId, ctx.userId),
+        lte(guardGateAssignments.startAt, sql`now()`),
+        or(isNull(guardGateAssignments.endAt), gt(guardGateAssignments.endAt, sql`now()`))!,
+      ),
+    )
+  if (postings.length === 0) return
+  if (!postings.some((posting) => posting.gateId === gateId)) {
+    throw new AppError(403, 'GATE_ACCESS_DENIED', 'You are not posted to this gate')
+  }
 }
 
 /** The movement a request id already produced, so a retry of the same tap is answered, not repeated. */

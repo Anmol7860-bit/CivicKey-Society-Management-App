@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactNode, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { ApiError } from '../auth/api'
+import { ApiError, QueuedOfflineError } from '../auth/api'
 import type { LoginCode } from './api'
 
 /** White card used for every section of the Society & users page. */
@@ -65,6 +65,8 @@ export interface Action {
   pending: boolean
   /** The API's message when it belongs to no particular field */
   error: string | undefined
+  /** The action never reached the server and is saved on this device, waiting to sync */
+  queued: boolean
   /** The 422 message for one field, or undefined */
   fieldError: (field: string) => string | undefined
   /** Runs the call; resolves true when it succeeded. Ignored while one is already running. */
@@ -99,10 +101,16 @@ export function useAction(): Action {
   )
 
   const fields = failure instanceof ApiError ? failure.fields : []
+  const queued = failure instanceof QueuedOfflineError
   return {
     pending,
+    // The gate action was saved on the device, not refused: the screen says so instead of erroring
+    queued,
     // A validation failure is shown beside its field, unless the server named no field we render
-    error: failure && !(failure instanceof ApiError && failure.code === 'VALIDATION_ERROR' && fields.length) ? failure.message : undefined,
+    error:
+      failure && !queued && !(failure instanceof ApiError && failure.code === 'VALIDATION_ERROR' && fields.length)
+        ? failure.message
+        : undefined,
     fieldError: (field: string) => fields.find((issue) => issue.field === field)?.message,
     run,
     clear: useCallback(() => setFailure(undefined), []),

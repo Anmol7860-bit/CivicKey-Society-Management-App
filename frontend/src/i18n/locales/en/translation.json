@@ -533,7 +533,8 @@
           "title": "Nobody is inside",
           "description": "Entries you record at the gate appear here until you record the exit."
         },
-        "people_one": "{{count}} person"
+        "people_one": "{{count}} person",
+        "offlinePassReason": "Pass checked against the cached copy while the gate was offline"
       },
       "activityTitle": "Current gate activity",
       "log": {
@@ -1433,14 +1434,17 @@
     "operations": {
       "VISITOR_REGISTER": "Visitor registered",
       "VISIT_ENTRY_RECORD": "Entry recorded",
-      "VISIT_EXIT": "Exit recorded"
+      "VISIT_EXIT": "Exit recorded",
+      "MANUAL_OFFLINE_ENTRY": "Let in during an outage"
     },
     "statuses": {
       "PENDING_SYNC": "Waiting to sync",
       "SYNCING": "Syncing",
       "SYNCED": "Synced",
       "FAILED_RETRY": "Will retry",
-      "FAILED_ADMIN": "Needs admin"
-    }
+      "FAILED_ADMIN": "Needs admin",
+      "NEEDS_REVIEW": "Needs review"
+    },
+    "savedHere": "Saved on this device — waiting to sync."
   }
 }

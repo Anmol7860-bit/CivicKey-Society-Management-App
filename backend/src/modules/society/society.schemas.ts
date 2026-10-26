@@ -57,10 +57,18 @@ export const updateSocietySchema = z
   })
   .refine(atLeastOneField, noFields)
 
-export const createGateSchema = z.strictObject({ name: gateName, usedFor: gateUse.optional() })
+/** As the gate is known on site: letters, digits and hyphens, e.g. MAIN or REAR-2 */
+const gateCode = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z0-9][A-Z0-9-]{0,39}$/, 'Use letters, digits and hyphens')
+
+export const createGateSchema = z.strictObject({ name: gateName, code: gateCode.optional(), usedFor: gateUse.optional() })
 export const updateGateSchema = z
   .strictObject({
     name: gateName.optional(),
+    code: gateCode.optional(),
     usedFor: gateUse.optional(),
     status: status.optional(),
     reason: reason.optional(),

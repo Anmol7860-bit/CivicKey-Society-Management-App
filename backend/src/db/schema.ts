@@ -91,6 +91,8 @@ export const gates = pgTable(
     societyId: uuid('society_id')
       .notNull()
       .references(() => societies.id),
+    /** Short label the gate is known by on site, e.g. MAIN or REAR */
+    code: varchar('code', { length: 40 }).notNull(),
     name: varchar('name', { length: 64 }).notNull(),
     usedFor: gateUse('used_for').notNull().default('VISITORS_AND_RESIDENTS'),
     status: recordStatus('status').notNull().default('ACTIVE'),
@@ -99,6 +101,7 @@ export const gates = pgTable(
   },
   (table) => [
     uniqueIndex('gates_society_id_name_unique').on(table.societyId, sql`lower(${table.name})`),
+    unique('gates_society_id_code_unique').on(table.societyId, table.code),
     check('gates_name_trimmed', sql`${table.name} = btrim(${table.name}) and ${table.name} <> ''`),
   ],
 )
@@ -710,6 +713,55 @@ export const visitorPasses = pgTable(
 )
 
 /** One person at the gate, from the guard's form to the exit stamp. */
+/** Where a visit was recorded: at the gate online, or on a guard's device during an outage. */
+export const visitSource = pgEnum('visit_source', ['ONLINE', 'MANUAL_OFFLINE'])
+
+/** A Guard is a users row with role GUARD plus this operational profile. */
+export const guardProfiles = pgTable(
+  'guard_profiles',
+  {
+    userId: uuid('user_id')
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    employeeCode: varchar('employee_code', { length: 60 }).notNull(),
+    status: recordStatus('status').notNull().default('ACTIVE'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('guard_profiles_society_id_employee_code_unique').on(table.societyId, table.employeeCode)],
+)
+
+/**
+ * Which gates a guard is posted to, and when. A gate operation is refused unless the guard has an
+ * assignment covering that gate right now, so a guard cannot record movement at someone else's gate.
+ */
+export const guardGateAssignments = pgTable(
+  'guard_gate_assignments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    guardUserId: uuid('guard_user_id')
+      .notNull()
+      .references(() => users.id),
+    gateId: uuid('gate_id')
+      .notNull()
+      .references(() => gates.id),
+    startAt: timestamp('start_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Null while the posting is open-ended */
+    endAt: timestamp('end_at', { withTimezone: true }),
+    assignedBy: uuid('assigned_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('guard_gate_assignments_active_idx').on(table.guardUserId, table.gateId, table.startAt, table.endAt),
+    unique('guard_gate_assignments_guard_gate_start_unique').on(table.guardUserId, table.gateId, table.startAt),
+    check('guard_gate_assignments_end_after_start', sql`${table.endAt} is null or ${table.endAt} > ${table.startAt}`),
+  ],
+)
+
 export const visits = pgTable(
   'visits',
   {
@@ -733,6 +785,11 @@ export const visits = pgTable(
     /** Where the gate photo is filed until this deployment stores files */
     photoReference: varchar('photo_reference', { length: 200 }),
     status: visitStatus('status').notNull().default('WAITING'),
+    /** MANUAL_OFFLINE marks a visit the guard admitted during an outage, with no resident decision */
+    source: visitSource('source').notNull().default('ONLINE'),
+    /** Set by the gate when a visit needs the office to look at it, e.g. an offline manual entry */
+    needsReview: boolean('needs_review').notNull().default(false),
+    reviewReason: varchar('review_reason', { length: 120 }),
     registeredBy: uuid('registered_by').references(() => users.id),
     /** The resident who answered, or the guard who decided after the intercom call */
     decidedBy: uuid('decided_by').references(() => users.id),
@@ -763,6 +820,8 @@ export const clientEventResult = pgEnum('client_event_result', [
   'IN_PROGRESS',
   'APPLIED',
   'DUPLICATE_IGNORED',
+  /** The attempt failed for a reason worth retrying; the device sends it again */
+  'FAILED_RETRY',
   'REJECTED',
   'NEEDS_REVIEW',
 ])
@@ -782,7 +841,11 @@ export const processedClientEvents = pgTable(
       .notNull()
       .references(() => users.id),
     operationType: varchar('operation_type', { length: 40 }).notNull(),
+    /** Which of the guard's devices sent it; two devices never share a queue */
+    deviceId: varchar('device_id', { length: 120 }).notNull().default('unknown'),
     resultStatus: clientEventResult('result_status').notNull().default('IN_PROGRESS'),
+    /** The answer the first attempt produced, returned again on every replay */
+    resultPayload: jsonb('result_payload'),
     /** The visit the event created or changed, once it is known */
     entityId: uuid('entity_id'),
     /** The error code for a refusal, or why a review is needed */

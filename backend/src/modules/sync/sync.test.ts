@@ -3,32 +3,49 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { gates, processedClientEvents, visits } from '../../db/schema.js'
-import { addResident, createFlat, createUser, TEST_SOCIETY_ID } from '../../test/helpers.js'
+import { gates, guardGateAssignments, processedClientEvents, visits } from '../../db/schema.js'
+import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
 import { signAccessToken } from '../auth/tokens.js'
+import { MAX_BATCH, MAX_LOCAL_ATTEMPTS } from './sync.schemas.js'
 
 const app = createApp()
+const DEVICE = 'guard-phone-1'
 
 let guard: string
 let guardUserId: string
 let resident: string
+let admin: string
 let flatId: string
 let gateId: string
 
 const tokenFor = (user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) =>
   signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID }).then((t) => `Bearer ${t}`)
 
-const send = (body: object, token = guard) =>
-  request(app).post('/api/v1/sync/events').set('Authorization', token).send(body)
+/** One batch, as the device sends it. */
+const send = (events: object[], token = guard) =>
+  request(app).post('/api/v1/sync/events').set('Authorization', token).send({ batchId: randomUUID(), events })
 
-const event = (overrides: object = {}) => ({
+const visitPayload = () => ({
+  flatId,
+  gateId,
+  visitorName: 'Dev Courier',
+  visitorPhone: '9833333333',
+  purpose: 'DELIVERY',
+  people: 1,
+})
+
+const event = (overrides: Record<string, unknown> = {}) => ({
   clientEventId: randomUUID(),
-  operationType: 'VISITOR_REGISTER' as const,
+  deviceId: DEVICE,
+  eventType: 'VISITOR_REGISTER' as const,
   entityId: null,
-  payload: { flatId, gateId, visitorName: 'Dev Courier', visitorPhone: '9833333333', purpose: 'DELIVERY', people: 1 },
+  payload: visitPayload(),
   clientTs: new Date().toISOString(),
+  localAttemptCount: 0,
   ...overrides,
 })
+
+const only = (res: { body: { data: { results: { status: string; entityId: string | null; code: string | null }[] } } }) => res.body.data.results[0]!
 
 beforeEach(async () => {
   const guardUser = await createUser({ phone: '9000000002', email: null, role: 'GUARD' })
@@ -36,108 +53,177 @@ beforeEach(async () => {
   guard = await tokenFor(guardUser)
   const residentUser = await createUser({ phone: '9876543210', email: null, role: 'RESIDENT' })
   resident = await tokenFor(residentUser)
+  const adminUser = await createUser({ phone: '9000000001', email: null, role: 'ADMIN' })
+  await grantPermissions(adminUser.id, ['AUDIT_VIEW'])
+  admin = await tokenFor(adminUser)
   flatId = (await createFlat()).id
   await addResident(flatId, residentUser.id)
-  const [gate] = await db.insert(gates).values({ societyId: TEST_SOCIETY_ID, name: 'Main gate' }).returning()
+  const [gate] = await db.insert(gates).values({ societyId: TEST_SOCIETY_ID, code: 'MAIN', name: 'Main gate' }).returning()
   gateId = gate!.id
 })
 
 describe('POST /sync/events', () => {
-  it('applies a queued visitor registration', async () => {
-    const res = await send(event())
+  it('OFF-05 applies a queued registration and reports it per event', async () => {
+    const res = await send([event()])
     expect(res.status).toBe(200)
-    expect(res.body.data.status).toBe('APPLIED')
-    const [visit] = await db.select().from(visits).where(eq(visits.id, res.body.data.entityId))
+    expect(only(res).status).toBe('APPLIED')
+    const [visit] = await db.select().from(visits).where(eq(visits.id, only(res).entityId!))
     expect(visit?.visitorName).toBe('Dev Courier')
-    expect(visit?.status).toBe('WAITING')
+    expect(visit?.source).toBe('ONLINE')
   })
 
-  it('answers a replayed event from the ledger without registering a second visit', async () => {
-    const body = event()
-    const first = await send(body)
-    const second = await send(body)
-    expect(second.status).toBe(200)
-    expect(second.body.data.entityId).toBe(first.body.data.entityId)
+  it('OFF-06 answers a replay with DUPLICATE_IGNORED and never writes a second visit', async () => {
+    const queued = event()
+    const first = await send([queued])
+    const again = await send([queued])
+    expect(only(again).status).toBe('DUPLICATE_IGNORED')
+    expect(only(again).entityId).toBe(only(first).entityId)
     expect(await db.$count(visits)).toBe(1)
   })
 
-  it('records an entry and an exit for a visit it created', async () => {
-    const created = await send(event())
-    const visitId = created.body.data.entityId
-    await db.update(visits).set({ status: 'APPROVED' }).where(eq(visits.id, visitId))
+  it('OFF-07 refuses one bad event without touching the rest of the batch', async () => {
+    const good = event()
+    const bad = event({ payload: { ...visitPayload(), flatId: randomUUID() } })
+    const res = await send([bad, good])
+    const byId = new Map(res.body.data.results.map((r: { clientEventId: string }) => [r.clientEventId, r]))
+    expect(byId.get(bad.clientEventId)).toMatchObject({ status: 'REJECTED', code: 'NOT_FOUND' })
+    expect(byId.get(good.clientEventId)).toMatchObject({ status: 'APPLIED' })
+    expect(await db.$count(visits)).toBe(1)
+  })
 
-    const entry = await send(event({ operationType: 'VISIT_ENTRY_RECORD', entityId: visitId, payload: { gateId } }))
-    expect(entry.body.data.status).toBe('APPLIED')
-    const exit = await send(event({ operationType: 'VISIT_EXIT', entityId: visitId, payload: {} }))
-    expect(exit.body.data.status).toBe('APPLIED')
+  it('applies the batch in the order the device recorded it', async () => {
+    const created = await send([event()])
+    const visitId = only(created).entityId!
+    await db.update(visits).set({ status: 'APPROVED' }).where(eq(visits.id, visitId))
+    // Sent exit-first, but sequence says entry came first
+    const res = await send([
+      event({ eventType: 'VISIT_EXIT', entityId: visitId, payload: {}, sequence: 2 }),
+      event({ eventType: 'VISIT_ENTRY_RECORD', entityId: visitId, payload: { gateId }, sequence: 1 }),
+    ])
+    expect(res.body.data.results.map((r: { status: string }) => r.status)).toEqual(['APPLIED', 'APPLIED'])
     const [visit] = await db.select().from(visits).where(eq(visits.id, visitId))
     expect(visit?.status).toBe('LEFT')
   })
 
-  it('remembers a refusal so the device stops retrying it', async () => {
-    const body = event({ payload: { ...event().payload, flatId: randomUUID() } })
-    const res = await send(body)
-    expect(res.status).toBe(404)
-    const [row] = await db.select().from(processedClientEvents).where(eq(processedClientEvents.clientEventId, body.clientEventId))
-    expect(row?.resultStatus).toBe('REJECTED')
-    // The replay is answered from the ledger, not refused a second time
-    expect((await send(body)).body.data.status).toBe('REJECTED')
+  it('OFF-04 records an unannounced offline entry as physically in, needing review, with no approval', async () => {
+    const res = await send([
+      event({ eventType: 'MANUAL_OFFLINE_ENTRY', payload: { ...visitPayload(), reason: 'Resident did not answer the intercom' } }),
+    ])
+    expect(only(res).status).toBe('APPLIED')
+    const [visit] = await db.select().from(visits).where(eq(visits.id, only(res).entityId!))
+    expect(visit).toMatchObject({ status: 'INSIDE', source: 'MANUAL_OFFLINE', needsReview: true, decidedBy: null })
+    expect(visit?.reviewReason).toBe('Resident did not answer the intercom')
+    expect(visit?.enteredAt).not.toBeNull()
   })
 
-  it('takes over a claim left behind by a request that died, and applies it once', async () => {
-    const body = event()
+  it('OFF-04 will not record a manual offline entry without a reason', async () => {
+    const res = await send([event({ eventType: 'MANUAL_OFFLINE_ENTRY', payload: visitPayload() })])
+    expect(only(res)).toMatchObject({ status: 'REJECTED', code: 'VALIDATION_ERROR' })
+    expect(await db.$count(visits)).toBe(0)
+  })
+
+  it('OFF-08 parks an event from a badly wrong device clock for review', async () => {
+    const res = await send([event({ clientTs: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() })])
+    expect(only(res)).toMatchObject({ status: 'NEEDS_REVIEW', code: 'CLOCK_SKEW' })
+    expect(await db.$count(visits)).toBe(0)
+  })
+
+  it('OFF-08 hands an event the device has given up on to the office', async () => {
+    const res = await send([event({ localAttemptCount: MAX_LOCAL_ATTEMPTS })])
+    expect(only(res)).toMatchObject({ status: 'NEEDS_REVIEW', code: 'RETRY_LIMIT_REACHED' })
+    expect(await db.$count(visits)).toBe(0)
+  })
+
+  it('keeps a refusal, so a replay is answered from the ledger rather than refused again', async () => {
+    const bad = event({ payload: { ...visitPayload(), flatId: randomUUID() } })
+    await send([bad])
+    const [row] = await db.select().from(processedClientEvents).where(eq(processedClientEvents.clientEventId, bad.clientEventId))
+    expect(row).toMatchObject({ resultStatus: 'REJECTED', deviceId: DEVICE })
+    expect(only(await send([bad])).status).toBe('REJECTED')
+  })
+
+  it('retries an event a previous attempt left as FAILED_RETRY', async () => {
+    const queued = event()
     await db.insert(processedClientEvents).values({
-      clientEventId: body.clientEventId,
+      clientEventId: queued.clientEventId,
       userId: guardUserId,
+      deviceId: DEVICE,
+      operationType: 'VISITOR_REGISTER',
+      resultStatus: 'FAILED_RETRY',
+    })
+    expect(only(await send([queued])).status).toBe('APPLIED')
+  })
+
+  it('takes over a claim left behind by a request that died', async () => {
+    const queued = event()
+    await db.insert(processedClientEvents).values({
+      clientEventId: queued.clientEventId,
+      userId: guardUserId,
+      deviceId: DEVICE,
       operationType: 'VISITOR_REGISTER',
       claimedAt: new Date(Date.now() - 10 * 60 * 1000),
     })
-    const res = await send(body)
-    expect(res.body.data.status).toBe('APPLIED')
+    expect(only(await send([queued])).status).toBe('APPLIED')
     expect(await db.$count(visits)).toBe(1)
   })
 
   it('tells the device to come back while another request holds the same id', async () => {
-    const body = event()
+    const queued = event()
     await db.insert(processedClientEvents).values({
-      clientEventId: body.clientEventId,
+      clientEventId: queued.clientEventId,
       userId: guardUserId,
+      deviceId: DEVICE,
       operationType: 'VISITOR_REGISTER',
     })
-    const res = await send(body)
-    expect(res.status).toBe(503)
-    expect(res.body.error.code).toBe('SYNC_IN_PROGRESS')
+    expect(only(await send([queued])).status).toBe('FAILED_RETRY')
     expect(await db.$count(visits)).toBe(0)
   })
 
   it('does not register twice when a reclaimed event had already committed its visit', async () => {
-    const body = event()
-    await send(body)
-    // The claim is lost, but the visit carries the id, so the replay is recognised
-    await db.update(processedClientEvents).set({ resultStatus: 'IN_PROGRESS', claimedAt: new Date(0) })
-      .where(eq(processedClientEvents.clientEventId, body.clientEventId))
-    const res = await send(body)
-    expect(res.body.data.status).toBe('DUPLICATE_IGNORED')
+    const queued = event()
+    await send([queued])
+    await db
+      .update(processedClientEvents)
+      .set({ resultStatus: 'FAILED_RETRY' })
+      .where(eq(processedClientEvents.clientEventId, queued.clientEventId))
+    expect(only(await send([queued])).status).toBe('DUPLICATE_IGNORED')
     expect(await db.$count(visits)).toBe(1)
   })
 
-  it('parks an event from a badly wrong device clock for review', async () => {
-    const body = event({ clientTs: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() })
-    const res = await send(body)
-    expect(res.status).toBe(200)
-    expect(res.body.data).toMatchObject({ status: 'NEEDS_REVIEW', resultCode: 'CLOCK_SKEW' })
-    expect(await db.$count(visits)).toBe(0)
-  })
-
   it('refuses an event id replayed by another account', async () => {
-    const body = event()
-    await send(body)
+    const queued = event()
+    await send([queued])
     const other = await tokenFor(await createUser({ phone: '9000000009', email: null, role: 'GUARD' }))
-    const res = await send(body, other)
-    expect(res.status).toBe(403)
+    expect(only(await send([queued], other))).toMatchObject({ status: 'REJECTED', code: 'PERMISSION_DENIED' })
   })
 
   it('refuses a resident, who has no gate permissions', async () => {
-    expect((await send(event(), resident)).status).toBe(403)
+    expect((await send([event()], resident)).status).toBe(403)
+  })
+
+  it('GST-02 refuses an event for a gate the guard is not posted to', async () => {
+    const [other] = await db.insert(gates).values({ societyId: TEST_SOCIETY_ID, code: 'REAR', name: 'Rear gate' }).returning()
+    await db.insert(guardGateAssignments).values({ guardUserId, gateId: other!.id, assignedBy: guardUserId })
+    expect(only(await send([event()]))).toMatchObject({ status: 'REJECTED', code: 'GATE_ACCESS_DENIED' })
+    expect(await db.$count(visits)).toBe(0)
+  })
+
+  it('accepts the gate the guard is posted to', async () => {
+    await db.insert(guardGateAssignments).values({ guardUserId, gateId, assignedBy: guardUserId })
+    expect(only(await send([event()])).status).toBe('APPLIED')
+  })
+
+  it('rejects a batch larger than the fixed maximum', async () => {
+    const res = await send(Array.from({ length: MAX_BATCH + 1 }, () => event()))
+    expect(res.status).toBe(422)
+    expect(await db.$count(visits)).toBe(0)
+  })
+
+  it('lists the events waiting for the office', async () => {
+    await send([event({ localAttemptCount: MAX_LOCAL_ATTEMPTS })])
+    const res = await request(app).get('/api/v1/sync/needs-review').set('Authorization', admin)
+    expect(res.status).toBe(200)
+    expect(res.body.data).toHaveLength(1)
+    expect(res.body.data[0].code).toBe('RETRY_LIMIT_REACHED')
   })
 })

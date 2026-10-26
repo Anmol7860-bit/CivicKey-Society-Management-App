@@ -46,6 +46,19 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The gate action never reached the server and has been saved on this device instead. Not a
+ * failure: the record is safe and uploads on the next sync.
+ */
+export class QueuedOfflineError extends Error {
+  readonly code = 'QUEUED_OFFLINE'
+
+  constructor() {
+    super('Saved on this device')
+    this.name = 'QueuedOfflineError'
+  }
+}
+
 /** Sends a request and returns `data`, or throws ApiError for an API error. Network failures throw as-is. */
 export async function send<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, { method: 'POST', ...init })

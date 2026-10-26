@@ -16,6 +16,7 @@ import {
   listVisits,
   recordEntry,
   recordExit,
+  recordManualOfflineEntry,
   recordStaffEntry,
   recordStaffExit,
   registerVisit,
@@ -221,7 +222,7 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
   async function allow(check: PassCheck) {
     if (!check.pass || !societyId) return
     const ok = await entryAction.run(async () => {
-      const visit = await registerVisit(accessToken, societyId, {
+      const body = {
         flatId: check.pass!.flatId,
         visitorName: check.pass!.visitorName,
         visitorPhone: check.pass!.visitorPhone,
@@ -230,7 +231,13 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
         entryCode: check.pass!.entryCode,
         ...(check.pass!.vehicleNumber ? { vehicleNumber: check.pass!.vehicleNumber } : {}),
         ...(check.pass!.note ? { note: check.pass!.note } : {}),
-      })
+      }
+      if (!navigator.onLine) {
+        await recordManualOfflineEntry({ ...body, reason: t('area.guard.gate.offlinePassReason') })
+        setDone(t('sync.savedHere', { name: check.pass!.visitorName }))
+        return
+      }
+      const visit = await registerVisit(accessToken, societyId, body)
       await recordEntry(accessToken, visit.id)
       setDone(t('area.guard.gate.letIn', { name: check.pass!.visitorName }))
     })
@@ -247,6 +254,9 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
       reload()
     }
   }
+
+  /** Shown after an action that could not reach the server: the record is safe on this device. */
+  const queuedNote = entryAction.queued ? t('sync.savedHere', { name: '' }).trim() : null
 
   async function markExit(row: { id: string; kind: 'VISITOR' | 'STAFF'; name: string }) {
     const ok = await entryAction.run(() =>
@@ -268,6 +278,7 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
       </header>
 
       {done && <SuccessNote message={done} onDismiss={() => setDone(null)} />}
+      {queuedNote && <SuccessNote message={queuedNote} onDismiss={() => entryAction.clear()} />}
       {entryAction.error && <ErrorState message={entryAction.error} />}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

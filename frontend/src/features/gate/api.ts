@@ -1,4 +1,6 @@
+import { ApiError, QueuedOfflineError } from '../auth/api'
 import { call, type Gender, type IdDocumentType, type Status } from '../society/api'
+import { enqueue, type OperationType } from '../sync/queue'
 import type { PoliceVerification, Staff, StaffKind } from '../staff/api'
 
 export type VisitPurpose = 'GUEST' | 'DELIVERY' | 'CAB' | 'SERVICE' | 'OTHER'
@@ -298,8 +300,32 @@ export function listVisits(token: string, societyId: string, filters: { status?:
   const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString()
   return call<Visit[]>(token, 'GET', `/societies/${societyId}/visits${query ? `?${query}` : ''}`)
 }
+/**
+ * Runs a gate action, or saves it on this device when the server cannot be reached.
+ *
+ * An ApiError means the server answered and refused: that is a real failure and is passed on.
+ * Anything else is an outage, so the action is queued with its own request id and uploaded on the
+ * next sync, and the caller is told it was queued rather than done.
+ */
+async function queueable<T>(operation: OperationType, payload: Record<string, unknown>, entityId: string | null, live: () => Promise<T>) {
+  try {
+    return await live()
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    await enqueue(operation, payload, entityId)
+    throw new QueuedOfflineError()
+  }
+}
+
 export const registerVisit = (token: string, societyId: string, body: RegisterVisitBody) =>
-  call<Visit>(token, 'POST', `/societies/${societyId}/visits`, body)
+  queueable('VISITOR_REGISTER', { ...body }, null, () => call<Visit>(token, 'POST', `/societies/${societyId}/visits`, body))
+
+/**
+ * The guard let an unannounced visitor in while the gate was offline. Always queued: there is no
+ * live call, because nobody could be asked. It reaches the office flagged for review.
+ */
+export const recordManualOfflineEntry = (body: RegisterVisitBody & { reason: string }) =>
+  enqueue('MANUAL_OFFLINE_ENTRY', { ...body }, null)
 export const lookupVisitor = (token: string, societyId: string, phone: string) =>
   call<VisitorLookup | null>(token, 'GET', `/societies/${societyId}/visitor-lookup?phone=${encodeURIComponent(phone)}`)
 export const listInside = (token: string, societyId: string) => call<InsideRow[]>(token, 'GET', `/societies/${societyId}/inside`)
@@ -312,8 +338,11 @@ export const checkStaffPass = (token: string, societyId: string, passCode: strin
   call<StaffCheck>(token, 'GET', `/societies/${societyId}/staff-pass/${encodeURIComponent(passCode)}`)
 
 export const recordEntry = (token: string, visitId: string, gateId?: string) =>
-  call<Visit>(token, 'POST', `/visits/${visitId}/entry`, gateId ? { gateId } : {})
-export const recordExit = (token: string, visitId: string) => call<Visit>(token, 'POST', `/visits/${visitId}/exit`, {})
+  queueable('VISIT_ENTRY_RECORD', gateId ? { gateId } : {}, visitId, () =>
+    call<Visit>(token, 'POST', `/visits/${visitId}/entry`, gateId ? { gateId } : {}),
+  )
+export const recordExit = (token: string, visitId: string) =>
+  queueable('VISIT_EXIT', {}, visitId, () => call<Visit>(token, 'POST', `/visits/${visitId}/exit`, {}))
 /**
  * The request id for one tap. The same movement sent twice - a retry after a lost response, or a
  * double tap - is answered with the movement already recorded rather than a second one.
