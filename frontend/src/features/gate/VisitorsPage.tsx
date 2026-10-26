@@ -200,8 +200,8 @@ export function VisitorsPage({ accessToken }: { accessToken: string }) {
   if (assignments.loading) return <Skeleton rows={4} />
   if (assignments.error) return <ErrorState message={assignments.error} onRetry={assignments.reload} />
 
-  const waiting = visits.data?.filter((visit) => visit.status === 'WAITING') ?? []
-  const recent = visits.data?.filter((visit) => visit.status !== 'WAITING').slice(0, 8) ?? []
+  const waiting = visits.data?.filter((visit) => visit.status === 'AWAITING_APPROVAL') ?? []
+  const recent = visits.data?.filter((visit) => visit.status !== 'AWAITING_APPROVAL').slice(0, 8) ?? []
 
   const ready = Boolean(flat && form.visitorName.trim() && /^[6-9]\d{9}$/.test(form.visitorPhone.trim()) && form.validOn && form.validFrom < form.validUntil)
 

@@ -68,7 +68,7 @@ export function ResidentStat({ statKey, summary }: { statKey: string; summary: R
 
   if (statKey === 'awaiting') {
     if (!visits.data) return <Value />
-    const waiting = visits.data.filter((visit) => visit.status === 'WAITING')
+    const waiting = visits.data.filter((visit) => visit.status === 'AWAITING_APPROVAL')
     return (
       <Value
         value={String(waiting.length)}

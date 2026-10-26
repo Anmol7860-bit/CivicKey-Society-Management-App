@@ -660,7 +660,20 @@ export const visitorPassStatus = pgEnum('visitor_pass_status', ['ACTIVE', 'USED'
  * A visit's whole life: WAITING on the resident, their decision, then what the gate did.
  * LEAVE_AT_GATE is a delivery the resident will not let upstairs.
  */
-export const visitStatus = pgEnum('visit_status', ['WAITING', 'APPROVED', 'LEAVE_AT_GATE', 'DENIED', 'INSIDE', 'LEFT'])
+/**
+ * Where a visit stands. AWAITING_MANUAL is a visit nobody answered: the guard decides at the gate.
+ * LEAVE_AT_GATE is this society's own resident answer, kept beyond the baseline's six.
+ * DENIED and CLOSED are terminal.
+ */
+export const visitStatus = pgEnum('visit_status', [
+  'AWAITING_APPROVAL',
+  'AWAITING_MANUAL',
+  'APPROVED',
+  'LEAVE_AT_GATE',
+  'DENIED',
+  'ENTERED',
+  'CLOSED',
+])
 
 export const vehicleType = pgEnum('vehicle_type', ['CAR', 'BIKE', 'SCOOTER', 'BICYCLE', 'OTHER'])
 
@@ -784,7 +797,7 @@ export const visits = pgTable(
     note: varchar('note', { length: 200 }),
     /** Where the gate photo is filed until this deployment stores files */
     photoReference: varchar('photo_reference', { length: 200 }),
-    status: visitStatus('status').notNull().default('WAITING'),
+    status: visitStatus('status').notNull().default('AWAITING_APPROVAL'),
     /** MANUAL_OFFLINE marks a visit the guard admitted during an outage, with no resident decision */
     source: visitSource('source').notNull().default('ONLINE'),
     /** Set by the gate when a visit needs the office to look at it, e.g. an offline manual entry */
@@ -810,7 +823,7 @@ export const visits = pgTable(
     index('visits_flat_id_created_at_idx').on(table.flatId, table.createdAt),
     check('visits_phone_digits', sql`${table.visitorPhone} ~ '^[6-9][0-9]{9}$'`),
     check('visits_people_range', sql`${table.people} between 1 and 50`),
-    check('visits_decision_recorded', sql`(${table.decidedAt} is null) or (${table.status} <> 'WAITING')`),
+    check('visits_decision_recorded', sql`(${table.decidedAt} is null) or (${table.status} <> 'AWAITING_APPROVAL')`),
     check('visits_exit_after_entry', sql`${table.exitedAt} is null or (${table.enteredAt} is not null and ${table.exitedAt} >= ${table.enteredAt})`),
   ],
 )

@@ -40,7 +40,7 @@ const visit = (overrides: Partial<Visit> = {}): Visit => ({
   vehicleNumber: null,
   note: null,
   photoReference: null,
-  status: 'WAITING',
+  status: 'AWAITING_APPROVAL',
   decidedAt: null,
   decisionReason: null,
   enteredAt: null,
@@ -218,7 +218,7 @@ describe('Notifications', () => {
   })
 
   it('says when nothing is waiting on the resident', async () => {
-    gateApi.listMyVisits.mockResolvedValue([visit({ status: 'LEFT', exitedAt: '2026-10-23T12:00:00.000Z' })])
+    gateApi.listMyVisits.mockResolvedValue([visit({ status: 'CLOSED', exitedAt: '2026-10-23T12:00:00.000Z' })])
     billingApi.listMyInvoices.mockResolvedValue([invoice({ status: 'PAID', paid: 4125, outstanding: 0 })])
     showNotifications()
 

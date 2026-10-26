@@ -33,7 +33,7 @@ const waiting = {
   company: null,
   people: 2,
   vehicleNumber: 'MH 12 AB 3344',
-  status: 'WAITING' as const,
+  status: 'AWAITING_APPROVAL' as const,
   createdAt: new Date().toISOString(),
   flat: { number: '101', blockName: 'A', floorLabel: '1st Floor', label: 'A-101' },
   gateName: 'Main gate',

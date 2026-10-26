@@ -4,7 +4,8 @@ import { enqueue, type OperationType } from '../sync/queue'
 import type { PoliceVerification, Staff, StaffKind } from '../staff/api'
 
 export type VisitPurpose = 'GUEST' | 'DELIVERY' | 'CAB' | 'SERVICE' | 'OTHER'
-export type VisitStatus = 'WAITING' | 'APPROVED' | 'LEAVE_AT_GATE' | 'DENIED' | 'INSIDE' | 'LEFT'
+/** AWAITING_MANUAL is a visit nobody answered: the guard decides at the gate. */
+export type VisitStatus = 'AWAITING_APPROVAL' | 'AWAITING_MANUAL' | 'APPROVED' | 'LEAVE_AT_GATE' | 'DENIED' | 'ENTERED' | 'CLOSED'
 export type PassType = 'ONE_ENTRY' | 'MULTI_ENTRY'
 export type PassStatus = 'ACTIVE' | 'USED' | 'CANCELLED'
 export type VehicleType = 'CAR' | 'BIKE' | 'SCOOTER' | 'BICYCLE' | 'OTHER'
@@ -171,7 +172,7 @@ export interface StaffVerification {
   passCode: string
   passValidUntil: string | null
   currentlyInside: boolean
-  movementState: 'INSIDE' | 'NOT_INSIDE'
+  movementState: 'ENTERED' | 'NOT_INSIDE'
   enteredAt: string | null
   flatsServed: { flatId: string; label: string; timeWindow?: string | null }[]
   /** Why entry cannot be recorded, or null when it can */

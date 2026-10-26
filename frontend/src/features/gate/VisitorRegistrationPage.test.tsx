@@ -26,7 +26,7 @@ beforeEach(() => {
 const show = () => render(<VisitorRegistrationPage user={guard} accessToken="token" />)
 
 it('registers a visitor against a flat and says the resident was asked', async () => {
-  mocked.registerVisit.mockResolvedValue({ id: 'v1', visitorName: 'Dev Courier', status: 'WAITING' } as never)
+  mocked.registerVisit.mockResolvedValue({ id: 'v1', visitorName: 'Dev Courier', status: 'AWAITING_APPROVAL' } as never)
   show()
 
   await userEvent.type(screen.getByLabelText(/Visitor mobile/), '9833333333')

@@ -82,7 +82,7 @@ export const decideVisitSchema = z
   })
 
 export const listVisitsSchema = z.strictObject({
-  status: z.enum(['WAITING', 'APPROVED', 'LEAVE_AT_GATE', 'DENIED', 'INSIDE', 'LEFT']).optional(),
+  status: z.enum(['AWAITING_APPROVAL', 'APPROVED', 'LEAVE_AT_GATE', 'DENIED', 'ENTERED', 'CLOSED']).optional(),
   gateId: uuid.optional(),
   flatId: uuid.optional(),
   /** Defaults to today; the gate rarely looks further back */

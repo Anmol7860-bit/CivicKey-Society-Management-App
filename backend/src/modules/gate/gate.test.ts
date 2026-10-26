@@ -125,14 +125,36 @@ describe('visitor passes', () => {
 })
 
 describe('visits', () => {
+  it('goes straight to the guard when the flat has nobody who can answer', async () => {
+    const empty = await createFlat(TEST_SOCIETY_ID, '902')
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ flatId: empty.id }))
+
+    // Nobody to ask, so it does not sit waiting three minutes for a decision that cannot come
+    expect(visit.body.data.status).toBe('AWAITING_MANUAL')
+  })
+
+  it('asks the tenant, not the owner, while a tenant is in the flat', async () => {
+    const shared = await createFlat(TEST_SOCIETY_ID, '903')
+    const owner = await createUser({ phone: '9811111101', email: null, role: 'RESIDENT' })
+    const tenant = await createUser({ phone: '9811111102', email: null, role: 'RESIDENT' })
+    await addResident(shared.id, owner.id, { residentType: 'OWNER', accessLevel: 'VIEW_ONLY' })
+    await addResident(shared.id, tenant.id, { residentType: 'TENANT' })
+
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ flatId: shared.id }))
+    expect(visit.body.data.status).toBe('AWAITING_APPROVAL')
+
+    // The owner is view-only while the tenant is active, so the tenant is the one who decides
+    expect((await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'APPROVED' }, await tokenFor(tenant))).status).toBe(200)
+  })
+
   it('waits on the resident, then records entry and exit', async () => {
     const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
     expect(visit.status).toBe(201)
-    expect(visit.body.data.status).toBe('WAITING')
+    expect(visit.body.data.status).toBe('AWAITING_APPROVAL')
 
     // The resident sees it at the top of their own list
     const mine = await api.get('/me/visits', resident)
-    expect(mine.body.data[0]).toMatchObject({ id: visit.body.data.id, status: 'WAITING' })
+    expect(mine.body.data[0]).toMatchObject({ id: visit.body.data.id, status: 'AWAITING_APPROVAL' })
 
     const approved = await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
     expect(approved.body.data).toMatchObject({ status: 'APPROVED', decidedBy: residentUserId })
@@ -141,11 +163,11 @@ describe('visits', () => {
     expect((await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'DENIED' }, resident)).status).toBe(400)
 
     const entered = await api.post(`/visits/${visit.body.data.id}/entry`, { gateId })
-    expect(entered.body.data.status).toBe('INSIDE')
+    expect(entered.body.data.status).toBe('ENTERED')
     expect((await api.get(`/societies/${TEST_SOCIETY_ID}/inside`, guard)).body.data).toHaveLength(1)
 
     const left = await api.post(`/visits/${visit.body.data.id}/exit`, {})
-    expect(left.body.data.status).toBe('LEFT')
+    expect(left.body.data.status).toBe('CLOSED')
     expect((await api.get(`/societies/${TEST_SOCIETY_ID}/inside`, guard)).body.data).toHaveLength(0)
     expect((await api.post(`/visits/${visit.body.data.id}/exit`, {})).status).toBe(400)
   })
@@ -353,7 +375,7 @@ describe('staff movement and verification', () => {
     expect(entry.body.data.exitedAt).toBeNull()
     expect((await api.get(`/staff/${member.id}/verification`, guard)).body.data).toMatchObject({
       currentlyInside: true,
-      movementState: 'INSIDE',
+      movementState: 'ENTERED',
       blockedReason: 'ALREADY_INSIDE',
     })
 
@@ -548,6 +570,6 @@ describe('the guard’s overview', () => {
 
     const summary = await api.get(`/societies/${TEST_SOCIETY_ID}/gate-summary`, guard)
     expect(summary.body.data).toMatchObject({ waiting: 1, inside: 1, visitorsInside: 1, staffInside: 0, today: 2, expected: 1 })
-    expect(visit.body.data.status).toBe('WAITING')
+    expect(visit.body.data.status).toBe('AWAITING_APPROVAL')
   })
 })

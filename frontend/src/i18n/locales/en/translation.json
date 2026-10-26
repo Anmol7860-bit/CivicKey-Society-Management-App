@@ -227,12 +227,13 @@
         "deny": "Deny",
         "leaveAtGateHint": "Leave at gate is for deliveries. Your answer is separate from the guard’s final decision at the gate.",
         "status": {
-          "WAITING": "Waiting",
+          "AWAITING_APPROVAL": "Waiting for the flat",
+          "AWAITING_MANUAL": "Nobody answered",
           "APPROVED": "Approved",
           "LEAVE_AT_GATE": "Left at gate",
           "DENIED": "Denied",
-          "INSIDE": "Inside",
-          "LEFT": "Left"
+          "ENTERED": "Inside",
+          "CLOSED": "Left"
         },
         "recentTitle": "Earlier visitors",
         "recentDescription": "What happened at the gate for your flat.",

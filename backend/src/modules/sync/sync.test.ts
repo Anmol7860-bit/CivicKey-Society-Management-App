@@ -102,7 +102,7 @@ describe('POST /sync/events', () => {
     ])
     expect(res.body.data.results.map((r: { status: string }) => r.status)).toEqual(['APPLIED', 'APPLIED'])
     const [visit] = await db.select().from(visits).where(eq(visits.id, visitId))
-    expect(visit?.status).toBe('LEFT')
+    expect(visit?.status).toBe('CLOSED')
   })
 
   it('OFF-04 records an unannounced offline entry as physically in, needing review, with no approval', async () => {
@@ -111,7 +111,7 @@ describe('POST /sync/events', () => {
     ])
     expect(only(res).status).toBe('APPLIED')
     const [visit] = await db.select().from(visits).where(eq(visits.id, only(res).entityId!))
-    expect(visit).toMatchObject({ status: 'INSIDE', source: 'MANUAL_OFFLINE', needsReview: true, decidedBy: null })
+    expect(visit).toMatchObject({ status: 'ENTERED', source: 'MANUAL_OFFLINE', needsReview: true, decidedBy: null })
     expect(visit?.reviewReason).toBe('Resident did not answer the intercom')
     expect(visit?.enteredAt).not.toBeNull()
   })

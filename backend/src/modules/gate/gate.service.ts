@@ -31,9 +31,10 @@ import type {
   StaffRejectionBody,
 } from './gate.schemas.js'
 
-const WAITING = 'WAITING'
+const AWAITING_APPROVAL = 'AWAITING_APPROVAL'
+const AWAITING_MANUAL = 'AWAITING_MANUAL'
 const APPROVED = 'APPROVED'
-const INSIDE = 'INSIDE'
+const ENTERED = 'ENTERED'
 
 /** YYYY-MM-DD as the society reads it; toISOString would shift the date behind UTC. */
 const isoDay = (date: Date) =>
@@ -243,8 +244,35 @@ const serializeVisit = (row: VisitRow) => ({
 })
 
 /**
+ * Who is asked to approve a visit to this flat: the active tenant if there is one, otherwise the
+ * owner, and only while they hold FULL access. An owner is VIEW_ONLY while a tenant is in place,
+ * so they are never the approver then.
+ *
+ * Returns undefined when the flat has nobody who can answer. The visit then goes straight to the
+ * guard rather than waiting three minutes for a decision that cannot come.
+ */
+export async function effectiveApprover(flatId: string) {
+  const rows = await db
+    .select({ userId: flatResidents.userId, residentType: flatResidents.residentType })
+    .from(flatResidents)
+    .innerJoin(users, eq(users.id, flatResidents.userId))
+    .where(
+      and(
+        eq(flatResidents.flatId, flatId),
+        eq(flatResidents.accessLevel, 'FULL'),
+        eq(flatResidents.verificationStatus, 'VERIFIED'),
+        eq(users.isActive, true),
+        lte(flatResidents.startDate, sql`current_date`),
+        or(isNull(flatResidents.endDate), gte(flatResidents.endDate, sql`current_date`))!,
+      ),
+    )
+  return rows.find((row) => row.residentType === 'TENANT') ?? rows.find((row) => row.residentType === 'OWNER')
+}
+
+/**
  * The guard's form. With an entry code the visit is approved outright, since the resident
- * approved it when they issued the pass; without one it waits on the resident's answer.
+ * approved it when they issued the pass; without one it waits on the resident's answer - or goes
+ * straight to the guard when the flat has nobody who can answer.
  */
 export interface RegisterVisitOptions {
   /** Set when the visit is replayed from a guard's offline queue; unique, so a replay cannot duplicate it */
@@ -269,15 +297,17 @@ export async function registerVisit(
   assertState(flat.status === 'ACTIVE', 'This flat is not active')
 
   let passId: string | null = null
-  let status: typeof WAITING | typeof APPROVED | typeof INSIDE = WAITING
+  let status: typeof AWAITING_APPROVAL | typeof AWAITING_MANUAL | typeof APPROVED | typeof ENTERED = AWAITING_APPROVAL
   if (manualOffline) {
-    status = INSIDE
+    status = ENTERED
   } else if (body.entryCode) {
     const checked = await validatePass(ctx, societyId, body.entryCode)
     if (!checked.valid) throw new AppError(400, 'INVALID_STATE', checked.reason ?? 'This pass cannot be used')
     assertState(checked.pass!.flatId === flat.id, 'That pass was issued for another flat')
     passId = checked.pass!.id
     status = APPROVED
+  } else if (!(await effectiveApprover(flat.id))) {
+    status = AWAITING_MANUAL
   }
 
   const { entryCode: _code, flatId, ...rest } = body
@@ -321,8 +351,8 @@ export async function listVisits(ctx: AuthContext, societyId: string, query: Lis
   if (query.status) filters.push(eq(visits.status, query.status))
   if (query.gateId) filters.push(eq(visits.gateId, query.gateId))
   if (query.flatId) filters.push(eq(visits.flatId, query.flatId))
-  // INSIDE is "who is here now", which has no date; every other view is one day's gate log
-  if (query.status !== INSIDE) filters.push(sql`${visits.createdAt} >= ${query.date ?? sql`current_date`}::date`)
+  // ENTERED is "who is here now", which has no date; every other view is one day's gate log
+  if (query.status !== ENTERED) filters.push(sql`${visits.createdAt} >= ${query.date ?? sql`current_date`}::date`)
   if (query.date) filters.push(sql`${visits.createdAt} < (${query.date}::date + 1)`)
   if (query.search) {
     const term = `%${query.search}%`
@@ -360,7 +390,7 @@ export async function listMyVisits(ctx: AuthContext) {
   if (flatIds.length === 0) return []
   const rows = await visitQuery()
     .where(inArray(visits.flatId, flatIds))
-    .orderBy(sql`case when ${visits.status} = 'WAITING' then 0 else 1 end`, desc(visits.createdAt))
+    .orderBy(sql`case when ${visits.status} = 'AWAITING_APPROVAL' then 0 else 1 end`, desc(visits.createdAt))
     .limit(50)
   return rows.map(serializeVisit)
 }
@@ -379,7 +409,7 @@ export async function decideVisit(ctx: AuthContext, id: string, body: DecideVisi
   const row = await loadVisit(ctx, id)
   const asGuard = ctx.permissions?.includes('VISIT_DECIDE') ?? false
   if (!asGuard) await assertFlatAccess(ctx, row.visit.flatId, { write: true })
-  assertState(row.visit.status === WAITING, 'This visit has already been decided')
+  assertState(row.visit.status === AWAITING_APPROVAL, 'This visit has already been decided')
 
   const [updated] = await db
     .update(visits)
@@ -390,7 +420,7 @@ export async function decideVisit(ctx: AuthContext, id: string, body: DecideVisi
       decisionReason: body.reason ?? null,
       updatedAt: new Date(),
     })
-    .where(and(eq(visits.id, id), eq(visits.status, WAITING)))
+    .where(and(eq(visits.id, id), eq(visits.status, AWAITING_APPROVAL)))
     .returning()
   assertState(Boolean(updated), 'This visit has already been decided')
   await audit(db, ctx, 'VISIT_DECIDED', {
@@ -414,7 +444,7 @@ export async function recordEntry(ctx: AuthContext, id: string, gateId?: string)
   const entered = await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(visits)
-      .set({ status: INSIDE, enteredAt: new Date(), entryBy: ctx.userId, gateId: gateId ?? row.visit.gateId, updatedAt: new Date() })
+      .set({ status: ENTERED, enteredAt: new Date(), entryBy: ctx.userId, gateId: gateId ?? row.visit.gateId, updatedAt: new Date() })
       .where(and(eq(visits.id, id), eq(visits.status, APPROVED)))
       .returning()
     if (!updated) return null
@@ -434,12 +464,12 @@ export async function recordEntry(ctx: AuthContext, id: string, gateId?: string)
 export async function recordExit(ctx: AuthContext, id: string) {
   const row = await loadVisit(ctx, id)
   await assertSameSociety(ctx, row.visit.societyId)
-  assertState(row.visit.status === INSIDE, 'This visitor is not inside')
+  assertState(row.visit.status === ENTERED, 'This visitor is not inside')
 
   const [updated] = await db
     .update(visits)
-    .set({ status: 'LEFT', exitedAt: new Date(), exitBy: ctx.userId, updatedAt: new Date() })
-    .where(and(eq(visits.id, id), eq(visits.status, INSIDE)))
+    .set({ status: 'CLOSED', exitedAt: new Date(), exitBy: ctx.userId, updatedAt: new Date() })
+    .where(and(eq(visits.id, id), eq(visits.status, ENTERED)))
     .returning()
   assertState(Boolean(updated), 'This visitor is not inside')
   await audit(db, ctx, 'VISIT_EXIT_RECORDED', { visitId: id, flat: label(row.flat), name: row.visit.visitorName })
@@ -650,7 +680,7 @@ export async function staffVerification(ctx: AuthContext, id: string) {
     passCode: member.passCode,
     passValidUntil: member.passValidUntil,
     currentlyInside: inside,
-    movementState: inside ? ('INSIDE' as const) : ('NOT_INSIDE' as const),
+    movementState: inside ? ('ENTERED' as const) : ('NOT_INSIDE' as const),
     enteredAt: open[0]?.enteredAt ?? null,
     flatsServed: served.filter((flat) => flat.staffId === id).map((flat) => ({ ...flat, label: `${flat.blockName}-${flat.number}` })),
     /** Why entry cannot be recorded, or null when it can */
@@ -872,7 +902,7 @@ export async function markStaffLeave(ctx: AuthContext, staffId: string, onDate?:
 export async function listInside(ctx: AuthContext, societyId: string) {
   await assertSameSociety(ctx, societyId)
   const [visitorRows, staffRows] = await Promise.all([
-    visitQuery().where(and(eq(visits.societyId, societyId), eq(visits.status, INSIDE))).orderBy(desc(visits.enteredAt)),
+    visitQuery().where(and(eq(visits.societyId, societyId), eq(visits.status, ENTERED))).orderBy(desc(visits.enteredAt)),
     db
       .select({ attendance: staffAttendance, staff, gateName: gates.name })
       .from(staffAttendance)
@@ -950,8 +980,8 @@ export async function gateSummary(ctx: AuthContext, societyId: string) {
   await assertSameSociety(ctx, societyId)
   const [row] = await db
     .select({
-      waiting: sql<number>`count(*) filter (where ${visits.status} = 'WAITING')`,
-      inside: sql<number>`count(*) filter (where ${visits.status} = 'INSIDE')`,
+      waiting: sql<number>`count(*) filter (where ${visits.status} = 'AWAITING_APPROVAL')`,
+      inside: sql<number>`count(*) filter (where ${visits.status} = 'ENTERED')`,
       today: sql<number>`count(*) filter (where ${visits.createdAt} >= current_date)`,
     })
     .from(visits)

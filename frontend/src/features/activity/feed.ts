@@ -34,13 +34,13 @@ const PURPOSE_TONE: Record<string, Tone> = {
 function visitEvents(visits: Visit[]): FeedEvent[] {
   return visits.map((visit) => {
     const values = { name: visit.visitorName, flat: visit.flat.label }
-    if (visit.status === 'WAITING') {
+    if (visit.status === 'AWAITING_APPROVAL') {
       return { id: `visit-${visit.id}`, kind: 'VISIT', at: visit.createdAt, event: 'visitWaiting', values, tone: 'warning', pending: true, to: 'visitor-approval' }
     }
-    if (visit.status === 'INSIDE') {
+    if (visit.status === 'ENTERED') {
       return { id: `visit-${visit.id}`, kind: 'VISIT', at: visit.enteredAt ?? visit.createdAt, event: 'visitInside', values, tone: 'brand' }
     }
-    if (visit.status === 'LEFT') {
+    if (visit.status === 'CLOSED') {
       return { id: `visit-${visit.id}`, kind: 'VISIT', at: visit.exitedAt ?? visit.createdAt, event: 'visitLeft', values, tone: 'neutral' }
     }
     return {
