@@ -276,6 +276,67 @@ describe('vehicles and requests to the office', () => {
   })
 })
 
+describe('the gate log', () => {
+  it('records the day’s entries and exits, with the numbers a shift is asked for', async () => {
+    // One visitor in and out again, one still inside, and one turned away at the gate
+    const inAndOut = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    await api.post(`/visits/${inAndOut.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    await api.post(`/visits/${inAndOut.body.data.id}/entry`, { gateId })
+    await api.post(`/visits/${inAndOut.body.data.id}/exit`, {})
+
+    const staying = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorPhone: '9844444444', purpose: 'GUEST', visitorName: 'Riya Guest' }))
+    await api.post(`/visits/${staying.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    await api.post(`/visits/${staying.body.data.id}/entry`, {})
+
+    const refused = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorPhone: '9855555555' }))
+    await api.post(`/visits/${refused.body.data.id}/decision`, { decision: 'DENIED', reason: 'Not expected' }, resident)
+
+    const log = await api.get(`/societies/${TEST_SOCIETY_ID}/gate-log`, guard)
+    expect(log.status).toBe(200)
+    expect(log.body.data.on).toBe(today())
+    expect(log.body.data.metrics).toMatchObject({
+      entries: 2,
+      exits: 1,
+      stillInside: 1,
+      openOvernight: 0,
+      turnedAway: 1,
+      byType: { DELIVERY: 1, GUEST: 1 },
+    })
+    expect(log.body.data.metrics.averageStayMinutes).toBeGreaterThanOrEqual(0)
+    expect(log.body.data.metrics.busiestHour).toMatchObject({ entries: 2 })
+    // An entry and its exit are two lines, newest first
+    const movements: { direction: string; at: string; name: string; flat: string; gateName: string | null }[] = log.body.data.movements
+    expect(movements).toHaveLength(3)
+    expect([...movements].sort((a, b) => b.at.localeCompare(a.at)).map((row) => row.at)).toEqual(movements.map((row) => row.at))
+    expect(movements.filter((row) => row.name === 'Dev Courier').map((row) => row.direction).sort()).toEqual(['IN', 'OUT'])
+    expect(movements.find((row) => row.direction === 'OUT')).toMatchObject({ flat: 'A-101-101', gateName: 'Main gate' })
+  })
+
+  it('counts a staff member through the gate on the same day, and nothing on an empty day', async () => {
+    const [member] = await db
+      .insert(staff)
+      .values({ societyId: TEST_SOCIETY_ID, kind: 'DAILY_HELP', name: 'Sunita Devi', phone: '9876543221', passCode: 'CK-HELP02', workType: 'Maid' })
+      .returning()
+    await db.insert(staffFlats).values({ staffId: member!.id, flatId })
+    await api.post(`/staff/${member!.id}/entry`, { gateId })
+
+    const log = await api.get(`/societies/${TEST_SOCIETY_ID}/gate-log`, guard)
+    expect(log.body.data.metrics).toMatchObject({ entries: 1, exits: 0, stillInside: 1, byType: { STAFF: 1 } })
+    expect(log.body.data.movements[0]).toMatchObject({ kind: 'STAFF', name: 'Sunita Devi', flat: 'A-101-101' })
+
+    // A day with no movements still answers, and the staff member inside is not counted into it
+    const quiet = await api.get(`/societies/${TEST_SOCIETY_ID}/gate-log?on=2020-02-02`, guard)
+    expect(quiet.body.data.metrics).toMatchObject({ entries: 0, exits: 0, averageStayMinutes: null, busiestHour: null })
+    expect(quiet.body.data.movements).toEqual([])
+  })
+
+  it('is refused to a resident, and to a guard from another society', async () => {
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/gate-log`, resident)).status).toBe(403)
+    expect((await api.get(`/societies/${OTHER_SOCIETY_ID}/gate-log`, guard)).status).toBe(403)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/gate-log?on=not-a-date`, guard)).status).toBe(422)
+  })
+})
+
 describe('the guard’s overview', () => {
   it('counts what is waiting, who is inside and how many passes are expected today', async () => {
     await api.post(`/flats/${flatId}/passes`, passBody(), resident)

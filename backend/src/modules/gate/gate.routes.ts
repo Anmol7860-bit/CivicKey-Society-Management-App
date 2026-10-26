@@ -10,6 +10,7 @@ import {
   decideAccessRequestSchema,
   decideVisitSchema,
   entryCodeSchema,
+  gateLogSchema,
   listVisitsSchema,
   markLeaveSchema,
   recordEntrySchema,
@@ -49,6 +50,10 @@ export function createGateRouter() {
   })
   router.get('/societies/:societyId/flat-directory', ...atGate, async (req, res) => {
     res.json({ data: await service.flatDirectory(req.ctx!, req.params.societyId as string) })
+  })
+  router.get('/societies/:societyId/gate-log', ...atGate, async (req, res) => {
+    const { on } = parseOrThrow(gateLogSchema, req.query)
+    res.json({ data: await service.gateLog(req.ctx!, req.params.societyId as string, on) })
   })
   router.get('/societies/:societyId/inside', ...atGate, async (req, res) => {
     res.json({ data: await service.listInside(req.ctx!, req.params.societyId as string) })

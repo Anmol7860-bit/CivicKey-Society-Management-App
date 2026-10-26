@@ -8,6 +8,7 @@ import { Dashboard } from '../dashboard/Dashboard'
 import { BillingPage } from '../billing/BillingPage'
 import { BillsPage } from '../gate/BillsPage'
 import { DailyHelpPage } from '../gate/DailyHelpPage'
+import { GateLogPage } from '../gate/GateLogPage'
 import { GatePage } from '../gate/GatePage'
 import { VisitorRegistrationPage } from '../gate/VisitorRegistrationPage'
 import { VisitorsPage } from '../gate/VisitorsPage'
@@ -104,10 +105,12 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
       <DailyHelpPage accessToken={accessToken} />
     ) : item.key === 'visitorRegistration' ? (
       <VisitorRegistrationPage user={user} accessToken={accessToken} />
-    ) : item.key === 'passValidation' || item.key === 'gate' ? (
-      // One gate screen: pass validation, staff verification and who is inside, as the PDF has them.
-      // Staff verification has no nav entry of its own; the guard reaches it from either gate page.
+    ) : item.key === 'passValidation' ? (
+      // One screen: pass validation, staff verification and who is inside now, as the PDF has them.
+      // Staff verification has no nav entry of its own; the guard reaches it here.
       <GatePage user={user} accessToken={accessToken} />
+    ) : item.key === 'gate' ? (
+      <GateLogPage user={user} accessToken={accessToken} />
     ) : item.key === 'visitorApproval' ? (
       <VisitorsPage accessToken={accessToken} />
     ) : item.key === 'activity' ? (

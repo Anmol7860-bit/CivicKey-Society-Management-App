@@ -1,3 +1,4 @@
+import { today } from '../../lib/day'
 import { BadgeCheck, Building2, ShieldCheck, UserRound } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -31,7 +32,6 @@ const ID_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENCE', 'VOTER_ID'] a
 const GENDERS = ['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY'] as const
 const LANGUAGES = ['en', 'hi', 'mr'] as const
 
-const today = () => new Date().toISOString().slice(0, 10)
 
 /** A numbered section of the form, as the printed Add user sheet lays them out. */
 function Step({ number, title, description, children }: { number: number; title: string; description?: string; children: ReactNode }) {

@@ -146,6 +146,35 @@ export interface DailyHelp extends Omit<Staff, 'flatsServed'> {
   lastSeen: { enteredAt: string; exitedAt: string | null } | null
 }
 
+export interface Movement {
+  id: string
+  kind: 'VISITOR' | 'STAFF'
+  direction: 'IN' | 'OUT'
+  at: string
+  name: string
+  /** The visit's purpose, or the staff member's kind */
+  type: string
+  flat: string
+  gateName: string | null
+  vehicleNumber: string | null
+}
+
+export interface GateLog {
+  /** The day the log covers, as YYYY-MM-DD */
+  on: string
+  metrics: {
+    entries: number
+    exits: number
+    stillInside: number
+    openOvernight: number
+    turnedAway: number
+    averageStayMinutes: number | null
+    busiestHour: { hour: number; entries: number } | null
+    byType: Record<string, number>
+  }
+  movements: Movement[]
+}
+
 export interface Attendance {
   attendance: { id: string; staffId: string; enteredAt: string; exitedAt: string | null }[]
   leave: { staffId: string; onDate: string }[]
@@ -207,6 +236,9 @@ export const registerVisit = (token: string, societyId: string, body: RegisterVi
 export const lookupVisitor = (token: string, societyId: string, phone: string) =>
   call<VisitorLookup | null>(token, 'GET', `/societies/${societyId}/visitor-lookup?phone=${encodeURIComponent(phone)}`)
 export const listInside = (token: string, societyId: string) => call<InsideRow[]>(token, 'GET', `/societies/${societyId}/inside`)
+/** One day of movements, with the shift's numbers; omit `on` for today */
+export const getGateLog = (token: string, societyId: string, on?: string) =>
+  call<GateLog>(token, 'GET', `/societies/${societyId}/gate-log${on ? `?on=${on}` : ''}`)
 export const validatePass = (token: string, societyId: string, code: string) =>
   call<PassCheck>(token, 'GET', `/societies/${societyId}/passes/validate?code=${encodeURIComponent(code)}`)
 export const checkStaffPass = (token: string, societyId: string, passCode: string) =>

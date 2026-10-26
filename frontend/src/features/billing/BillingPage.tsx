@@ -1,3 +1,4 @@
+import { today } from '../../lib/day'
 import { Receipt } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -28,7 +29,6 @@ import {
 
 const STATUS_TONE: Record<InvoiceStatus, Tone> = { UNPAID: 'warning', PARTIALLY_PAID: 'warning', PAID: 'positive', CANCELLED: 'neutral' }
 
-const today = () => new Date().toISOString().slice(0, 10)
 const thisMonth = () => today().slice(0, 7)
 /** Rupees, as the panels print them */
 const rupees = (value: number) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

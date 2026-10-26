@@ -1,3 +1,4 @@
+import { today } from '../../lib/day'
 import { useTranslation } from 'react-i18next'
 import { ErrorState, Skeleton } from '../../components/ui/States'
 import type { AuthUser, Permission } from '../auth/api'
@@ -9,7 +10,6 @@ import { listStaff, type Staff, type StaffKind } from '../staff/api'
 
 const KINDS: StaffKind[] = ['GUARD', 'DAILY_HELP', 'VENDOR']
 const thisMonth = () => new Date().toISOString().slice(0, 7)
-const today = () => new Date().toISOString().slice(0, 10)
 const has = (user: AuthUser, ...permissions: Permission[]) => permissions.some((code) => user.permissions.includes(code))
 const rupees = (value: number) => `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 

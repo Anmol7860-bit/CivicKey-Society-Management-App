@@ -70,7 +70,7 @@ describe('role destinations', () => {
   it('gives a Guard gate operations only', () => {
     renderAt('/guard/operations', user('GUARD', GUARD))
 
-    expect(navLabels()).toEqual(['Gate overview', 'Visitor registration', 'Pass validation', 'Gate entry / exit', 'Sync status'])
+    expect(navLabels()).toEqual(['Gate overview', 'Visitor registration', 'Pass validation', 'Gate log', 'Sync status'])
     expect(screen.getByRole('heading', { name: 'Gate operations' })).toBeInTheDocument()
     expect(screen.queryByText(/Bill/)).not.toBeInTheDocument()
   })

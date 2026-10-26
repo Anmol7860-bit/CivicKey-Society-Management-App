@@ -1,3 +1,4 @@
+import { today } from '../../lib/day'
 import { BellOff, QrCode } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -33,7 +34,6 @@ const STATUS_TONE: Record<VisitStatus, Tone> = {
 }
 const PASS_TONE: Record<PassStatus, Tone> = { ACTIVE: 'positive', USED: 'neutral', CANCELLED: 'danger' }
 
-const today = () => new Date().toISOString().slice(0, 10)
 const ago = (value: string) => {
   const minutes = Math.round((Date.now() - new Date(value).getTime()) / 60000)
   return minutes < 1 ? 'just now' : minutes < 60 ? `${minutes} min ago` : `${Math.round(minutes / 60)} h ago`

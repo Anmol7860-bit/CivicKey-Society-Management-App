@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto'
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, lte, or, sql, type AnyColumn } from 'drizzle-orm'
 import { db } from '../../db/client.js'
 import {
   blocks,
@@ -665,6 +665,138 @@ export async function gateSummary(ctx: AuthContext, societyId: string) {
     staffInside: Number(staffInside?.inside ?? 0),
     today: Number(row?.today ?? 0),
     expected: Number(expected?.passes ?? 0),
+  }
+}
+
+/** YYYY-MM-DD as the society reads it; toISOString would shift the date behind UTC. */
+const isoDay = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+/** Midnight to midnight for the day asked for, in the server's zone, which is the society's. */
+function dayWindow(on?: string) {
+  const from = on ? new Date(`${on}T00:00:00`) : new Date()
+  from.setHours(0, 0, 0, 0)
+  const to = new Date(from)
+  to.setDate(to.getDate() + 1)
+  return { from, to }
+}
+
+export interface Movement {
+  /** The visit or attendance row the movement came from; an entry and its exit share it */
+  id: string
+  kind: 'VISITOR' | 'STAFF'
+  direction: 'IN' | 'OUT'
+  at: Date
+  name: string
+  /** The visit's purpose, or the staff member's kind */
+  type: string
+  flat: string
+  gateName: string | null
+  vehicleNumber: string | null
+}
+
+/**
+ * One day at the gate: every entry and exit in the order they happened, and the numbers a guard
+ * is asked for at the end of a shift. "Who is inside now" lives on the gate screen; this is the
+ * record of the day, including the people still inside from before it started.
+ */
+export async function gateLog(ctx: AuthContext, societyId: string, on?: string) {
+  await assertSameSociety(ctx, societyId)
+  const { from, to } = dayWindow(on)
+  const movedOrOpen = (entered: AnyColumn, exited: AnyColumn) =>
+    or(and(gte(entered, from), lt(entered, to)), and(gte(exited, from), lt(exited, to)), and(isNull(exited), lt(entered, to)))
+
+  const [visitorRows, staffRows] = await Promise.all([
+    visitQuery()
+      .where(
+        and(
+          eq(visits.societyId, societyId),
+          or(
+            movedOrOpen(visits.enteredAt, visits.exitedAt),
+            // Turned away at the gate: no entry to record, but the guard still answers for it
+            and(inArray(visits.status, ['DENIED', 'LEAVE_AT_GATE']), gte(visits.decidedAt, from), lt(visits.decidedAt, to)),
+          ),
+        ),
+      )
+      .orderBy(desc(visits.enteredAt)),
+    db
+      .select({ attendance: staffAttendance, staff, gateName: gates.name })
+      .from(staffAttendance)
+      .innerJoin(staff, eq(staff.id, staffAttendance.staffId))
+      .leftJoin(gates, eq(gates.id, staffAttendance.gateId))
+      .where(and(eq(staff.societyId, societyId), movedOrOpen(staffAttendance.enteredAt, staffAttendance.exitedAt)))
+      .orderBy(desc(staffAttendance.enteredAt)),
+  ])
+
+  const served = await flatsServedBy(staffRows.map((row) => row.staff.id))
+  const within = (value: Date | null) => value !== null && value >= from && value < to
+  const people = [
+    ...visitorRows.map((row) => {
+      const visit = serializeVisit(row)
+      return {
+        id: visit.id,
+        kind: 'VISITOR' as const,
+        name: visit.visitorName,
+        type: visit.purpose,
+        flat: visit.flat.label,
+        gateName: visit.gateName,
+        vehicleNumber: visit.vehicleNumber,
+        enteredAt: visit.enteredAt,
+        exitedAt: visit.exitedAt,
+        turnedAway: (visit.status === 'DENIED' || visit.status === 'LEAVE_AT_GATE') && within(visit.decidedAt),
+      }
+    }),
+    ...staffRows.map((row) => ({
+      id: row.attendance.id,
+      kind: 'STAFF' as const,
+      name: row.staff.name,
+      type: row.staff.kind,
+      flat: served
+        .filter((flat) => flat.staffId === row.staff.id)
+        .map((flat) => `${flat.blockName}-${flat.number}`)
+        .join(', '),
+      gateName: row.gateName,
+      vehicleNumber: null,
+      enteredAt: row.attendance.enteredAt,
+      exitedAt: row.attendance.exitedAt,
+      turnedAway: false,
+    })),
+  ]
+
+  const movements: Movement[] = []
+  for (const person of people) {
+    const { enteredAt, exitedAt, turnedAway: _away, ...rest } = person
+    if (within(enteredAt)) movements.push({ ...rest, direction: 'IN', at: enteredAt! })
+    if (within(exitedAt)) movements.push({ ...rest, direction: 'OUT', at: exitedAt! })
+  }
+  movements.sort((a, b) => b.at.getTime() - a.at.getTime())
+
+  const entries = movements.filter((movement) => movement.direction === 'IN')
+  const inside = people.filter((person) => person.enteredAt !== null && person.exitedAt === null)
+  const closed = people.filter((person) => person.enteredAt !== null && within(person.exitedAt))
+  const perHour = new Map<number, number>()
+  for (const entry of entries) perHour.set(entry.at.getHours(), (perHour.get(entry.at.getHours()) ?? 0) + 1)
+  const busiest = [...perHour.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]
+  const byType: Record<string, number> = {}
+  for (const entry of entries) byType[entry.kind === 'STAFF' ? 'STAFF' : entry.type] = (byType[entry.kind === 'STAFF' ? 'STAFF' : entry.type] ?? 0) + 1
+
+  return {
+    on: isoDay(from),
+    metrics: {
+      entries: entries.length,
+      exits: movements.length - entries.length,
+      stillInside: inside.length,
+      /** Entered before this day began and never recorded out: the shift handover's one job */
+      openOvernight: inside.filter((person) => person.enteredAt! < from).length,
+      turnedAway: people.filter((person) => person.turnedAway).length,
+      /** Over the visits that ended today, so an open visit never drags the average down */
+      averageStayMinutes: closed.length
+        ? Math.round(closed.reduce((total, person) => total + (person.exitedAt!.getTime() - person.enteredAt!.getTime()), 0) / closed.length / 60000)
+        : null,
+      busiestHour: busiest ? { hour: busiest[0], entries: busiest[1] } : null,
+      byType,
+    },
+    movements: movements.slice(0, 200),
   }
 }
 

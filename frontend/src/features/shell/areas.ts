@@ -82,7 +82,7 @@ export const AREAS: Record<Role, AreaConfig> = {
       { key: 'operations', path: 'operations', icon: LayoutDashboard },
       { key: 'visitorRegistration', path: 'visitor-registration', icon: UserPlus, anyOf: ['VISIT_REGISTER'] },
       { key: 'passValidation', path: 'pass-validation', icon: ScanLine, anyOf: ['PASS_VALIDATE'] },
-      { key: 'gate', path: 'gate', icon: ArrowLeftRight, anyOf: ['VISIT_ENTRY_RECORD', 'VISIT_EXIT', 'VISIT_DECIDE'] },
+      { key: 'gate', path: 'gate', icon: History, anyOf: ['VISIT_ENTRY_RECORD', 'VISIT_EXIT', 'VISIT_DECIDE'] },
       { key: 'sync', path: 'sync', icon: RefreshCw },
     ],
     primaryAction: { key: 'registerVisitor', path: 'visitor-registration', icon: UserPlus, anyOf: ['VISIT_REGISTER'] },

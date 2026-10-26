@@ -1,3 +1,4 @@
+import { today } from '../../lib/day'
 import { UserCheck } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -26,7 +27,6 @@ import { useResource } from './useResource'
 
 const STATUS_TONE: Record<VerificationStatus, Tone> = { PENDING: 'warning', VERIFIED: 'positive', REJECTED: 'danger' }
 
-const today = () => new Date().toISOString().slice(0, 10)
 
 function ResidentRow({ resident, token, onChanged, onReject, onClose }: {
   resident: Resident

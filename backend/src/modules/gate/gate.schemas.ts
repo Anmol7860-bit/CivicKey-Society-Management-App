@@ -90,6 +90,9 @@ export const listVisitsSchema = z.strictObject({
   search: z.string().trim().min(1).max(60).optional(),
 })
 
+/** One day of the gate log; defaults to today, which is the shift the guard is standing in */
+export const gateLogSchema = z.strictObject({ on: isoDate.optional() })
+
 export const visitorLookupSchema = z.strictObject({ phone })
 
 export const recordEntrySchema = z.strictObject({ gateId: uuid.optional() })
@@ -122,6 +125,7 @@ export type CreatePassBody = z.infer<typeof createPassSchema>
 export type RegisterVisitBody = z.infer<typeof registerVisitSchema>
 export type DecideVisitBody = z.infer<typeof decideVisitSchema>
 export type ListVisitsQuery = z.infer<typeof listVisitsSchema>
+export type GateLogQuery = z.infer<typeof gateLogSchema>
 export type AddVehicleBody = z.infer<typeof addVehicleSchema>
 export type AccessRequestBody = z.infer<typeof accessRequestSchema>
 export type DecideAccessRequestBody = z.infer<typeof decideAccessRequestSchema>

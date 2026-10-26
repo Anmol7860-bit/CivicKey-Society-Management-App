@@ -402,7 +402,7 @@
         "operations": "Gate overview",
         "visitorRegistration": "Visitor registration",
         "passValidation": "Pass validation",
-        "gate": "Gate entry / exit",
+        "gate": "Gate log",
         "sync": "Sync status"
       },
       "primary": {
@@ -425,8 +425,8 @@
           "description": "Scan QR or enter pass ID"
         },
         "entryExit": {
-          "label": "Record entry / exit",
-          "description": "Update live gate occupancy"
+          "label": "Gate log",
+          "description": "The day’s entries and exits"
         }
       },
       "noSociety": "Your guard account is not linked to a society yet. Ask the society office to set it up.",
@@ -519,7 +519,51 @@
         },
         "people_one": "{{count}} person"
       },
-      "activityTitle": "Current gate activity"
+      "activityTitle": "Current gate activity",
+      "log": {
+        "title": "Gate log",
+        "intro": "Every entry and exit recorded at the gate, with the numbers you are asked for at handover.",
+        "day": "Day",
+        "summary": "The day’s numbers",
+        "entries": "Recorded in",
+        "entriesHint": "Visitors and staff, counted as they came in",
+        "exits": "Recorded out",
+        "exitsHint": "Exits you closed on this day",
+        "stillInside": "Still inside",
+        "openOvernight": "{{count}} came in before today",
+        "openOvernight_one": "1 came in before today",
+        "allAccountedFor": "Everyone who came in is out",
+        "averageStay": "Average stay",
+        "averageStayHint": "Over the visits that ended on this day",
+        "minutes": "{{count}} min",
+        "busiest": "Busiest hour",
+        "busiestHint": "{{count}} came in",
+        "hourRange": "{{from}}:00–{{to}}:00",
+        "turnedAway": "Turned away",
+        "turnedAwayHint": "Denied, or left at the gate, by the flat",
+        "staff": "Daily help and staff",
+        "mixTitle": "What came through",
+        "mixDescription": "Entries by purpose, so a day of deliveries reads as one.",
+        "movementsTitle": "Movements",
+        "movementsDescription": "Newest first. An entry and its exit are two lines.",
+        "direction": {
+          "IN": "In",
+          "OUT": "Out"
+        },
+        "columns": {
+          "time": "Time",
+          "direction": "Direction",
+          "name": "Name",
+          "type": "Type",
+          "flat": "Flat",
+          "gate": "Gate",
+          "vehicle": "Vehicle"
+        },
+        "empty": {
+          "title": "Nothing was recorded",
+          "description": "No entry or exit was recorded at the gate on this day."
+        }
+      }
     },
     "admin": {
       "workspace": "Admin workspace",

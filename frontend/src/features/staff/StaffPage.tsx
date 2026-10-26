@@ -1,3 +1,4 @@
+import { today } from '../../lib/day'
 import { Contact, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -37,7 +38,6 @@ const VERIFICATION_TONE: Record<PoliceVerification, Tone> = {
   REJECTED: 'danger',
 }
 
-const today = () => new Date().toISOString().slice(0, 10)
 
 /** The form's own state; everything is a string until it is sent. */
 interface FormState {
