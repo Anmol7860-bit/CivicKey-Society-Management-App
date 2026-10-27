@@ -10,6 +10,7 @@ import {
   floors,
   flatVehicles,
   gates,
+  guardGateAssignments,
   permissions as permissionTable,
   societies,
   staff,
@@ -167,12 +168,37 @@ try {
     if (staffId && firstFlat) {
       await db.insert(staffFlats).values({ staffId, flatId: firstFlat.id, timeWindow: '7-9 am' }).onConflictDoNothing()
     }
+
+    // The guard who signs in needs the profile and the posting behind the account: without them
+    // the account is a login with nothing to do, and no gate operation would be authorized.
+    const [guardAccount] = await db.select({ id: users.id }).from(users).where(eq(users.phone, '9876543211'))
+    if (guardAccount) {
+      await db
+        .insert(staff)
+        .values({
+          societyId: SOCIETY_ID,
+          kind: 'GUARD',
+          userId: guardAccount.id,
+          name: 'Mahesh Patil',
+          phone: '9876543211',
+          agency: 'SafeGuard',
+          gateId,
+          shift: 'MORNING',
+          policeVerification: 'VERIFIED',
+          passCode: 'CK-SEEDGUARD',
+        })
+        .onConflictDoNothing()
+      await db
+        .insert(guardGateAssignments)
+        .values({ guardUserId: guardAccount.id, gateId, assignedBy: granter ?? guardAccount.id })
+        .onConflictDoNothing()
+    }
   }
 
   // Something at the gate on first run: a visitor waiting, a pass in hand and a registered car
   const [firstFlatForGate] = await db.select().from(flats).limit(1)
   if (gateId && firstFlatForGate) {
-    const [guard] = await db.select().from(users).where(eq(users.phone, '9876543213'))
+    const [guard] = await db.select().from(users).where(eq(users.phone, '9876543211'))
     const [owner] = await db.select().from(users).where(eq(users.phone, '9876543210'))
     await db
       .insert(visits)
