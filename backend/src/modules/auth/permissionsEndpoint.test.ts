@@ -3,15 +3,14 @@ import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { users, type User } from '../../db/schema.js'
-import { createUser, grantPermissions } from '../../test/helpers.js'
+import { createUser, grantPermissions, signTestToken } from '../../test/helpers.js'
 import { RESIDENT_PERMISSIONS } from '../access/permissions.js'
-import { signAccessToken } from './tokens.js'
 
 const app = createApp()
 
 /** The token's role is wrong on purpose: the response must come from the database. */
 async function getPermissions(user: Pick<User, 'id'>) {
-  const token = await signAccessToken({ userId: user.id, sessionId: 's1', role: 'GUARD', societyId: null })
+  const token = await signTestToken({ userId: user.id, role: 'GUARD', societyId: null })
   return request(app).get('/api/v1/auth/permissions').set('Authorization', `Bearer ${token}`)
 }
 
@@ -51,14 +50,24 @@ describe('GET /api/v1/auth/permissions', () => {
     expect(res.body.data).not.toHaveProperty('residentType')
   })
 
-  it('returns 403 ROLE_NOT_ASSIGNED for a deactivated or deleted user', async () => {
+  it('returns 403 ROLE_NOT_ASSIGNED for a deactivated user', async () => {
     const user = await createUser({ isActive: false })
-    expect((await getPermissions(user)).body.error.code).toBe('ROLE_NOT_ASSIGNED')
 
-    await db.delete(users).where(eq(users.id, user.id))
     const res = await getPermissions(user)
+
     expect(res.status).toBe(403)
     expect(res.body.error.code).toBe('ROLE_NOT_ASSIGNED')
+  })
+
+  it('returns 401 for a deleted user, whose sessions went with them', async () => {
+    const user = await createUser()
+    const token = await signTestToken({ userId: user.id, role: 'GUARD', societyId: null })
+    await db.delete(users).where(eq(users.id, user.id))
+
+    const res = await request(app).get('/api/v1/auth/permissions').set('Authorization', `Bearer ${token}`)
+
+    expect(res.status).toBe(401)
+    expect(res.body.error.code).toBe('TOKEN_INVALID')
   })
 
   it('returns 403 ROLE_NOT_ASSIGNED when the user has no role', async () => {

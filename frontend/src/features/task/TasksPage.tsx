@@ -173,7 +173,8 @@ export function TasksPage({ accessToken }: { accessToken: string }) {
   )
   const summary = useResource(societyId ? () => taskSummary(accessToken, societyId) : null, [accessToken, societyId, tasks.data])
   const staff = useResource(
-    societyId ? () => listStaff(accessToken, societyId, { status: 'ACTIVE' }) : null,
+    // Everyone who could be given a task fits in one page; the picker is a select, not a list
+    societyId ? () => listStaff(accessToken, societyId, { status: 'ACTIVE', limit: 100 }) : null,
     [accessToken, societyId],
   )
 
@@ -182,7 +183,7 @@ export function TasksPage({ accessToken }: { accessToken: string }) {
     if (open) formPanel.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
   }, [open])
 
-  const staffOptions = (staff.data ?? [])
+  const staffOptions = (staff.data?.staff ?? [])
     .filter((member) => member.kind !== 'GUARD')
     .map((member) => ({ value: member.id, label: member.workType ? `${member.name} · ${member.workType}` : member.name }))
 

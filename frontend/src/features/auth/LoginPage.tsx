@@ -25,7 +25,7 @@ export function LoginPage({ onSignedIn, notice = null }: LoginPageProps) {
     try {
       onSignedIn(await login(values))
     } catch (err) {
-      setError(errorMessage(err, t, values))
+      setError(errorMessage(err, t))
     } finally {
       inFlight.current = false
       setPending(false)
@@ -39,15 +39,13 @@ export function LoginPage({ onSignedIn, notice = null }: LoginPageProps) {
   )
 }
 
-function errorMessage(err: unknown, t: ReturnType<typeof useTranslation>['t'], values: LoginFormValues) {
+function errorMessage(err: unknown, t: ReturnType<typeof useTranslation>['t']) {
   if (!(err instanceof ApiError)) return t('auth.login.errors.network')
   switch (err.code) {
     case 'INVALID_CREDENTIALS':
       return t('auth.login.errors.invalidCredentials')
     case 'USER_INACTIVE':
       return t('auth.login.errors.inactive')
-    case 'ROLE_MISMATCH':
-      return t('auth.login.errors.roleMismatch', { role: t(`auth.login.roles.${values.role}`) })
     case 'VALIDATION_ERROR':
       return t('auth.login.errors.validation')
     case 'TOO_MANY_REQUESTS':

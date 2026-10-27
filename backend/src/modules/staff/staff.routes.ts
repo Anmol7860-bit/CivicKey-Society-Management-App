@@ -19,6 +19,9 @@ export function createStaffRouter() {
       data: await service.listStaff(req.ctx!, req.params.societyId as string, query),
     })
   })
+  router.get('/staff/:id', ...manage, async (req, res) => {
+    res.json({ data: await service.getStaff(req.ctx!, req.params.id as string) })
+  })
   router.post('/societies/:societyId/staff', ...manage, validateBody(createStaffSchema), async (req, res) => {
     res.status(201).json({
       data: await service.createStaff(req.ctx!, req.params.societyId as string, req.body),
@@ -36,6 +39,13 @@ export function createStaffRouter() {
     res.json({
       data: await service.updateStaff(req.ctx!, req.params.id as string, req.body),
     })
+  })
+  /**
+   * The login account behind a guard's profile. Deactivating and reactivating stay on PUT /staff/:id
+   * with the rest of the record, because that is where the reason the audit trail needs is given.
+   */
+  router.post('/staff/:id/account', ...manage, async (req, res) => {
+    res.status(201).json({ data: await service.linkAccount(req.ctx!, req.params.id as string) })
   })
   router.post('/staff/:id/pass', ...manage, async (req, res) => {
     res.json({

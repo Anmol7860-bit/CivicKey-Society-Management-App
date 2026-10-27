@@ -4,6 +4,7 @@ import { db } from '../db/client.js'
 import { inArray } from 'drizzle-orm'
 import type { PgInsertValue } from 'drizzle-orm/pg-core'
 import {
+  authSessions,
   blocks,
   flatResidents,
   flats,
@@ -19,6 +20,7 @@ import {
 } from '../db/schema.js'
 import { assignRole, type AdminPermission } from '../modules/access/permissions.js'
 import { hashPassword } from '../modules/auth/password.js'
+import { refreshTokenExpiry, signAccessToken, type AccessTokenClaims } from '../modules/auth/tokens.js'
 
 export type App = ReturnType<typeof createApp>
 
@@ -100,6 +102,18 @@ export async function createPhoto(societyId = TEST_SOCIETY_ID) {
     .values({ societyId, contentType: 'image/jpeg', byteSize: 1024 })
     .returning()
   return file!.id
+}
+
+/**
+ * A signed access token, with the live auth_sessions row requireAuth insists on. A test that
+ * wants a dead session revokes or expires the row it gets back from `sessionId`.
+ */
+export async function signTestToken(claims: Omit<AccessTokenClaims, 'sessionId'>) {
+  const [session] = await db
+    .insert(authSessions)
+    .values({ userId: claims.userId, expiresAt: refreshTokenExpiry() })
+    .returning({ id: authSessions.id })
+  return signAccessToken({ ...claims, sessionId: session!.id })
 }
 
 export function postLogin(app: App, body: unknown) {

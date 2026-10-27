@@ -10,8 +10,7 @@ import {
   pushSubscriptions,
   visits,
 } from '../../db/schema.js'
-import { addResident, createFlat, createUser, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { addResident, createFlat, createUser, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 import { deliverDue, fanOutPending, nextAttempt, runDispatcherOnce } from './dispatcher.js'
 import { runJobsOnce } from './jobs.js'
 import { enqueueNotification } from './outbox.service.js'
@@ -26,7 +25,7 @@ let flatId: string
 let gateId: string
 
 const tokenFor = (user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) =>
-  signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID }).then((t) => `Bearer ${t}`)
+  signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID }).then((t) => `Bearer ${t}`)
 
 const api = {
   get: (path: string, token: string) => request(app).get(`/api/v1${path}`).set('Authorization', token),

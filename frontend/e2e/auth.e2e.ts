@@ -16,8 +16,7 @@ async function logOut(page: Page) {
   await page.getByRole('button', { name: 'Log out' }).filter({ visible: true }).click()
 }
 
-async function signIn(page: Page, phone: string, password: string, roleLabel = 'Resident') {
-  await page.locator('fieldset label', { hasText: roleLabel }).click()
+async function signIn(page: Page, phone: string, password: string) {
   await page.getByLabel('Phone number').fill(phone)
   await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
@@ -82,7 +81,7 @@ test('AUTH-UI-006/007/008 password is masked and can be shown and hidden', async
 
 for (const [role, account] of Object.entries(accounts)) {
   test(`AUTH-UI-011..014 ${role} lands in their own area and cannot open others`, async ({ page }) => {
-    await signIn(page, account.phone, account.password, account.label)
+    await signIn(page, account.phone, account.password)
 
     await expect(page).toHaveURL(account.area)
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
@@ -147,7 +146,7 @@ test('AUTH-UI-024 reloading the page keeps the user signed in', async ({ page })
 })
 
 test('AUTH-UI-022/023 logout ends the session and protected pages redirect to login', async ({ page }) => {
-  await signIn(page, accounts.GUARD.phone, accounts.GUARD.password, accounts.GUARD.label)
+  await signIn(page, accounts.GUARD.phone, accounts.GUARD.password)
   await expect(page).toHaveURL(accounts.GUARD.area)
 
   const logout = page.waitForResponse('**/api/v1/auth/logout')
@@ -167,7 +166,7 @@ test.describe('session expiry', () => {
   })
 
   test('AUTH-UI-020 the access token is refreshed before it expires', async ({ page }) => {
-    await signIn(page, accounts.ADMIN.phone, accounts.ADMIN.password, accounts.ADMIN.label)
+    await signIn(page, accounts.ADMIN.phone, accounts.ADMIN.password)
     await expect(page).toHaveURL(accounts.ADMIN.area)
 
     const refreshed = page.waitForResponse('**/api/v1/auth/refresh')
@@ -198,7 +197,7 @@ test.describe('session expiry', () => {
 test.describe('role dashboards', () => {
   test('a committee member sees only their committee destinations', async ({ page }) => {
     // Seeded Tenant on the committee: ADMIN role with committee permissions only
-    await signIn(page, '9876543214', 'Committee@123', 'Admin')
+    await signIn(page, '9876543214', 'Committee@123')
 
     await expect(page).toHaveURL('/admin/overview')
     await expect(page.getByRole('heading', { name: 'Community overview' })).toBeVisible()
@@ -207,11 +206,21 @@ test.describe('role dashboards', () => {
       await page.getByRole('button', { name: 'Open menu' }).click()
     }
     const nav = page.getByRole('navigation', { name: 'Main navigation' }).filter({ visible: true })
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Billing', 'Reports', 'Community tasks'])
+    // Their four committee destinations, plus the resident ones they keep as a tenant of their flat.
+    // Community tasks is absent: that needs SOCIETY_MANAGE, which a committee member does not hold.
+    await expect(nav.getByRole('link')).toHaveText([
+      'Overview',
+      'Billing',
+      'Reports',
+      'My flat',
+      'Visitor approval',
+      'Bills & payments',
+      'My activity',
+    ])
   })
 
   test('a guard dashboard has no billing or admin destinations and no accessibility violations', async ({ page }) => {
-    await signIn(page, accounts.GUARD.phone, accounts.GUARD.password, accounts.GUARD.label)
+    await signIn(page, accounts.GUARD.phone, accounts.GUARD.password)
 
     await expect(page.getByRole('heading', { name: 'Gate operations' })).toBeVisible()
     await expect(page.locator('body')).not.toContainText(/Bill|Society & users|Audit/)
@@ -219,7 +228,7 @@ test.describe('role dashboards', () => {
   })
 
   test('a guard typing a billing or resident-management URL is denied', async ({ page }) => {
-    await signIn(page, accounts.GUARD.phone, accounts.GUARD.password, accounts.GUARD.label)
+    await signIn(page, accounts.GUARD.phone, accounts.GUARD.password)
     await expect(page).toHaveURL(accounts.GUARD.area)
 
     for (const path of ['/admin/billing', '/admin/society', '/resident/bills']) {
@@ -230,7 +239,7 @@ test.describe('role dashboards', () => {
   })
 
   test('opening an admin page as a resident shows Access Denied with a way back', async ({ page }) => {
-    await signIn(page, accounts.RESIDENT.phone, accounts.RESIDENT.password, accounts.RESIDENT.label)
+    await signIn(page, accounts.RESIDENT.phone, accounts.RESIDENT.password)
     await expect(page).toHaveURL(accounts.RESIDENT.area)
 
     await page.goto('/admin/reports')

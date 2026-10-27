@@ -90,7 +90,7 @@ beforeEach(() => {
     resident({ id: 'r2', residentType: 'TENANT' }),
     resident({ id: 'r3', verificationStatus: 'PENDING', active: false, eligible: false }),
   ])
-  staff.listStaff.mockResolvedValue([member({}), member({ id: 's2', kind: 'DAILY_HELP', name: 'Sunita' })])
+  staff.listStaff.mockResolvedValue({ total: 2, staff: [member({}), member({ id: 's2', kind: 'DAILY_HELP', name: 'Sunita' })] })
   billing.listInvoices.mockResolvedValue([invoice({}), invoice({ id: 'i2', paid: 2000, outstanding: 3440, total: 5440, status: 'PARTIALLY_PAID' })])
 })
 

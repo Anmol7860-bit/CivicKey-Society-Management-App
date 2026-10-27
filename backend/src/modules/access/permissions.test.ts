@@ -6,8 +6,7 @@ import { flatResidents, permissions, rolePermissions, roles, userPermissions } f
 import { errorHandler } from '../../middleware/errorHandler.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
-import { addResident, createFlat, createUser, grantPermissions, PASSWORD, postLogin, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { addResident, createFlat, createUser, grantPermissions, PASSWORD, postLogin, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 import { and, eq, isNull } from 'drizzle-orm'
 import {
   ADMIN_PERMISSIONS,
@@ -30,7 +29,7 @@ app.get('/op/:permission', requireAuth, (req, res, next) => requirePermission(re
 app.use(errorHandler)
 
 async function call(user: { id: string; role: 'ADMIN' | 'GUARD' | 'RESIDENT' }, permission: string) {
-  const token = await signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: null })
+  const token = await signTestToken({ userId: user.id, role: user.role, societyId: null })
   return request(app).get(`/op/${permission}`).set('Authorization', `Bearer ${token}`)
 }
 
@@ -140,7 +139,7 @@ describe('permission matrix', () => {
   it('uses the role in the database, not the one in a still-valid token', async () => {
     const admin = await createUser({ role: 'ADMIN' })
     await grant(admin.id, 'REPORT_VIEW')
-    const token = await signAccessToken({ userId: admin.id, sessionId: 's1', role: 'ADMIN', societyId: null })
+    const token = await signTestToken({ userId: admin.id, role: 'ADMIN', societyId: null })
     await assignRole(db, admin.id, 'RESIDENT')
 
     const res = await request(app).get('/op/REPORT_VIEW').set('Authorization', `Bearer ${token}`)

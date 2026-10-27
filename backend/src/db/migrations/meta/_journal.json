@@ -225,6 +225,13 @@
       "when": 1793009317617,
       "tag": "0031_encrypted_id_numbers",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793097798883,
+      "tag": "0032_staff_user_accounts",
+      "breakpoints": true
     }
   ]
 }

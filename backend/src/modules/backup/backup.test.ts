@@ -7,8 +7,7 @@ import { createApp } from '../../app.js'
 import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
 import { backupExportJobs } from '../../db/schema.js'
-import { createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 import { decryptArchive } from './backup.service.js'
 
 const app = createApp()
@@ -17,7 +16,7 @@ let auth: string
 let plain: string
 
 const tokenFor = (user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) =>
-  signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID }).then((t) => `Bearer ${t}`)
+  signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID }).then((t) => `Bearer ${t}`)
 
 /** The dump runs after the response, so the tests wait for the job to settle, briefly. */
 async function settled(jobId: string) {

@@ -38,7 +38,7 @@ const vendor = { id: 'st1', name: 'Mahesh', kind: 'VENDOR', phone: '9870000001',
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(societyApi).listSocieties.mockResolvedValue([{ id: 's1', name: 'Green Meadows' } as never])
-  vi.mocked(staffApi).listStaff.mockResolvedValue([vendor])
+  vi.mocked(staffApi).listStaff.mockResolvedValue({ total: 1, staff: [vendor] })
   mocked.listTasks.mockResolvedValue([task()])
   mocked.taskSummary.mockResolvedValue({ open: 1, inProgress: 0, overdue: 0, unassigned: 1, doneThisMonth: 0 })
 })
@@ -84,7 +84,10 @@ it('raises a task with what the office typed', async () => {
 })
 
 it('offers only daily help and vendors as the people who do the work', async () => {
-  vi.mocked(staffApi).listStaff.mockResolvedValue([vendor, { ...vendor, id: 'st2', name: 'Mahesh Patil', kind: 'GUARD' } as Staff])
+  vi.mocked(staffApi).listStaff.mockResolvedValue({
+    total: 2,
+    staff: [vendor, { ...vendor, id: 'st2', name: 'Mahesh Patil', kind: 'GUARD' } as Staff],
+  })
   show()
 
   const assign = await screen.findByLabelText('Who is doing “Lobby light is out”')

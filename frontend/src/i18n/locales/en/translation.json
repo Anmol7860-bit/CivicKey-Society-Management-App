@@ -19,7 +19,6 @@
       "phoneLabel": "Phone number",
       "phonePlaceholder": "xxxxx xxxxx",
       "passwordLabel": "Password",
-      "roleLabel": "Signing in as",
       "roles": {
         "RESIDENT": "Resident",
         "GUARD": "Guard",
@@ -36,7 +35,6 @@
         "passwordRequired": "Enter your password.",
         "invalidCredentials": "Incorrect phone number or password.",
         "inactive": "This account is inactive. Contact property support.",
-        "roleMismatch": "This account is not registered as {{role}}. Select the correct role and try again.",
         "validation": "Check your phone number and password, then try again.",
         "tooManyRequests": "Too many attempts. Try again in {{minutes}} min.",
         "network": "Can't reach CivicKey. Check your connection and try again.",
@@ -1150,7 +1148,26 @@
         "idReveal": "Show ID number",
         "idHide": "Hide",
         "idReason": "Why is the ID being read?",
-        "idReasonHint": "Kept in the audit log with your name. The number is not stored in this browser."
+        "idReasonHint": "Kept in the audit log with your name. The number is not stored in this browser.",
+        "status": "Status",
+        "allStatuses": "All statuses",
+        "reactivate": "Reactivate",
+        "showing": "Showing {{from}}–{{to}} of {{total}}",
+        "previous": "Previous",
+        "next": "Next",
+        "account": {
+          "none": "No login yet",
+          "active": "Can sign in",
+          "blocked": "Login blocked",
+          "create": "Create login"
+        },
+        "postings": {
+          "show": "Gate postings",
+          "title": "Gate postings",
+          "empty": "This guard has not been posted to a gate yet.",
+          "line": "{{gate}} · {{from}} to {{to}}",
+          "now": "now"
+        }
       },
       "billing": {
         "intro": "Each panel appears only to admins who hold the permission shown under its title.",

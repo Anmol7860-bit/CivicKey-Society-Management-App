@@ -2,11 +2,12 @@ import { createHash, randomInt } from 'node:crypto'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../../db/client.js'
-import { authSessions, passwordSetupCodes, refreshTokens, users } from '../../db/schema.js'
+import { passwordSetupCodes, users } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assertSameSociety, assertState, UUID } from '../access/scope.js'
 import { maskIdentifier, recordAuditEvent, type DbExecutor } from '../audit/audit.service.js'
+import { revokeAllSessions } from './auth.service.js'
 import { hashPassword } from './password.js'
 
 /** Long enough that a code is not worth guessing, short enough to read out over the phone. */
@@ -134,23 +135,13 @@ export function setPasswordWithCode(
       .set({ passwordHash: await hashPassword(body.password), updatedAt: now })
       .where(eq(users.id, row.userId))
     // The old password is gone, so nothing issued under it may keep working
-    const revoked = await tx
-      .update(authSessions)
-      .set({ revokedAt: now, revokedReason: 'PASSWORD_CHANGED' })
-      .where(and(eq(authSessions.userId, row.userId), isNull(authSessions.revokedAt)))
-      .returning({ id: authSessions.id })
-    for (const session of revoked) {
-      await tx
-        .update(refreshTokens)
-        .set({ revokedAt: now })
-        .where(and(eq(refreshTokens.sessionId, session.id), isNull(refreshTokens.revokedAt)))
-    }
+    const revoked = await revokeAllSessions(tx, row.userId, 'PASSWORD_CHANGED', now)
     await recordAuditEvent(tx, {
       eventType: 'PASSWORD_SET_WITH_CODE',
       actorUserId: row.userId,
       ipAddress: request.ipAddress,
       userAgent: request.userAgent,
-      metadata: { sessionsRevoked: revoked.length },
+      metadata: { sessionsRevoked: revoked },
     })
     return { passwordSet: true }
   })

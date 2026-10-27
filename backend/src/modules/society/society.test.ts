@@ -3,8 +3,7 @@ import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { auditLogs, flatResidents, flats, societies } from '../../db/schema.js'
-import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
 const MISSING_ID = '44444444-4444-4444-8444-444444444444'
@@ -14,7 +13,7 @@ let auth: string
 let adminId: string
 
 async function tokenFor(user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) {
-  return `Bearer ${await signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID })}`
+  return `Bearer ${await signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID })}`
 }
 
 /** Deactivating anything needs a reason, which is kept in the audit trail */

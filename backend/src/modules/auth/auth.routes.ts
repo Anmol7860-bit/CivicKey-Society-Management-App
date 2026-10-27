@@ -1,9 +1,10 @@
 import { Router, type CookieOptions, type RequestHandler, type Response } from 'express'
 import { isProduction } from '../../config/env.js'
 import { AppError } from '../../lib/errors.js'
-import { requireAuth } from '../../middleware/requireAuth.js'
+import { requireAuth, requireAuthForLogout } from '../../middleware/requireAuth.js'
 import { validateBody } from '../../middleware/validateBody.js'
 import { getEffectivePermissions } from '../access/permissions.js'
+import { disconnectSession } from '../notification/realtime.js'
 import { identifierFrom, loginSchema, type LoginBody } from './auth.schemas.js'
 import { login, logout, refreshSession, type AuthResult } from './auth.service.js'
 import { forgotPasswordSchema, requestPasswordReset, setPasswordSchema, setPasswordWithCode } from './passwordSetup.js'
@@ -109,9 +110,11 @@ export function createAuthRouter() {
     }
   })
 
-  router.post('/logout', requireAuth, async (req, res) => {
+  router.post('/logout', requireAuthForLogout, async (req, res) => {
     const { userId, sessionId } = req.ctx!
     await logout(userId, sessionId, { ipAddress: req.ip ?? null, userAgent: req.get('user-agent') ?? null })
+    // The session is gone; a socket it left open would keep receiving this person's events
+    disconnectSession(sessionId)
     res.clearCookie(REFRESH_COOKIE_NAME, refreshCookieBase)
     res.setHeader('Cache-Control', 'no-store')
     res.status(200).json({ data: { loggedOut: true } })

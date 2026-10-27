@@ -141,7 +141,8 @@ export interface CreatePassBody {
   note?: string
 }
 
-export interface DailyHelp extends Omit<Staff, 'flatsServed'> {
+/** A resident's view of their daily help: never the login account behind a society's staff */
+export interface DailyHelp extends Omit<Staff, 'flatsServed' | 'account'> {
   timeWindow: string | null
   inside: boolean
   enteredAt: string | null

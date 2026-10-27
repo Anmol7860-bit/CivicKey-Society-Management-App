@@ -5,8 +5,7 @@ import { createApp } from '../../app.js'
 import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
 import { gates, societies, storedFiles } from '../../db/schema.js'
-import { createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { createFlat, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 import { sniff, stripMetadata } from './strip.js'
 
 const OTHER_SOCIETY_ID = '44444444-4444-4444-8444-444444444444'
@@ -16,7 +15,7 @@ let admin: string
 let outsider: string
 
 const tokenFor = (user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }, societyId = TEST_SOCIETY_ID) =>
-  signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId }).then((token) => `Bearer ${token}`)
+  signTestToken({ userId: user.id, role: user.role, societyId }).then((token) => `Bearer ${token}`)
 
 /** A JPEG carrying an EXIF segment: two bytes of scan data is all the parser needs to copy. */
 function jpeg() {

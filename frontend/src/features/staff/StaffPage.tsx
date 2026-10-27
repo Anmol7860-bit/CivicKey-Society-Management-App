@@ -9,15 +9,18 @@ import { EmptyState, ErrorState, Skeleton, SuccessNote } from '../../components/
 import { TextField } from '../../components/ui/TextField'
 import type { AuthUser } from '../auth/api'
 import { PhotoField } from '../file/PhotoField'
-import { getOccupancy, listGates, listSocieties, type Gender, type IdDocumentType } from '../society/api'
-import { FormGrid, Panel, RowButton, Tabs, useAction, useDeactivate } from '../society/parts'
+import { getOccupancy, listGates, listSocieties, type Gender, type IdDocumentType, type LoginCode, type Status } from '../society/api'
+import { FormGrid, LoginCodeNote, Panel, RowButton, Tabs, useAction, useDeactivate } from '../society/parts'
 import { useResource } from '../society/useResource'
 import {
   revealIdNumber,
   createStaff,
+  getStaff,
+  linkAccount,
   listStaff,
   reissuePass,
   updateStaff,
+  type Posting,
   type PoliceVerification,
   type Staff,
   type StaffBody,
@@ -32,6 +35,9 @@ const VERIFICATIONS: PoliceVerification[] = ['NOT_STARTED', 'SUBMITTED', 'VERIFI
 const DAYS: WorkingDay[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 const ID_TYPES: IdDocumentType[] = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENCE', 'VOTER_ID']
 const GENDERS: Gender[] = ['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY']
+const STATUSES: Status[] = ['ACTIVE', 'INACTIVE']
+/** One page of staff: short enough to read on a phone over a slow line */
+const PAGE = 25
 
 const VERIFICATION_TONE: Record<PoliceVerification, Tone> = {
   NOT_STARTED: 'neutral',
@@ -104,12 +110,14 @@ const formOf = (member: Staff): FormState => ({
   consent: true,
 })
 
-function StaffRow({ member, token, onEdit, onDeactivate, onReissue }: {
+function StaffRow({ member, token, onEdit, onDeactivate, onReactivate, onReissue, onLink }: {
   member: Staff
   token: string
   onEdit: (member: Staff) => void
   onDeactivate: (member: Staff) => void
+  onReactivate: (member: Staff) => void
   onReissue: (member: Staff) => void
+  onLink: (member: Staff) => void
 }) {
   const { t } = useTranslation()
   const places = member.flatsServed
@@ -129,6 +137,14 @@ function StaffRow({ member, token, onEdit, onDeactivate, onReissue }: {
           {t(`area.admin.staff.verification.${member.policeVerification}`)}
         </Badge>
         <Badge tone={member.status === 'ACTIVE' ? 'positive' : 'danger'}>{t(`area.admin.society.status.${member.status}`)}</Badge>
+        {member.kind === 'GUARD' &&
+          (member.account ? (
+            <Badge tone={member.account.isActive ? 'positive' : 'danger'}>
+              {t(`area.admin.staff.account.${member.account.isActive ? 'active' : 'blocked'}`)}
+            </Badge>
+          ) : (
+            <Badge tone="warning">{t('area.admin.staff.account.none')}</Badge>
+          ))}
       </div>
 
       <p className="text-[12px] text-muted">
@@ -145,15 +161,68 @@ function StaffRow({ member, token, onEdit, onDeactivate, onReissue }: {
 
       <div className="flex flex-wrap gap-2">
         <RowButton onClick={() => onEdit(member)}>{t('shell.edit')}</RowButton>
-        {member.status === 'ACTIVE' && (
+        {member.kind === 'GUARD' && <Postings token={token} member={member} />}
+        {member.status === 'ACTIVE' ? (
           <>
+            {member.kind === 'GUARD' && !member.account && (
+              <RowButton onClick={() => onLink(member)}>{t('area.admin.staff.account.create')}</RowButton>
+            )}
             <RowButton onClick={() => onReissue(member)}>{t('area.admin.staff.reissue')}</RowButton>
             <RowButton tone="danger" onClick={() => onDeactivate(member)}>
               {t('shell.deactivate')}
             </RowButton>
           </>
+        ) : (
+          <RowButton onClick={() => onReactivate(member)}>{t('area.admin.staff.reactivate')}</RowButton>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * The gates this guard has been posted to, newest first, read only when asked for.
+ *
+ * The posting is what the backend checks a gate operation against, so the history is where an
+ * Admin sees when a guard was moved and what they could reach before that.
+ */
+function Postings({ token, member }: { token: string; member: Staff }) {
+  const { t } = useTranslation()
+  const [postings, setPostings] = useState<Posting[] | null>(null)
+  const action = useAction()
+
+  if (!postings) {
+    return (
+      <RowButton
+        disabled={action.pending}
+        onClick={() => void action.run(async () => setPostings((await getStaff(token, member.id)).postings))}
+      >
+        {action.error ?? t('area.admin.staff.postings.show')}
+      </RowButton>
+    )
+  }
+
+  const when = (posting: Posting) => ({
+    gate: posting.gateName,
+    from: new Date(posting.startAt).toLocaleDateString(),
+    to: posting.endAt ? new Date(posting.endAt).toLocaleDateString() : t('area.admin.staff.postings.now'),
+  })
+
+  return (
+    <div className="w-full">
+      <p className="text-[12px] font-semibold text-ink">{t('area.admin.staff.postings.title')}</p>
+      {postings.length === 0 ? (
+        <p className="text-[12px] text-muted">{t('area.admin.staff.postings.empty')}</p>
+      ) : (
+        <ul className="text-[12px] text-ink-soft">
+          {postings.map((posting) => (
+            <li key={posting.id}>{t('area.admin.staff.postings.line', when(posting))}</li>
+          ))}
+        </ul>
+      )}
+      <button type="button" onClick={() => setPostings(null)} className="rounded text-[12px] text-brand hover:underline">
+        {t('area.admin.staff.idHide')}
+      </button>
     </div>
   )
 }
@@ -237,7 +306,9 @@ function RevealId({ token, member }: { token: string; member: Staff }) {
 export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: string }) {
   const { t } = useTranslation()
   const [kind, setKind] = useState<StaffKind>(user.permissions.includes('GUARD_MANAGE') ? 'GUARD' : 'DAILY_HELP')
-  const [filters, setFilters] = useState({ search: '', shift: '' })
+  const [filters, setFilters] = useState({ search: '', shift: '', status: '' })
+  const [offset, setOffset] = useState(0)
+  const [loginCode, setLoginCode] = useState<LoginCode | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm())
   const [editing, setEditing] = useState<Staff | null>(null)
   const [open, setOpen] = useState(false)
@@ -259,12 +330,21 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
       ? () =>
           listStaff(accessToken, societyId, {
             kind,
+            limit: PAGE,
+            offset,
             ...(filters.search ? { search: filters.search } : {}),
             ...(filters.shift ? { shift: filters.shift as StaffShift } : {}),
+            ...(filters.status ? { status: filters.status as Status } : {}),
           })
       : null,
-    [accessToken, societyId, kind, filters.search, filters.shift],
+    [accessToken, societyId, kind, filters.search, filters.shift, filters.status, offset],
   )
+
+  /** Any change to what is being looked for starts again at the first page. */
+  const filterBy = (patch: Partial<typeof filters>) => {
+    setFilters((previous) => ({ ...previous, ...patch }))
+    setOffset(0)
+  }
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((previous) => ({ ...previous, [key]: value }))
 
@@ -353,6 +433,18 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
     if (await action.run(() => reissuePass(accessToken, member.id))) staff.reload()
   }
 
+  /** Gives a guard the login they sign in with; a brand-new account comes with a code to hand over. */
+  async function handleLink(member: Staff) {
+    const ok = await action.run(async () => {
+      setLoginCode((await linkAccount(accessToken, member.id)).loginCode)
+    })
+    if (ok) staff.reload()
+  }
+
+  async function handleReactivate(member: Staff) {
+    if (await action.run(() => updateStaff(accessToken, member.id, { status: 'ACTIVE' }))) staff.reload()
+  }
+
   if (societies.loading) return <Skeleton rows={5} />
   if (societies.error) return <ErrorState message={societies.error} onRetry={societies.reload} />
 
@@ -383,11 +475,14 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
         active={activeKind}
         onSelect={(key) => {
           setKind(key as StaffKind)
+          setOffset(0)
           setOpen(false)
         }}
       />
 
       {saved && <SuccessNote message={t('area.admin.staff.saved', { name: saved })} onDismiss={() => setSaved(null)} />}
+      {loginCode && <LoginCodeNote loginCode={loginCode} onDismiss={() => setLoginCode(null)} />}
+      {action.error && <ErrorState message={action.error} />}
 
       <Panel title={t(`area.admin.staff.kinds.${activeKind}`)} description={t('area.admin.staff.listDescription')}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -395,7 +490,7 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
             id="staff-search"
             label={t('area.admin.staff.search')}
             value={filters.search}
-            onChange={(event) => setFilters({ ...filters, search: event.target.value })}
+            onChange={(event) => filterBy({ search: event.target.value })}
             placeholder={t('area.admin.staff.searchPlaceholder')}
             maxLength={60}
           />
@@ -406,21 +501,55 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
               options={SHIFTS.map((value) => ({ value, label: t(`area.admin.staff.shifts.${value}`) }))}
               placeholder={t('area.admin.staff.allShifts')}
               value={filters.shift}
-              onChange={(event) => setFilters({ ...filters, shift: event.target.value })}
+              onChange={(event) => filterBy({ shift: event.target.value })}
             />
           )}
+          <Select
+            id="staff-status"
+            label={t('area.admin.staff.status')}
+            options={STATUSES.map((value) => ({ value, label: t(`area.admin.society.status.${value}`) }))}
+            placeholder={t('area.admin.staff.allStatuses')}
+            value={filters.status}
+            onChange={(event) => filterBy({ status: event.target.value })}
+          />
         </div>
 
         {staff.loading ? (
           <Skeleton rows={3} />
         ) : staff.error ? (
           <ErrorState message={staff.error} onRetry={staff.reload} />
-        ) : staff.data?.length ? (
-          <div className="overflow-hidden rounded-xl border border-line [&>*:first-child]:border-t-0">
-            {staff.data.map((member) => (
-              <StaffRow key={member.id} member={member} token={accessToken} onEdit={startEdit} onDeactivate={deactivate.ask} onReissue={handleReissue} />
-            ))}
-          </div>
+        ) : staff.data?.staff.length ? (
+          <>
+            <div className="overflow-hidden rounded-xl border border-line [&>*:first-child]:border-t-0">
+              {staff.data.staff.map((member) => (
+                <StaffRow
+                  key={member.id}
+                  member={member}
+                  token={accessToken}
+                  onEdit={startEdit}
+                  onDeactivate={deactivate.ask}
+                  onReactivate={handleReactivate}
+                  onReissue={handleReissue}
+                  onLink={handleLink}
+                />
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="flex-1 text-[12px] text-muted">
+                {t('area.admin.staff.showing', {
+                  from: offset + 1,
+                  to: offset + staff.data.staff.length,
+                  total: staff.data.total,
+                })}
+              </p>
+              <RowButton disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
+                {t('area.admin.staff.previous')}
+              </RowButton>
+              <RowButton disabled={offset + PAGE >= staff.data.total} onClick={() => setOffset(offset + PAGE)}>
+                {t('area.admin.staff.next')}
+              </RowButton>
+            </div>
+          </>
         ) : (
           <EmptyState icon={Contact} title={t('area.admin.staff.empty.title')} description={t('area.admin.staff.empty.description')} />
         )}

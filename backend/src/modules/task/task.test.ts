@@ -2,8 +2,7 @@ import request from 'supertest'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { auditLogs, staff } from '../../db/schema.js'
-import { createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { createFlat, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
 const MISSING_ID = '44444444-4444-4444-8444-444444444444'
@@ -32,7 +31,7 @@ beforeEach(async () => {
   await createFlat(OTHER_SOCIETY_ID, '501')
   const admin = await createUser({ phone: '9000000001', email: null, role: 'ADMIN' })
   await grantPermissions(admin.id, ['SOCIETY_MANAGE'])
-  auth = `Bearer ${await signAccessToken({ userId: admin.id, sessionId: 's1', role: 'ADMIN', societyId: TEST_SOCIETY_ID })}`
+  auth = `Bearer ${await signTestToken({ userId: admin.id, role: 'ADMIN', societyId: TEST_SOCIETY_ID })}`
   const [member] = await db
     .insert(staff)
     .values({ societyId: TEST_SOCIETY_ID, kind: 'VENDOR', name: 'Mahesh the plumber', phone: '9870000001', workType: 'Plumbing', passCode: 'CK-TESTVEND1' })
@@ -45,7 +44,7 @@ describe('authorization', () => {
     const resident = await createUser({ phone: '9000000002', email: null })
 
     expect((await request(app).get(`/api/v1${tasks}`)).status).toBe(401)
-    const token = `Bearer ${await signAccessToken({ userId: resident.id, sessionId: 's1', role: 'RESIDENT', societyId: TEST_SOCIETY_ID })}`
+    const token = `Bearer ${await signTestToken({ userId: resident.id, role: 'RESIDENT', societyId: TEST_SOCIETY_ID })}`
     expect((await api.get(tasks, token)).body.error.code).toBe('PERMISSION_DENIED')
   })
 

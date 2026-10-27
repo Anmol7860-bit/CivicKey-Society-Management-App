@@ -31,11 +31,10 @@ function callsTo(fetch: ReturnType<typeof fakeApi>, endpoint: Endpoint) {
   return fetch.mock.calls.filter(([url]) => url.endsWith(`/${endpoint}`))
 }
 
-async function signInAs(role: string, label: string) {
+async function signInAs(role: string) {
   fakeApi({ login: [ok(session(role, 'secret-access-jwt'))] })
   render(<App />)
-  await userEvent.click(await screen.findByRole('radio', { name: label }))
-  await userEvent.type(screen.getByLabelText('Phone number'), '9876543210')
+  await userEvent.type(await screen.findByLabelText('Phone number'), '9876543210')
   await userEvent.type(screen.getByLabelText('Password'), 'Resident@123')
   await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 }
@@ -64,11 +63,11 @@ describe('App routing', () => {
   })
 
   it.each([
-    ['ADMIN', 'Admin', '/admin/overview', 'Community overview'],
-    ['RESIDENT', 'Resident', '/resident/overview', /, Riya$/],
-    ['GUARD', 'Guard', '/guard/operations', 'Gate operations'],
-  ])('sends a %s to their dashboard after login', async (role, label, path, heading) => {
-    await signInAs(role, label)
+    ['ADMIN', '/admin/overview', 'Community overview'],
+    ['RESIDENT', '/resident/overview', /, Riya$/],
+    ['GUARD', '/guard/operations', 'Gate operations'],
+  ])('sends a %s to their dashboard after login', async (role, path, heading) => {
+    await signInAs(role)
 
     expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
     expect(window.location.pathname).toBe(path)
@@ -80,7 +79,7 @@ describe('App routing', () => {
     ['RESIDENT', 'Resident', ['/admin/overview', '/guard/operations']],
     ['GUARD', 'Guard', ['/admin/overview', '/resident/overview']],
   ])('shows Access Denied when a %s opens another role’s area', async (role, label, others) => {
-    await signInAs(role, label)
+    await signInAs(role)
     await screen.findByRole('navigation', { name: 'Main navigation' })
 
     for (const path of others) {
@@ -91,7 +90,7 @@ describe('App routing', () => {
   })
 
   it('keeps the access token out of browser storage', async () => {
-    await signInAs('RESIDENT', 'Resident')
+    await signInAs('RESIDENT')
     await screen.findByRole('heading', { name: /, Riya$/ })
 
     const stored = JSON.stringify({ ...localStorage, ...sessionStorage }) + document.cookie

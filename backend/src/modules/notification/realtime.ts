@@ -12,6 +12,8 @@ let io: Server | null = null
 /** A person's own room. Derived from the verified token, never from anything the client sends. */
 const roomForUser = (userId: string) => `user:${userId}`
 const roomForSociety = (societyId: string) => `society:${societyId}`
+/** One session's own room, so a logout on one device leaves the others connected. */
+const roomForSession = (sessionId: string) => `session:${sessionId}`
 
 /**
  * Starts the realtime server.
@@ -31,12 +33,13 @@ export function attachRealtime(server: HttpServer) {
     const token = socket.handshake.auth?.token
     if (typeof token !== 'string' || !token) return next(new Error('Authentication required'))
     try {
-      const { sub } = await verifyAccessToken(token)
-      if (typeof sub !== 'string') return next(new Error('Authentication failed'))
+      const { sub, sid } = await verifyAccessToken(token)
+      if (typeof sub !== 'string' || typeof sid !== 'string') return next(new Error('Authentication failed'))
       // Read the society from the database, not the token: a token outlives a transfer
       const [user] = await db.select({ societyId: users.societyId, isActive: users.isActive }).from(users).where(eq(users.id, sub))
       if (!user?.isActive) return next(new Error('Authentication failed'))
       socket.data.userId = sub
+      socket.data.sessionId = sid
       socket.data.societyId = user.societyId
       next()
     } catch {
@@ -45,8 +48,9 @@ export function attachRealtime(server: HttpServer) {
   })
 
   io.on('connection', (socket) => {
-    const { userId, societyId } = socket.data as { userId: string; societyId: string | null }
+    const { userId, sessionId, societyId } = socket.data as { userId: string; sessionId: string; societyId: string | null }
     void socket.join(roomForUser(userId))
+    void socket.join(roomForSession(sessionId))
     if (societyId) void socket.join(roomForSociety(societyId))
     // There is no join handler on purpose: rooms are assigned above and cannot be requested
     socket.on('error', (error) => logger.debug({ err: error }, 'Socket error'))
@@ -65,9 +69,9 @@ export function emitToSociety(societyId: string, event: string, payload: unknown
   io?.to(roomForSociety(societyId)).emit(event, payload)
 }
 
-/** Drops every connection for one person, so a logout does not leave a live socket behind. */
-export function disconnectUser(userId: string) {
-  io?.in(roomForUser(userId)).disconnectSockets(true)
+/** Drops the connections a logged-out session left behind. Its other sessions stay connected. */
+export function disconnectSession(sessionId: string) {
+  io?.in(roomForSession(sessionId)).disconnectSockets(true)
 }
 
 export async function closeRealtime() {

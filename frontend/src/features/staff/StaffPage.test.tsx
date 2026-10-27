@@ -51,9 +51,13 @@ const guard = (overrides: Partial<Staff> = {}): Staff => ({
   passValidFrom: '2026-01-01',
   passValidUntil: null,
   status: 'ACTIVE',
+  account: null,
   flatsServed: [],
   ...overrides,
 })
+
+/** One page of the list, as the API returns it */
+const page = (...rows: Staff[]) => ({ total: rows.length, staff: rows })
 
 function show(permissions: Permission[] = ['GUARD_MANAGE', 'STAFF_MANAGE']) {
   render(<StaffPage user={user(permissions)} accessToken="token" />)
@@ -78,7 +82,7 @@ beforeEach(() => {
       },
     ],
   })
-  mocked.listStaff.mockResolvedValue([guard()])
+  mocked.listStaff.mockResolvedValue(page(guard()))
 })
 
 it('lists guards with their gate, shift, verification and pass code', async () => {
@@ -107,7 +111,13 @@ it('filters the list by the search box and the shift', async () => {
   await userEvent.selectOptions(screen.getByLabelText(/^Shift/), 'NIGHT')
 
   await waitFor(() =>
-    expect(mocked.listStaff).toHaveBeenLastCalledWith('token', 's1', { kind: 'GUARD', search: 'mahesh', shift: 'NIGHT' }),
+    expect(mocked.listStaff).toHaveBeenLastCalledWith('token', 's1', {
+      kind: 'GUARD',
+      search: 'mahesh',
+      shift: 'NIGHT',
+      limit: 25,
+      offset: 0,
+    }),
   )
 })
 
@@ -196,9 +206,7 @@ it('scrolls the form into view when Add staff is pressed', async () => {
 })
 
 it('shows the captured ID number only after a reason is given', async () => {
-  mocked.listStaff.mockResolvedValue([
-    guard({ idDocumentOnFile: true, idDocumentType: 'AADHAAR', idDocumentLast4: '9012' }),
-  ])
+  mocked.listStaff.mockResolvedValue(page(guard({ idDocumentOnFile: true, idDocumentType: 'AADHAAR', idDocumentLast4: '9012' })))
   mocked.revealIdNumber.mockResolvedValue({ idDocumentType: 'AADHAAR', idNumber: '123456789012' })
   show()
 
@@ -208,4 +216,55 @@ it('shows the captured ID number only after a reason is given', async () => {
 
   expect(await screen.findByText('123456789012')).toBeInTheDocument()
   expect(mocked.revealIdNumber).toHaveBeenCalledWith('token', 'st1', 'Police verification visit')
+})
+
+it('creates the login a guard signs in with and shows the code to hand over', async () => {
+  const account = { id: 'u9', name: 'Mahesh Patil', isActive: true }
+  mocked.linkAccount.mockResolvedValue({
+    ...guard({ account }),
+    account,
+    loginCode: { code: 'MWRT-4K9P-2BHD', expiresAt: '2026-10-30T10:00:00.000Z', user: { id: 'u9', name: 'Mahesh Patil' } },
+  })
+  show()
+
+  expect(await screen.findByText('No login yet')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Create login' }))
+
+  expect(await screen.findByText('MWRT-4K9P-2BHD')).toBeInTheDocument()
+  expect(mocked.linkAccount).toHaveBeenCalledWith('token', 'st1')
+})
+
+it('offers to reactivate an inactive staff member instead of editing the status by hand', async () => {
+  mocked.listStaff.mockResolvedValue(page(guard({ status: 'INACTIVE' })))
+  mocked.updateStaff.mockResolvedValue(guard())
+  show()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Reactivate' }))
+
+  expect(mocked.updateStaff).toHaveBeenCalledWith('token', 'st1', { status: 'ACTIVE' })
+})
+
+it('reads the gate postings of a guard on request', async () => {
+  mocked.getStaff.mockResolvedValue({
+    ...guard(),
+    postings: [{ id: 'p1', gateId: 'g1', gateName: 'Main gate', startAt: '2026-10-01T04:00:00.000Z', endAt: null }],
+  })
+  show()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Gate postings' }))
+
+  expect(await screen.findByText(/Main gate · .* to now/)).toBeInTheDocument()
+  expect(mocked.getStaff).toHaveBeenCalledWith('token', 'st1')
+})
+
+it('asks for one page at a time and says how many there are', async () => {
+  mocked.listStaff.mockResolvedValue({ total: 30, staff: [guard()] })
+  show()
+
+  expect(await screen.findByText('Showing 1–1 of 30')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+  await waitFor(() =>
+    expect(mocked.listStaff).toHaveBeenLastCalledWith('token', 's1', expect.objectContaining({ offset: 25 })),
+  )
 })

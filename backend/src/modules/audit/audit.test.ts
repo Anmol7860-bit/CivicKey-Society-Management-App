@@ -2,8 +2,7 @@ import request from 'supertest'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { societies } from '../../db/schema.js'
-import { createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
 const app = createApp()
@@ -11,7 +10,7 @@ const app = createApp()
 let auth: string
 
 async function tokenFor(user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) {
-  return `Bearer ${await signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID })}`
+  return `Bearer ${await signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID })}`
 }
 
 const api = {

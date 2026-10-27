@@ -32,8 +32,9 @@ function countPeople(residents: Resident[]) {
   }
 }
 
-function countStaff(members: Staff[]) {
-  return { total: members.length, ...Object.fromEntries(KINDS.map((kind) => [kind, members.filter((member) => member.kind === kind).length])) } as {
+// ponytail: the split by kind counts the page that was read; raise the limit if a society ever has more
+function countStaff({ total, staff }: { total: number; staff: Staff[] }) {
+  return { total, ...Object.fromEntries(KINDS.map((kind) => [kind, staff.filter((member) => member.kind === kind).length])) } as {
     total: number
   } & Record<StaffKind, number>
 }
@@ -73,7 +74,7 @@ export function useAdminSummary(user: AuthUser, accessToken: string) {
     [accessToken, societyId],
   )
   const staff = useResource(
-    societyId && has(user, 'GUARD_MANAGE', 'STAFF_MANAGE') ? () => listStaff(accessToken, societyId, { status: 'ACTIVE' }) : null,
+    societyId && has(user, 'GUARD_MANAGE', 'STAFF_MANAGE') ? () => listStaff(accessToken, societyId, { status: 'ACTIVE', limit: 100 }) : null,
     [accessToken, societyId],
   )
   const invoices = useResource(

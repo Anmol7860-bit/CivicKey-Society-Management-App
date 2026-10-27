@@ -1,4 +1,4 @@
-import { and, eq, getTableColumns, isNull } from 'drizzle-orm'
+import { and, eq, getTableColumns, inArray, isNull } from 'drizzle-orm'
 import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
 import { authSessions, refreshTokens, roles, userRoles, users, type Role, type User } from '../../db/schema.js'
@@ -100,6 +100,33 @@ async function revokeSession(executor: DbExecutor, sessionId: string, reason: st
     .set({ revokedAt: now })
     .where(and(eq(refreshTokens.sessionId, sessionId), isNull(refreshTokens.revokedAt)))
   return revoked.length > 0
+}
+
+/**
+ * Ends every live session of one account and the refresh tokens inside them, and says how many
+ * there were. Used wherever access is withdrawn: a password change, a staff member deactivated.
+ */
+export async function revokeAllSessions(executor: DbExecutor, userId: string, reason: string, now = new Date()) {
+  const revoked = await executor
+    .update(authSessions)
+    .set({ revokedAt: now, revokedReason: reason })
+    .where(and(eq(authSessions.userId, userId), isNull(authSessions.revokedAt)))
+    .returning({ id: authSessions.id })
+  if (revoked.length > 0) {
+    await executor
+      .update(refreshTokens)
+      .set({ revokedAt: now })
+      .where(
+        and(
+          inArray(
+            refreshTokens.sessionId,
+            revoked.map((session) => session.id),
+          ),
+          isNull(refreshTokens.revokedAt),
+        ),
+      )
+  }
+  return revoked.length
 }
 
 // ---------------------------------------------------------------------------

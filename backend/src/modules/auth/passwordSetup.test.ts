@@ -3,8 +3,7 @@ import request from 'supertest'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { auditLogs, authSessions, passwordSetupCodes, users } from '../../db/schema.js'
-import { createFlat, createUser, grantPermissions, PASSWORD, postLogin, TEST_SOCIETY_ID, type App } from '../../test/helpers.js'
-import { signAccessToken } from './tokens.js'
+import { createFlat, createUser, grantPermissions, PASSWORD, postLogin, TEST_SOCIETY_ID, type App, signTestToken } from '../../test/helpers.js'
 
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
 const NEW_PASSWORD = 'Monsoon2026rain'
@@ -17,7 +16,7 @@ let flatId: string
 async function adminToken(societyId = TEST_SOCIETY_ID, phone = '9000000001') {
   const admin = await createUser({ phone, email: null, role: 'ADMIN', societyId })
   await grantPermissions(admin.id, ['USER_MANAGE'])
-  return `Bearer ${await signAccessToken({ userId: admin.id, sessionId: 's1', role: 'ADMIN', societyId })}`
+  return `Bearer ${await signTestToken({ userId: admin.id, role: 'ADMIN', societyId })}`
 }
 
 const api = {
@@ -106,7 +105,7 @@ describe('POST /api/v1/users/:userId/login-code', () => {
     const resident = await createUser({ phone: '9000000009', email: null })
 
     expect((await api.post(`/users/${user.id}/login-code`)).status).toBe(401)
-    const asResident = `Bearer ${await signAccessToken({ userId: resident.id, sessionId: 's1', role: 'RESIDENT', societyId: TEST_SOCIETY_ID })}`
+    const asResident = `Bearer ${await signTestToken({ userId: resident.id, role: 'RESIDENT', societyId: TEST_SOCIETY_ID })}`
     expect((await api.post(`/users/${user.id}/login-code`, {}, asResident)).status).toBe(403)
 
     await createFlat(OTHER_SOCIETY_ID, '501')

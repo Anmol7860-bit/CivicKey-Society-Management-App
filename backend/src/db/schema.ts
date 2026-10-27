@@ -498,6 +498,8 @@ export const staff = pgTable(
       .notNull()
       .references(() => societies.id),
     kind: staffKind('kind').notNull(),
+    /** The account this guard signs in with; daily help and vendors never get one */
+    userId: uuid('user_id').references(() => users.id),
     name: varchar('name', { length: 120 }).notNull(),
     phone: varchar('phone', { length: 15 }).notNull(),
     /** Maid, Cook, Driver, Plumber: free text, since a society hires in more ways than an enum holds */
@@ -529,6 +531,9 @@ export const staff = pgTable(
   },
   (table) => [
     unique('staff_society_id_phone_unique').on(table.societyId, table.phone),
+    // One account, one staff profile: an ambiguous mapping is rejected rather than guessed at
+    unique('staff_user_id_unique').on(table.userId),
+    check('staff_user_only_for_guards', sql`${table.userId} is null or ${table.kind} = 'GUARD'`),
     index('staff_society_id_kind_idx').on(table.societyId, table.kind),
     check('staff_phone_digits', sql`${table.phone} ~ '^[6-9][0-9]{9}$'`),
     check('staff_name_trimmed', sql`${table.name} = btrim(${table.name}) and ${table.name} <> ''`),

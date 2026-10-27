@@ -4,9 +4,8 @@ import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { auditLogs, flatResidents, users } from '../../db/schema.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
-import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
+import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 import { assertFlatAccess } from '../access/scope.js'
-import { signAccessToken } from '../auth/tokens.js'
 
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
 const MISSING_ID = '44444444-4444-4444-8444-444444444444'
@@ -16,7 +15,7 @@ let auth: string
 let flatId: string
 
 async function tokenFor(user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) {
-  return `Bearer ${await signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID })}`
+  return `Bearer ${await signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID })}`
 }
 
 const api = {

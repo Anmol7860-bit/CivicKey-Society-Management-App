@@ -1,4 +1,4 @@
-import { call, type Gender, type IdDocumentType, type Status } from '../society/api'
+import { call, type Gender, type IdDocumentType, type LoginCode, type Status } from '../society/api'
 
 export type StaffKind = 'GUARD' | 'DAILY_HELP' | 'VENDOR'
 export type StaffShift = 'MORNING' | 'EVENING' | 'NIGHT' | 'FULL_DAY'
@@ -11,6 +11,22 @@ export interface FlatServed {
   number?: string
   blockName?: string
   timeWindow?: string | null
+}
+
+/** The application account a guard signs in with. Daily help and vendors never have one. */
+export interface StaffAccount {
+  id: string
+  name: string
+  isActive: boolean
+}
+
+/** One stretch of time a guard was posted to a gate; the open one has no `endAt`. */
+export interface Posting {
+  id: string
+  gateId: string
+  gateName: string
+  startAt: string
+  endAt: string | null
 }
 
 export interface Staff {
@@ -38,7 +54,12 @@ export interface Staff {
   passValidFrom: string
   passValidUntil: string | null
   status: Status
+  account: StaffAccount | null
   flatsServed: FlatServed[]
+}
+
+export interface StaffDetail extends Staff {
+  postings: Posting[]
 }
 
 export interface StaffBody {
@@ -68,12 +89,27 @@ export interface StaffFilters {
   search?: string
   shift?: StaffShift
   status?: Status
+  limit?: number
+  offset?: number
 }
 
+/** One page of the society's staff, with the total behind it so the page count is known. */
 export function listStaff(token: string, societyId: string, filters: StaffFilters = {}) {
-  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString()
-  return call<Staff[]>(token, 'GET', `/societies/${societyId}/staff${query ? `?${query}` : ''}`)
+  const query = new URLSearchParams(
+    Object.entries(filters)
+      .filter(([, value]) => value !== undefined && value !== '')
+      .map(([key, value]) => [key, String(value)]),
+  ).toString()
+  return call<{ total: number; staff: Staff[] }>(token, 'GET', `/societies/${societyId}/staff${query ? `?${query}` : ''}`)
 }
+/** One profile in full: the account behind it and every gate it has been posted to. */
+export const getStaff = (token: string, id: string) => call<StaffDetail>(token, 'GET', `/staff/${id}`)
+/**
+ * Gives a guard the account they sign in with. A brand-new account comes back with the one-time
+ * code the office hands over; an account that already existed keeps its own password.
+ */
+export const linkAccount = (token: string, id: string) =>
+  call<Staff & { account: StaffAccount; loginCode: LoginCode | null }>(token, 'POST', `/staff/${id}/account`)
 export const createStaff = (token: string, societyId: string, body: StaffBody & { kind: StaffKind; name: string; phone: string }) =>
   call<Staff>(token, 'POST', `/societies/${societyId}/staff`, body)
 export const updateStaff = (token: string, id: string, body: StaffBody) => call<Staff>(token, 'PUT', `/staff/${id}`, body)

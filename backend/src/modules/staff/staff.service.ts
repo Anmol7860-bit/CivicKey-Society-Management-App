@@ -1,11 +1,15 @@
 import { randomBytes } from 'node:crypto'
-import { and, asc, eq, ilike, inArray, or } from 'drizzle-orm'
+import { and, asc, count, desc, eq, ilike, inArray, isNull, or } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { blocks, flats, gates, societies, staff, staffFlats } from '../../db/schema.js'
+import { blocks, flats, gates, guardGateAssignments, societies, staff, staffFlats, users } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { decryptIdNumber, identityOf, withoutHash } from '../access/identity.js'
+import { assignRole, loadRole } from '../access/permissions.js'
 import { assertState, deny, permissionDenied, requireRecord, UUID } from '../access/scope.js'
+import { revokeAllSessions } from '../auth/auth.service.js'
+import { hashPassword } from '../auth/password.js'
+import { issueSetupCode } from '../auth/passwordSetup.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import { requireFile } from '../file/file.service.js'
 import { idRequired } from '../society/society.service.js'
@@ -75,6 +79,65 @@ async function assertGateInSociety(tx: DbExecutor, societyId: string, gateId: st
   const [gate] = await tx.select().from(gates).where(eq(gates.id, gateId))
   if (!gate || gate.societyId !== societyId) throw new AppError(404, 'NOT_FOUND', 'Gate not found')
   assertState(gate.status === 'ACTIVE', 'This gate is inactive, so nobody can be posted to it')
+}
+
+type StaffRow = typeof staff.$inferSelect
+
+/**
+ * Puts a guard's account on the gate their profile names and closes the posting they were on.
+ *
+ * The posting in guard_gate_assignments is what a gate operation is checked against, so it is
+ * written wherever the gate on the profile changes rather than left for someone to insert by
+ * hand. A guard with no account yet gets their posting when the account is linked.
+ */
+async function postToGate(tx: DbExecutor, ctx: AuthContext, member: StaffRow, gateId: string | null) {
+  if (!member.userId) return
+  const open = await tx
+    .select({ id: guardGateAssignments.id, gateId: guardGateAssignments.gateId })
+    .from(guardGateAssignments)
+    .where(and(eq(guardGateAssignments.guardUserId, member.userId), isNull(guardGateAssignments.endAt)))
+  if (open.length === 1 && open[0]!.gateId === gateId) return
+
+  const now = new Date()
+  if (open.length > 0) {
+    await tx
+      .update(guardGateAssignments)
+      .set({ endAt: now })
+      .where(and(eq(guardGateAssignments.guardUserId, member.userId), isNull(guardGateAssignments.endAt)))
+  }
+  if (gateId) {
+    await tx
+      .insert(guardGateAssignments)
+      .values({ guardUserId: member.userId, gateId, assignedBy: ctx.userId, startAt: now })
+  }
+  await audit(tx, ctx, 'STAFF_POSTED_TO_GATE', { societyId: member.societyId, staffId: member.id, gateId })
+}
+
+/** Every gate this guard has been posted to, newest first: the assignment history of the profile. */
+async function postingsFor(userId: string | null) {
+  if (!userId) return []
+  return db
+    .select({
+      id: guardGateAssignments.id,
+      gateId: guardGateAssignments.gateId,
+      gateName: gates.name,
+      startAt: guardGateAssignments.startAt,
+      endAt: guardGateAssignments.endAt,
+    })
+    .from(guardGateAssignments)
+    .innerJoin(gates, eq(gates.id, guardGateAssignments.gateId))
+    .where(eq(guardGateAssignments.guardUserId, userId))
+    .orderBy(desc(guardGateAssignments.startAt))
+}
+
+/** The accounts behind a page of staff, so the list can show who cannot sign in yet. */
+async function accountsFor(userIds: string[]) {
+  if (userIds.length === 0) return new Map<string, { id: string; name: string; isActive: boolean }>()
+  const rows = await db
+    .select({ id: users.id, name: users.name, isActive: users.isActive })
+    .from(users)
+    .where(inArray(users.id, userIds))
+  return new Map(rows.map((row) => [row.id, row]))
 }
 
 async function replaceFlats(tx: DbExecutor, staffId: string, served: CreateStaffBody['flatsServed']) {
@@ -155,29 +218,54 @@ export async function listStaff(ctx: AuthContext, societyId: string, query: List
     })
 
   const search = query.search?.trim()
+  const where = and(
+    eq(staff.societyId, societyId),
+    inArray(staff.kind, kinds),
+    ...[
+      query.shift ? eq(staff.shift, query.shift) : undefined,
+      query.status ? eq(staff.status, query.status) : undefined,
+      search ? or(ilike(staff.name, `%${search}%`), ilike(staff.phone, `%${search}%`)) : undefined,
+    ].filter(present),
+  )
+  // The page is small by default: a society's staff list is read on a phone over a slow line
+  const limit = query.limit ?? 25
+  const offset = query.offset ?? 0
+  const [counted] = await db.select({ total: count() }).from(staff).where(where)
   const rows = await db
     .select({ staff, gateName: gates.name })
     .from(staff)
     .leftJoin(gates, eq(gates.id, staff.gateId))
-    .where(
-      and(
-        eq(staff.societyId, societyId),
-        inArray(staff.kind, kinds),
-        ...[
-          query.shift ? eq(staff.shift, query.shift) : undefined,
-          query.status ? eq(staff.status, query.status) : undefined,
-          search ? or(ilike(staff.name, `%${search}%`), ilike(staff.phone, `%${search}%`)) : undefined,
-        ].filter(present),
-      ),
-    )
-    .orderBy(asc(staff.name))
+    .where(where)
+    .orderBy(asc(staff.name), asc(staff.id))
+    .limit(limit)
+    .offset(offset)
 
   const byStaff = await flatsFor(rows.map((row) => row.staff.id))
-  return rows.map((row) => ({
-    ...withoutHash(row.staff),
-    gateName: row.gateName,
-    flatsServed: byStaff.get(row.staff.id) ?? [],
-  }))
+  const accounts = await accountsFor(rows.map((row) => row.staff.userId).filter((id) => id !== null))
+  return {
+    total: counted?.total ?? 0,
+    staff: rows.map((row) => ({
+      ...withoutHash(row.staff),
+      gateName: row.gateName,
+      account: row.staff.userId ? (accounts.get(row.staff.userId) ?? null) : null,
+      flatsServed: byStaff.get(row.staff.id) ?? [],
+    })),
+  }
+}
+
+/** One staff profile in full, with the account behind it and every gate it has been posted to. */
+export async function getStaff(ctx: AuthContext, id: string) {
+  const member = await loadStaff(db, ctx, id)
+  await assertMayManage(ctx, member.kind)
+  const [gate] = member.gateId ? await db.select({ name: gates.name }).from(gates).where(eq(gates.id, member.gateId)) : []
+  const accounts = await accountsFor(member.userId ? [member.userId] : [])
+  return {
+    ...withoutHash(member),
+    gateName: gate?.name ?? null,
+    account: member.userId ? (accounts.get(member.userId) ?? null) : null,
+    flatsServed: (await flatsFor([member.id])).get(member.id) ?? [],
+    postings: await postingsFor(member.userId),
+  }
 }
 
 /** Registers a staff member and issues the pass the guard checks at the gate. */
@@ -263,7 +351,110 @@ export function updateStaff(ctx: AuthContext, id: string, body: UpdateStaffBody)
       changes,
       reason,
     })
+    await applyStatus(tx, ctx, current, updated!, reason)
     return { ...withoutHash(updated!), flatsServed: flatsServed ?? [] }
+  })
+}
+
+/**
+ * What a change of status does beyond the column.
+ *
+ * Deactivating has to reach the account as well: the profile going inactive is worth nothing
+ * while the guard's access token is still accepted, so the posting is closed, the account is
+ * switched off and every live session and refresh token of it is revoked. Reactivating restores
+ * the account and puts the guard back on the gate the profile names, if that gate is still open.
+ */
+async function applyStatus(tx: DbExecutor, ctx: AuthContext, before: StaffRow, after: StaffRow, reason?: string) {
+  if (after.status === 'INACTIVE' && before.status === 'ACTIVE') {
+    await postToGate(tx, ctx, after, null)
+    const sessionsRevoked = after.userId ? await revokeAllSessions(tx, after.userId, 'STAFF_DEACTIVATED') : 0
+    if (after.userId) {
+      await tx.update(users).set({ isActive: false, updatedAt: new Date() }).where(eq(users.id, after.userId))
+    }
+    await audit(tx, ctx, 'STAFF_DEACTIVATED', {
+      societyId: after.societyId,
+      staffId: after.id,
+      userId: after.userId,
+      sessionsRevoked,
+      reason,
+    })
+    return
+  }
+  if (after.status === 'ACTIVE' && before.status === 'INACTIVE') {
+    if (after.gateId) await assertGateInSociety(tx, after.societyId, after.gateId)
+    if (after.userId) {
+      await tx.update(users).set({ isActive: true, updatedAt: new Date() }).where(eq(users.id, after.userId))
+    }
+    await postToGate(tx, ctx, after, after.gateId)
+    await audit(tx, ctx, 'STAFF_REACTIVATED', { societyId: after.societyId, staffId: after.id, userId: after.userId })
+    return
+  }
+  // An ordinary edit that moved the guard to another gate: the posting follows the profile
+  if (after.status === 'ACTIVE' && after.gateId !== before.gateId) await postToGate(tx, ctx, after, after.gateId)
+}
+
+/**
+ * Gives a guard the account they sign in with, or links the one they already have.
+ *
+ * The profile on its own authorizes nothing: the account is what carries the GUARD role and this
+ * society, and a guard cannot use a guard function until it exists. A new account leaves with a
+ * one-time code for the office to hand over; an account that already exists keeps its password.
+ */
+export function linkAccount(ctx: AuthContext, id: string) {
+  return db.transaction(async (tx) => {
+    const member = await loadStaff(tx, ctx, id, 'update')
+    await assertMayManage(ctx, member.kind)
+    assertState(member.kind === 'GUARD', 'Only a guard signs in to the app, so only a guard is given an account')
+    assertState(member.status === 'ACTIVE', 'This staff member is inactive, so no account can be linked')
+    if (member.userId) throw new AppError(409, 'ALREADY_EXISTS', 'This guard already has an account')
+
+    const [existing] = await tx
+      .select({ id: users.id, name: users.name, societyId: users.societyId, isActive: users.isActive })
+      .from(users)
+      .where(eq(users.phone, member.phone))
+    if (existing) {
+      assertState(existing.societyId === member.societyId, 'This mobile number is registered in another society')
+      assertState(existing.isActive, 'That account is deactivated')
+      // An account that is already a resident's or an Admin's is not quietly turned into a guard
+      const role = await loadRole(tx, existing.id)
+      assertState(role === undefined || role === 'GUARD', 'That account is already in use by someone else')
+    }
+    let account: { id: string; name: string } | undefined = existing
+    if (!account) {
+      const created = await unique(
+        tx
+          .insert(users)
+          .values({
+            name: member.name,
+            phone: member.phone,
+            societyId: member.societyId,
+            // Unusable by design: the guard gets in through the one-time code issued below
+            passwordHash: await hashPassword(randomBytes(32).toString('hex')),
+          })
+          .returning({ id: users.id, name: users.name }),
+        'Someone with this mobile number already has an account',
+      )
+      account = created[0]!
+    }
+
+    await assignRole(tx, account.id, 'GUARD')
+    const [updated] = await unique(
+      tx.update(staff).set({ userId: account.id, updatedAt: new Date() }).where(eq(staff.id, id)).returning(),
+      'That account is already linked to another staff member',
+    )
+    const loginCode = existing ? null : await issueSetupCode(ctx, account.id, tx)
+    await postToGate(tx, ctx, updated!, updated!.gateId)
+    await audit(tx, ctx, 'STAFF_ACCOUNT_LINKED', {
+      societyId: member.societyId,
+      staffId: id,
+      userId: account.id,
+      created: !existing,
+    })
+    return {
+      ...withoutHash(updated!),
+      account: { id: account.id, name: account.name, isActive: true },
+      loginCode,
+    }
   })
 }
 

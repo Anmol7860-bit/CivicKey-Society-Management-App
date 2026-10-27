@@ -32,7 +32,8 @@ export default defineConfig({
       command: 'npx tsx --env-file=.env src/server.ts',
       cwd: '../backend',
       url: `http://localhost:${API_PORT}/api/v1/health`,
-      env: { PORT: String(API_PORT), LOGIN_RATE_LIMIT_MAX: '50' },
+      // 54 tests sign in from one address, so both caps are raised well past what a run needs
+      env: { PORT: String(API_PORT), LOGIN_RATE_LIMIT_MAX: '50', LOGIN_RATE_LIMIT_IP_MAX: '1000' },
       reuseExistingServer: false,
     },
     {

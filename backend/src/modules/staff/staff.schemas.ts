@@ -103,6 +103,9 @@ export const listStaffSchema = z.strictObject({
   search: z.string().trim().max(60).optional(),
   shift: shift.optional(),
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  /** The list is read on a phone, so it comes a page at a time rather than whole */
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
 })
 
 export type CreateStaffBody = z.infer<typeof createStaffSchema>

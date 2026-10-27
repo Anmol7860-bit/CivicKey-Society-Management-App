@@ -8,8 +8,7 @@ import { errorHandler } from '../../middleware/errorHandler.js'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requireFlatAccess } from '../../middleware/requireFlatAccess.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
-import { createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { createFlat, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 import type { AdminPermission } from './permissions.js'
 import { assertState, requireRecord } from './scope.js'
 
@@ -29,7 +28,7 @@ app.use(errorHandler)
 
 /** The token's role and society are deliberately wrong to prove both are read from the database. */
 async function as(user: { id: string }) {
-  const token = await signAccessToken({ userId: user.id, sessionId: 's1', role: 'GUARD', societyId: OTHER_SOCIETY_ID })
+  const token = await signTestToken({ userId: user.id, role: 'GUARD', societyId: OTHER_SOCIETY_ID })
   return `Bearer ${token}`
 }
 

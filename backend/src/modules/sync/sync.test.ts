@@ -4,8 +4,7 @@ import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { gates, guardGateAssignments, processedClientEvents, visits } from '../../db/schema.js'
-import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 import { MAX_BATCH, MAX_LOCAL_ATTEMPTS } from './sync.schemas.js'
 
 const app = createApp()
@@ -19,7 +18,7 @@ let flatId: string
 let gateId: string
 
 const tokenFor = (user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) =>
-  signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID }).then((t) => `Bearer ${t}`)
+  signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID }).then((t) => `Bearer ${t}`)
 
 /** One batch, as the device sends it. */
 const send = (events: object[], token = guard) =>

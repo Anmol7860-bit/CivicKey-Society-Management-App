@@ -3,8 +3,7 @@ import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { gates, societies, staff, staffFlats, visitorPasses } from '../../db/schema.js'
-import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 
 const app = createApp()
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
@@ -17,7 +16,7 @@ let gateId: string
 let residentUserId: string
 
 function tokenFor(user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) {
-  return signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID }).then((token) => `Bearer ${token}`)
+  return signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID }).then((token) => `Bearer ${token}`)
 }
 
 const api = {

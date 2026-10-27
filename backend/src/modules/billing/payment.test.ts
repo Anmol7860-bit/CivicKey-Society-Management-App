@@ -4,8 +4,7 @@ import request from 'supertest'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { flats, gatewayEvents, invoices, paymentAttempts, payments, receipts } from '../../db/schema.js'
-import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID } from '../../test/helpers.js'
-import { signAccessToken } from '../auth/tokens.js'
+import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 import { renderPendingReceipts } from './receipt.service.js'
 
 vi.mock('./gateway.js', async () => ({
@@ -26,7 +25,7 @@ let resident: string
 let invoiceId: string
 
 const tokenFor = (user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) =>
-  signAccessToken({ userId: user.id, sessionId: 's1', role: user.role, societyId: TEST_SOCIETY_ID }).then((t) => `Bearer ${t}`)
+  signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID }).then((t) => `Bearer ${t}`)
 
 const api = {
   get: (path: string, token = admin) => request(app).get(`/api/v1${path}`).set('Authorization', token),

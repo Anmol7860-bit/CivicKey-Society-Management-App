@@ -10,7 +10,6 @@ describe('LoginForm', () => {
     expect(screen.getByRole('heading', { name: 'Sign in to CivicKey' })).toBeInTheDocument()
     expect(screen.getByLabelText('Phone number')).toHaveAttribute('placeholder', 'xxxxx xxxxx')
     expect(screen.getByText('+91')).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: 'Resident' })).toBeChecked()
     expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'password')
     expect(screen.getByRole('link', { name: 'Forgot password?' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
@@ -46,16 +45,21 @@ describe('LoginForm', () => {
     expect(password).toHaveAttribute('type', 'password')
   })
 
-  it('submits unformatted phone digits, the password and the selected role', async () => {
+  it('asks the user for no role: the backend decides where they land', () => {
+    render(<LoginForm />)
+
+    expect(screen.queryAllByRole('radio')).toHaveLength(0)
+  })
+
+  it('submits unformatted phone digits and the password', async () => {
     const onSubmit = vi.fn()
     render(<LoginForm onSubmit={onSubmit} />)
 
-    await userEvent.click(screen.getByRole('radio', { name: 'Guard' }))
     await userEvent.type(screen.getByLabelText('Phone number'), '9876543210')
     await userEvent.type(screen.getByLabelText('Password'), 'secret-pass')
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
-    expect(onSubmit).toHaveBeenCalledWith({ phone: '9876543210', password: 'secret-pass', role: 'GUARD' })
+    expect(onSubmit).toHaveBeenCalledWith({ phone: '9876543210', password: 'secret-pass' })
   })
 
   it('rejects a number that is not an Indian mobile number', async () => {
@@ -103,11 +107,6 @@ describe('LoginForm', () => {
     render(<LoginForm onSubmit={onSubmit} />)
 
     await userEvent.tab()
-    expect(screen.getByRole('radio', { name: 'Resident' })).toHaveFocus()
-    await userEvent.keyboard('{ArrowRight}')
-    expect(screen.getByRole('radio', { name: 'Guard' })).toBeChecked()
-
-    await userEvent.tab()
     expect(screen.getByLabelText('Phone number')).toHaveFocus()
     await userEvent.keyboard('9876543210')
     await userEvent.tab()
@@ -123,7 +122,7 @@ describe('LoginForm', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toHaveFocus()
     await userEvent.keyboard('{Enter}')
 
-    expect(onSubmit).toHaveBeenCalledWith({ phone: '9876543210', password: 'secret-pass', role: 'GUARD' })
+    expect(onSubmit).toHaveBeenCalledWith({ phone: '9876543210', password: 'secret-pass' })
   })
 
   it('takes every visible string from i18n', async () => {
