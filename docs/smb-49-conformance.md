@@ -1,6 +1,6 @@
 # SMB-49 — Visitor registration at the gate conformance
 
-What the code does against the SMB-49 subtask (sections 1–5 as received). Registration creates a
+What the code does against the SMB-49 subtask (sections 1–8 as received). Registration creates a
 visit and starts the SMB-50 approval; it never admits anyone. Entry, exit, rejection and the
 delivery handover stay separate calls.
 
@@ -67,6 +67,52 @@ and the named resident currently lives in that flat.
 A tenancy that lowers an owner to view-only now also stops the gate asking them, and gives it back
 when the tenancy closes — the behaviour `syncOwnerAccess` already described in words.
 
+## Visit id and duplicates (section 6)
+
+`visits.id` is a v4 uuid the database generates, so it is unique and not guessable. The mobile
+number has no unique index and never will: `visitor-lookup` finds the last visit by phone only to
+fill the form in, and each registration is its own row with its own approval, expiry, status and
+movement. `clientEventId` is a separate column with its own unique index — one id per filled-in
+form or queued offline event — so a retry is answered with 409 `ALREADY_EXISTS` instead of a second
+visit. A `CLOSED` visit cannot be entered again: entry only ever moves a row out of `APPROVED`.
+
+## Times and expiry (section 7)
+
+Each timestamp has its own column and none stands in for another: `expected_at` (what the guard
+typed), `created_at` (registration), `decided_at` (the answer), `entered_at` / `exited_at` (the
+gate's own, written by SMB-51's operations), and `cancelled_at`.
+
+- **Default validity is 24 hours**, counted by the backend from registration into `expires_at`, and
+  enforced at entry. The number is `society_settings.visit_validity_hours`, editable in Society →
+  Settings, so the product owner moves it without a deployment.
+- **A pre-approved arrival keeps the pass's own window.** When a visit is registered with an entry
+  code, `expires_at` is the pass's `valid_on` + `valid_until`, not 24 hours from now, so an advance
+  booking made last week does not arrive expired.
+- **Expiry blocks a new entry and nothing else.** There is no job that closes visits: the check
+  lives in `recordEntry`, so a visitor already inside stays inside, no exit timestamp is ever
+  invented, and the guard still records the real exit. Signing out of the resident app touches
+  nothing here.
+
+## Submission, cancellation and gate rejection (section 8)
+
+- **8.1** The guard's form shows every field before the Send button, and after submission there is
+  no route that edits or cancels a visit as the guard — none was ever built, and none was added.
+  The visit id comes back in the response and the approval request goes out in the same
+  transaction. A wrong detail means a new registration; the first row stays, with its audit.
+- **8.2** `POST /visits/:id/cancel`, behind `VISITOR_APPROVE` and limited to a resident the Admin
+  set up to answer visitors for that flat. Allowed from `AWAITING_APPROVAL`, `AWAITING_MANUAL`,
+  `APPROVED` and `LEAVE_AT_GATE`; refused once the visitor is inside, because cancelling then would
+  have to invent an exit. The reason is optional; `cancelled_by` and `cancelled_at` are not, and a
+  check constraint keeps the pair together. The row is kept, `VISIT_CANCELLED` is audited, the flat
+  and the registering guard are notified, and entry afterwards is refused.
+- **8.3** `POST /visits/:id/gate-rejection`, behind `VISIT_ENTRY_RECORD`, writing the distinct
+  status `REJECTED_AT_GATE` with a mandatory reason from the enum — approval not received, details
+  mismatch, verification failed, invalid or expired pass, security concern, or other with an
+  explanation. It records the guard and the moment. It is not a resident's `DENIED`, it cannot
+  approve anybody, it edits nothing that was registered, and it cannot touch a visitor already
+  inside. A visit the resident approved may still be turned away at the gate, which is the SMB-51
+  case the subtask points at.
+
 ## Decisions worth knowing
 
 - **The approval goes to the resident who was asked for**, when they hold FULL access to the flat;
@@ -86,6 +132,8 @@ when the tenancy closes — the behaviour `syncOwnerAccess` already described in
 
 | Item | Why |
 | --- | --- |
+| A correction or re-registration procedure (§8.1) | Beyond "register again", which works today. The approved business rule for amending a submitted visit has not been given, and inventing one would be the silent overwrite the subtask forbids |
+| A status check constraint on cancellation and gate rejection | Postgres refuses a constraint naming an enum value added in the same migration, and Drizzle runs every pending migration in one transaction. The service enforces both halves; the DB enforces that `cancelled_at` and `cancelled_by` arrive together |
 | A society inventing its own purpose | The nine are an enum. A tenth needs a migration, which is a schema change the subtask did not ask for in so many words |
 | Visit validity / expiry window | The sections that define it were not in the subtask as received. An unanswered visit already escalates to the guard after three minutes (`escalate_at`), which is the only expiry the code has. |
 | Collection acknowledgment for a parcel left at the gate | `LEAVE_AT_GATE` records the resident's answer; nothing records the resident later collecting it. Needs a column, so it waits for the section that specifies it. |
@@ -111,6 +159,19 @@ when the tenancy closes — the behaviour `syncOwnerAccess` already described in
   - "hands the guard a number to ring when the flat has nobody who may approve" — `AWAITING_MANUAL`,
     no `decided_by`, `contact` present
   - "leaves a parcel at the gate only for a delivery, and only while the society allows it"
+  - "gives every visit of the same person its own id, and never lets a closed one back in"
+  - "expires a registration after the society's own window, and only for a new entry" — the hours
+    setting is honoured, an expired visit is refused entry, and one already inside keeps its status
+    and its null exit until the guard records it
+  - "keeps a pre-approved visit on its pass window instead of the standard day"
+  - "lets the resident call a visit off, and nobody else" — 403 for the guard, actor and moment
+    recorded, no exit invented, entry refused afterwards, second cancel refused
+  - "refuses to cancel a visitor who is already inside"
+  - "records a gate rejection with its reason, apart from a resident's denial" — 422 for `OTHER`
+    with no explanation, guard and timestamp recorded, entry refused, and an approved visit can
+    still be turned away but never approved at the gate
+- `frontend/src/features/gate/GatePage.test.tsx`
+  - "turns an approved visitor away with a reason, and asks for one when it is Other"
 - `frontend/src/features/gate/VisitorRegistrationPage.test.tsx`
   - "registers a visitor against a flat and says the resident was asked" — photo, date and time go with it
   - "will not send a guest until the gate says who they asked for, and sends that resident"

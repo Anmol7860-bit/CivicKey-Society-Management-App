@@ -246,6 +246,13 @@
       "when": 1793203856595,
       "tag": "0034_visitor_purposes_and_approval_eligibility",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793207692665,
+      "tag": "0035_visit_expiry_cancellation_and_gate_rejection",
+      "breakpoints": true
     }
   ]
 }

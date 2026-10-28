@@ -818,6 +818,21 @@ export const visitStatus = pgEnum('visit_status', [
   'DENIED',
   'ENTERED',
   'CLOSED',
+  'CANCELLED',
+  'REJECTED_AT_GATE',
+])
+
+/**
+ * Why the guard turned a visitor away at the gate. A refusal here is the gate's own, and never a
+ * resident's DENIED: the two are different statuses with different actors.
+ */
+export const visitRejectionReason = pgEnum('visit_rejection_reason', [
+  'APPROVAL_NOT_RECEIVED',
+  'DETAILS_MISMATCH',
+  'VERIFICATION_FAILED',
+  'INVALID_PASS',
+  'SECURITY_CONCERN',
+  'OTHER',
 ])
 
 export const vehicleType = pgEnum('vehicle_type', ['CAR', 'BIKE', 'SCOOTER', 'BICYCLE', 'OTHER'])
@@ -1119,6 +1134,18 @@ export const visits = pgTable(
     intendedResidentId: uuid('intended_resident_id').references(() => users.id),
     /** When the visit is expected, as the guard entered it; the registration time is createdAt */
     expectedAt: timestamp('expected_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * When this registration stops being usable for a new entry. Twenty-four hours by default,
+     * or the pass's own window when the visitor arrived holding one. It never closes a visit that
+     * is already inside: expiry blocks a new entry and nothing else.
+     */
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    /** The coded reason when the gate turned the visitor away; set only with REJECTED_AT_GATE */
+    rejectionReason: visitRejectionReason('rejection_reason'),
+    /** A resident called the visit off. No exit is written: the visitor never came in. */
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    cancelledBy: uuid('cancelled_by').references(() => users.id),
+    cancellationReason: varchar('cancellation_reason', { length: 200 }),
     /** The resident who answered, or the guard who decided after the intercom call */
     decidedBy: uuid('decided_by').references(() => users.id),
     decidedAt: timestamp('decided_at', { withTimezone: true }),
@@ -1150,6 +1177,10 @@ export const visits = pgTable(
     check('visits_people_range', sql`${table.people} between 1 and 50`),
     check('visits_decision_recorded', sql`(${table.decidedAt} is null) or (${table.status} <> 'AWAITING_APPROVAL')`),
     check('visits_exit_after_entry', sql`${table.exitedAt} is null or (${table.enteredAt} is not null and ${table.exitedAt} >= ${table.enteredAt})`),
+    // A cancellation names its actor and its moment together, and never invents an exit. Tying
+    // either to the status itself would need a constraint naming a freshly added enum value,
+    // which Postgres refuses in the transaction that adds it; the service enforces that half.
+    check('visits_cancellation_recorded', sql`(${table.cancelledAt} is null) = (${table.cancelledBy} is null)`),
   ],
 )
 
@@ -1451,6 +1482,8 @@ export const societySettings = pgTable('society_settings', {
   visitorPurposes: jsonb('visitor_purposes').$type<string[]>().notNull().default([]),
   /** Whether a resident may answer a delivery with "leave it at the gate" */
   leaveAtGateAllowed: boolean('leave_at_gate_allowed').notNull().default(true),
+  /** How long a registration stays usable for an entry. The product owner's dial, not a constant. */
+  visitValidityHours: integer('visit_validity_hours').notNull().default(24),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })

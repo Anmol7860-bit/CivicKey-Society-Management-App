@@ -192,6 +192,15 @@ export async function visitorPurposes(societyId: string) {
   return VISITOR_PURPOSES.filter((purpose) => chosen.length === 0 || chosen.includes(purpose))
 }
 
+/** How long a registration stays usable for an entry, as the product owner set it. */
+export async function visitValidityHours(societyId: string) {
+  const [row] = await db
+    .select({ hours: societySettings.visitValidityHours })
+    .from(societySettings)
+    .where(eq(societySettings.societyId, societyId))
+  return row?.hours ?? 24
+}
+
 /** Whether this society lets a resident answer "leave it at the gate". */
 export async function leaveAtGateAllowed(societyId: string) {
   const [row] = await db

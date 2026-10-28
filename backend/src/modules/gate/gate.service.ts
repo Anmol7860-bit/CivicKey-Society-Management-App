@@ -21,14 +21,16 @@ import { AppError } from '../../lib/errors.js'
 import { enqueueNotification } from '../notification/outbox.service.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { requireFile } from '../file/file.service.js'
-import { leaveAtGateAllowed, visitorPurposes } from '../society/society.service.js'
+import { leaveAtGateAllowed, visitorPurposes, visitValidityHours } from '../society/society.service.js'
 import { assertFlatAccess, assertSameSociety, assertState, deny, permissionDenied, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import type {
+  CancelVisitBody,
   CreatePassBody,
   DecideVisitBody,
   ListVisitsQuery,
   RegisterVisitBody,
+  RejectVisitBody,
   StaffMovementBody,
   StaffMovementHistoryQuery,
   StaffRejectionBody,
@@ -345,6 +347,8 @@ export async function registerVisit(
   }
 
   let passId: string | null = null
+  // A pre-approved visit lives as long as its pass says, never the standard 24 hours from now
+  let passExpiry: Date | null = null
   let status: typeof AWAITING_APPROVAL | typeof AWAITING_MANUAL | typeof APPROVED | typeof ENTERED = AWAITING_APPROVAL
   if (manualOffline) {
     status = ENTERED
@@ -353,6 +357,7 @@ export async function registerVisit(
     if (!checked.valid) throw new AppError(400, 'INVALID_STATE', checked.reason ?? 'This pass cannot be used')
     assertState(checked.pass!.flatId === flat.id, 'That pass was issued for another flat')
     passId = checked.pass!.id
+    passExpiry = new Date(`${checked.pass!.validOn}T${checked.pass!.validUntil}`)
     status = APPROVED
   } else if (!approverAmong(residents)) {
     status = AWAITING_MANUAL
@@ -363,6 +368,7 @@ export async function registerVisit(
   const asked = residents.find((resident) => resident.userId === body.intendedResidentId && resident.eligible)
   const approvers = status === AWAITING_APPROVAL ? (asked ? [asked] : eligibleAmong(residents)) : []
   const now = new Date()
+  const validityHours = await visitValidityHours(societyId)
   const { entryCode: _code, expectedDate, expectedTime, clientEventId: bodyEventId, flatId, ...rest } = body
   const [visit] = await unique(
     db
@@ -374,6 +380,7 @@ export async function registerVisit(
         passId,
         status,
         expectedAt: expectedDate && expectedTime ? new Date(`${expectedDate}T${expectedTime}`) : now,
+      expiresAt: passExpiry ?? new Date(now.getTime() + validityHours * 3600_000),
         clientEventId: clientEventId ?? bodyEventId,
         registeredBy: ctx.userId,
         ...(status === APPROVED ? { decidedBy: ctx.userId, decidedAt: new Date(), decisionReason: 'Arrived with a valid pass' } : {}),
@@ -568,6 +575,99 @@ export async function decideVisit(ctx: AuthContext, id: string, body: DecideVisi
 }
 
 /**
+ * A resident calls off a visit they are responsible for.
+ *
+ * Only before the visitor is inside: once an entry exists, cancelling would have to invent an
+ * exit, and the guard records that. The record is kept, the reason is optional, and the actor and
+ * the moment are both written down.
+ */
+export async function cancelVisit(ctx: AuthContext, id: string, body: CancelVisitBody) {
+  const row = await loadVisit(ctx, id)
+  await assertFlatAccess(ctx, row.visit.flatId, { write: true })
+  const residents = await currentResidents(row.visit.flatId)
+  assertState(
+    residents.some((resident) => resident.userId === ctx.userId && resident.eligible),
+    'You are not set up to answer visitors for this flat',
+  )
+  const open: (typeof row.visit.status)[] = [AWAITING_APPROVAL, AWAITING_MANUAL, APPROVED, 'LEAVE_AT_GATE']
+  assertState(open.includes(row.visit.status), 'This visit can no longer be cancelled')
+
+  const [updated] = await db
+    .update(visits)
+    .set({
+      status: 'CANCELLED',
+      cancelledAt: new Date(),
+      cancelledBy: ctx.userId,
+      cancellationReason: body.reason ?? null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(visits.id, id), inArray(visits.status, open)))
+    .returning()
+  assertState(Boolean(updated), 'This visit can no longer be cancelled')
+  await audit(db, ctx, 'VISIT_CANCELLED', {
+    visitId: id,
+    flat: label(row.flat),
+    name: row.visit.visitorName,
+    ...(body.reason ? { reason: body.reason } : {}),
+  })
+  await enqueueNotification(db, {
+    societyId: row.visit.societyId,
+    eventType: 'VISITOR_DECIDED',
+    entityType: 'visit',
+    entityId: id,
+    recipientIds: await flatAudience(row.visit.flatId, row.visit.registeredBy, ctx.userId),
+    payload: { name: row.visit.visitorName, flat: label(row.flat), status: 'CANCELLED' },
+  })
+  return serializeVisit({ ...row, visit: updated! })
+}
+
+/**
+ * The guard turns a visitor away at the gate, with a reason from the list and nothing optional
+ * about it. This is the gate's own refusal, not a resident's: it never approves anybody, never
+ * edits what was registered, and cannot touch a visitor who is already inside.
+ */
+export async function rejectVisitAtGate(ctx: AuthContext, id: string, body: RejectVisitBody) {
+  const row = await loadVisit(ctx, id)
+  await assertSameSociety(ctx, row.visit.societyId)
+  await assertGate(ctx, body.gateId ?? row.visit.gateId ?? undefined)
+  const open: (typeof row.visit.status)[] = [AWAITING_APPROVAL, AWAITING_MANUAL, APPROVED, 'LEAVE_AT_GATE']
+  assertState(open.includes(row.visit.status), 'This visit is past the gate')
+
+  const [updated] = await db
+    .update(visits)
+    .set({
+      status: 'REJECTED_AT_GATE',
+      rejectionReason: body.reason,
+      // The guard who turned them away, and when: the same two fields a resident's answer uses,
+      // told apart by the status rather than by a second pair of columns
+      decidedBy: ctx.userId,
+      decidedAt: new Date(),
+      decisionReason: body.note ?? null,
+      gateId: body.gateId ?? row.visit.gateId,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(visits.id, id), inArray(visits.status, open)))
+    .returning()
+  assertState(Boolean(updated), 'This visit is past the gate')
+  await audit(db, ctx, 'VISIT_REJECTED_AT_GATE', {
+    visitId: id,
+    flat: label(row.flat),
+    name: row.visit.visitorName,
+    reason: body.reason,
+    ...(body.note ? { note: body.note } : {}),
+  })
+  await enqueueNotification(db, {
+    societyId: row.visit.societyId,
+    eventType: 'VISITOR_DECIDED',
+    entityType: 'visit',
+    entityId: id,
+    recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
+    payload: { name: row.visit.visitorName, flat: label(row.flat), status: 'REJECTED_AT_GATE' },
+  })
+  return serializeVisit({ ...row, visit: updated! })
+}
+
+/**
  * Who hears about something that happened at a flat: the residents who hold access, plus the
  * guard who registered it. The person who caused it is left out - they just did it and watched
  * it happen - and nobody is told twice.
@@ -598,6 +698,12 @@ export async function recordEntry(ctx: AuthContext, id: string, gateId?: string)
   await assertSameSociety(ctx, row.visit.societyId)
   await assertGate(ctx, gateId ?? row.visit.gateId ?? undefined)
   assertState(row.visit.status === APPROVED, 'Only an approved visit can be let in')
+  // Expiry stops a new entry and does nothing else: a visitor already inside stays inside until
+  // the guard records their exit, and no exit is ever written here.
+  assertState(
+    !row.visit.expiresAt || row.visit.expiresAt > new Date(),
+    'This registration has expired. Register the visitor again.',
+  )
 
   const entered = await db.transaction(async (tx) => {
     const [updated] = await tx

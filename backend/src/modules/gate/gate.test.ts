@@ -2,7 +2,7 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { blocks, gates, guardGateAssignments, notificationOutbox, societies, staff, staffFlats, visitorPasses } from '../../db/schema.js'
+import { blocks, gates, guardGateAssignments, notificationOutbox, societies, staff, staffFlats, visitorPasses, visits } from '../../db/schema.js'
 import { addResident, createFlat, createPhoto, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 
 const app = createApp()
@@ -292,6 +292,86 @@ describe('visits', () => {
 
     await api.put(`/societies/${TEST_SOCIETY_ID}/settings`, { leaveAtGateAllowed: true }, admin)
     expect((await api.post(`/visits/${parcel.body.data.id}/decision`, { decision: 'LEAVE_AT_GATE' }, resident)).status).toBe(200)
+  })
+
+  it('gives every visit of the same person its own id, and never lets a closed one back in', async () => {
+    const first = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    const second = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    expect(second.status).toBe(201)
+    expect(second.body.data.id).not.toBe(first.body.data.id)
+
+    await api.post(`/visits/${first.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    await api.post(`/visits/${first.body.data.id}/entry`, { gateId })
+    await api.post(`/visits/${first.body.data.id}/exit`, {})
+    // Closed is closed: the same record cannot carry a second visit
+    expect((await api.post(`/visits/${first.body.data.id}/entry`, { gateId })).status).toBe(400)
+  })
+
+  it('expires a registration after the society\u2019s own window, and only for a new entry', async () => {
+    await api.put(`/societies/${TEST_SOCIETY_ID}/settings`, { visitValidityHours: 2 }, admin)
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    const hours = (new Date(visit.body.data.expiresAt).getTime() - new Date(visit.body.data.createdAt).getTime()) / 3600_000
+    expect(hours).toBeCloseTo(2, 1)
+
+    await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    await db.update(visits).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(visits.id, visit.body.data.id))
+    expect((await api.post(`/visits/${visit.body.data.id}/entry`, { gateId })).status).toBe(400)
+
+    // Already inside when it expires: the visit stays open and the exit is still the guard's
+    const inside = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorPhone: '9844444443' }))
+    await api.post(`/visits/${inside.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    await api.post(`/visits/${inside.body.data.id}/entry`, { gateId })
+    await db.update(visits).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(visits.id, inside.body.data.id))
+    const [stillInside] = await db.select().from(visits).where(eq(visits.id, inside.body.data.id))
+    expect(stillInside!.status).toBe('ENTERED')
+    expect(stillInside!.exitedAt).toBeNull()
+    const left = await api.post(`/visits/${inside.body.data.id}/exit`, {})
+    expect(left.body.data.status).toBe('CLOSED')
+  })
+
+  it('keeps a pre-approved visit on its pass window instead of the standard day', async () => {
+    const pass = await api.post(`/flats/${flatId}/passes`, passBody({ validUntil: '23:59' }), resident)
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ entryCode: pass.body.data.entryCode }))
+    expect(new Date(visit.body.data.expiresAt).toISOString().slice(0, 10)).toBe(today())
+    expect(new Date(visit.body.data.expiresAt).getHours()).toBe(23)
+  })
+
+  it('lets the resident call a visit off, and nobody else', async () => {
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    // The guard who registered it cannot cancel it
+    expect((await api.post(`/visits/${visit.body.data.id}/cancel`, {})).status).toBe(403)
+
+    const cancelled = await api.post(`/visits/${visit.body.data.id}/cancel`, { reason: 'Rescheduled' }, resident)
+    expect(cancelled.body.data).toMatchObject({ status: 'CANCELLED', cancelledBy: residentUserId, cancellationReason: 'Rescheduled' })
+    expect(cancelled.body.data.cancelledAt).not.toBeNull()
+    // No exit was invented, and the visitor cannot now be let in
+    expect(cancelled.body.data.exitedAt).toBeNull()
+    expect((await api.post(`/visits/${visit.body.data.id}/entry`, { gateId })).status).toBe(400)
+    expect((await api.post(`/visits/${visit.body.data.id}/cancel`, {}, resident)).status).toBe(400)
+  })
+
+  it('refuses to cancel a visitor who is already inside', async () => {
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    await api.post(`/visits/${visit.body.data.id}/entry`, { gateId })
+    expect((await api.post(`/visits/${visit.body.data.id}/cancel`, {}, resident)).status).toBe(400)
+  })
+
+  it('records a gate rejection with its reason, apart from a resident\u2019s denial', async () => {
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    expect((await api.post(`/visits/${visit.body.data.id}/gate-rejection`, { reason: 'OTHER' })).status).toBe(422)
+
+    const refused = await api.post(`/visits/${visit.body.data.id}/gate-rejection`, { reason: 'DETAILS_MISMATCH', gateId })
+    expect(refused.body.data).toMatchObject({ status: 'REJECTED_AT_GATE', rejectionReason: 'DETAILS_MISMATCH', decidedBy: guardUserId })
+    expect(refused.body.data.decidedAt).not.toBeNull()
+    expect((await api.post(`/visits/${visit.body.data.id}/entry`, { gateId })).status).toBe(400)
+
+    // A guard may turn away a visit the resident approved, but can never approve one themselves
+    const approved = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorPhone: '9844444444' }))
+    await api.post(`/visits/${approved.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    const atGate = await api.post(`/visits/${approved.body.data.id}/gate-rejection`, { reason: 'SECURITY_CONCERN' })
+    expect(atGate.body.data.status).toBe('REJECTED_AT_GATE')
+    expect((await api.post(`/visits/${approved.body.data.id}/gate-rejection`, { reason: 'INVALID_PASS' })).status).toBe(400)
   })
 
   it('waits on the resident, then records entry and exit', async () => {

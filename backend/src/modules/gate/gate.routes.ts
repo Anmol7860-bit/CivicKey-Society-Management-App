@@ -9,6 +9,7 @@ import {
   addVehicleSchema,
   createPassSchema,
   decideAccessRequestSchema,
+  cancelVisitSchema,
   decideVisitSchema,
   entryCodeSchema,
   gateLogSchema,
@@ -16,6 +17,7 @@ import {
   markLeaveSchema,
   recordEntrySchema,
   registerVisitAtGateSchema,
+  rejectVisitSchema,
   staffMovementHistorySchema,
   staffMovementSchema,
   staffRejectionSchema,
@@ -83,6 +85,10 @@ export function createGateRouter() {
   router.post('/visits/:id/entry', requireAuth, requirePermission('VISIT_ENTRY_RECORD'), validateBody(recordEntrySchema), async (req, res) => {
     res.json({ data: await service.recordEntry(req.ctx!, req.params.id as string, req.body.gateId) })
   })
+  // The gate's own refusal, with a reason from the list. It never approves and never edits.
+  router.post('/visits/:id/gate-rejection', requireAuth, requirePermission('VISIT_ENTRY_RECORD'), validateBody(rejectVisitSchema), async (req, res) => {
+    res.json({ data: await service.rejectVisitAtGate(req.ctx!, req.params.id as string, req.body) })
+  })
   router.post('/visits/:id/exit', requireAuth, requirePermission('VISIT_EXIT'), async (req, res) => {
     res.json({ data: await service.recordExit(req.ctx!, req.params.id as string) })
   })
@@ -114,6 +120,11 @@ export function createGateRouter() {
   // A guard with VISIT_DECIDE may answer after the intercom call; a resident answers for their flat
   router.post('/visits/:id/decision', requireAuth, requirePermission('VISITOR_APPROVE', 'VISIT_DECIDE'), validateBody(decideVisitSchema), async (req, res) => {
     res.json({ data: await service.decideVisit(req.ctx!, req.params.id as string, req.body) })
+  })
+
+  // Only a resident of the flat calls a visit off, and only before the visitor is inside
+  router.post('/visits/:id/cancel', requireAuth, requirePermission('VISITOR_APPROVE'), validateBody(cancelVisitSchema), async (req, res) => {
+    res.json({ data: await service.cancelVisit(req.ctx!, req.params.id as string, req.body) })
   })
 
   router.get('/me/passes', ...ownFlat, async (req, res) => {

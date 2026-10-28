@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { staffRejectionReason, vehicleType, visitPurpose, visitorPassType } from '../../db/schema.js'
+import { staffRejectionReason, vehicleType, visitPurpose, visitorPassType, visitRejectionReason } from '../../db/schema.js'
 
 const name = z.string().trim().min(2, 'Give the name').max(120)
 const phone = z
@@ -121,8 +121,26 @@ export const decideVisitSchema = z
     path: ['reason'],
   })
 
+/** A resident calling a visit off. The reason is theirs to give or keep. */
+export const cancelVisitSchema = z.strictObject({ reason: note.optional() })
+
+/** The guard turning a visitor away. The reason is from the list, and never blank. */
+export const rejectVisitSchema = z
+  .strictObject({
+    gateId: uuid.optional(),
+    reason: z.enum(visitRejectionReason.enumValues),
+    /** Required for OTHER, so a refusal is never unexplained */
+    note: z.string().trim().min(3, 'Say what happened').max(200).optional(),
+  })
+  .refine((body) => body.reason !== 'OTHER' || body.note !== undefined, {
+    message: 'Describe the reason',
+    path: ['note'],
+  })
+
 export const listVisitsSchema = z.strictObject({
-  status: z.enum(['AWAITING_APPROVAL', 'APPROVED', 'LEAVE_AT_GATE', 'DENIED', 'ENTERED', 'CLOSED']).optional(),
+  status: z
+    .enum(['AWAITING_APPROVAL', 'AWAITING_MANUAL', 'APPROVED', 'LEAVE_AT_GATE', 'DENIED', 'ENTERED', 'CLOSED', 'CANCELLED', 'REJECTED_AT_GATE'])
+    .optional(),
   gateId: uuid.optional(),
   flatId: uuid.optional(),
   /** Defaults to today; the gate rarely looks further back */
@@ -201,6 +219,8 @@ export const markLeaveSchema = z.strictObject({ onDate: isoDate.optional() })
 export type CreatePassBody = z.infer<typeof createPassSchema>
 export type RegisterVisitBody = z.infer<typeof registerVisitSchema>
 export type DecideVisitBody = z.infer<typeof decideVisitSchema>
+export type CancelVisitBody = z.infer<typeof cancelVisitSchema>
+export type RejectVisitBody = z.infer<typeof rejectVisitSchema>
 export type ListVisitsQuery = z.infer<typeof listVisitsSchema>
 export type GateLogQuery = z.infer<typeof gateLogSchema>
 export type StaffMovementBody = z.infer<typeof staffMovementSchema>

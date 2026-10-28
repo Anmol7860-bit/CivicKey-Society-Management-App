@@ -147,3 +147,22 @@ it('records an exit from the inside list', async () => {
   await waitFor(() => expect(mocked.recordExit).toHaveBeenCalledWith('token', 'v2'))
   expect(await screen.findByText('Dev Courier is out.')).toBeInTheDocument()
 })
+
+it('turns an approved visitor away with a reason, and asks for one when it is Other', async () => {
+  mocked.listVisits.mockResolvedValue([
+    { id: 'v9', visitorName: 'Dev Courier', purpose: 'DELIVERY', flat: { label: 'A-101' } } as never,
+  ])
+  mocked.rejectVisitAtGate.mockResolvedValue({ id: 'v9' } as never)
+  show()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Turn away' }))
+  // Other says nothing by itself, so the refusal waits for the explanation
+  await userEvent.selectOptions(screen.getByLabelText('Reason'), 'OTHER')
+  await userEvent.click(screen.getAllByRole('button', { name: 'Turn away' })[1]!)
+  expect(mocked.rejectVisitAtGate).not.toHaveBeenCalled()
+
+  await userEvent.selectOptions(screen.getByLabelText('Reason'), 'SECURITY_CONCERN')
+  await userEvent.click(screen.getAllByRole('button', { name: 'Turn away' })[1]!)
+  await waitFor(() => expect(mocked.rejectVisitAtGate).toHaveBeenCalledWith('token', 'v9', { reason: 'SECURITY_CONCERN' }))
+  expect(await screen.findByText('Dev Courier was turned away at the gate.')).toBeInTheDocument()
+})

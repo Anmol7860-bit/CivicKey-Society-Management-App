@@ -14,6 +14,7 @@ import { useResource } from '../society/useResource'
 import {
   cancelPass,
   createPass,
+  cancelVisit,
   decideVisit,
   listMyPasses,
   listMyVisits,
@@ -27,6 +28,8 @@ import {
 const PURPOSES: VisitPurpose[] = ['GUEST', 'DELIVERY', 'CAB', 'SERVICE', 'OTHER']
 const STATUS_TONE: Record<VisitStatus, Tone> = {
   AWAITING_APPROVAL: 'warning',
+  CANCELLED: 'neutral',
+  REJECTED_AT_GATE: 'danger',
   AWAITING_MANUAL: 'warning',
   APPROVED: 'positive',
   LEAVE_AT_GATE: 'neutral',
@@ -65,6 +68,11 @@ function WaitingCard({ visit, onDecided, token }: { visit: Visit; onDecided: () 
       decideVisit(token, visit.id, { decision, ...(decision === 'DENIED' && reason.trim() ? { reason: reason.trim() } : {}) }),
     )
     if (ok) onDecided()
+  }
+
+  /** Calling the visit off is not a denial: it ends the visit, and the reason is theirs to give. */
+  const cancel = async () => {
+    if (await action.run(() => cancelVisit(token, visit.id, reason.trim() ? { reason: reason.trim() } : {}))) onDecided()
   }
 
   return (
@@ -133,6 +141,9 @@ function WaitingCard({ visit, onDecided, token }: { visit: Visit; onDecided: () 
         </RowButton>
         <RowButton tone="danger" disabled={action.pending} onClick={() => decide('DENIED')}>
           {t('area.resident.visitors.deny')}
+        </RowButton>
+        <RowButton disabled={action.pending} onClick={cancel}>
+          {t('area.resident.visitors.cancel')}
         </RowButton>
       </div>
       <p className="text-[12px] text-muted">{t('area.resident.visitors.leaveAtGateHint')}</p>

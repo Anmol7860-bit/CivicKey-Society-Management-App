@@ -20,6 +20,8 @@ import {
   recordStaffEntry,
   recordStaffExit,
   registerVisit,
+  rejectVisitAtGate,
+  type VisitRejectionReason,
   validatePass,
   type PassCheck,
   type StaffCheck,
@@ -70,6 +72,16 @@ function PassResult({ check, onAllow, pending }: { check: PassCheck; onAllow: ()
     </div>
   )
 }
+
+/** The six the gate may pick from when it turns a visitor away. */
+const VISIT_REJECTION_REASONS: VisitRejectionReason[] = [
+  'APPROVAL_NOT_RECEIVED',
+  'DETAILS_MISMATCH',
+  'VERIFICATION_FAILED',
+  'INVALID_PASS',
+  'SECURITY_CONCERN',
+  'OTHER',
+]
 
 const REJECTION_REASONS: StaffRejectionReason[] = [
   'VERIFICATION_FAILED',
@@ -201,6 +213,8 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
   // One request id per tap. A retry after a lost response reuses it, so the server answers with
   // the movement it already recorded instead of adding a second one.
   const [tap, setTap] = useState(() => crypto.randomUUID())
+  // The visit the guard is turning away, while they pick the reason
+  const [turning, setTurning] = useState<{ id: string; reason: VisitRejectionReason; note: string } | null>(null)
   const passAction = useAction()
   const staffAction = useAction()
   const entryAction = useAction()
@@ -244,6 +258,20 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
     if (ok) {
       setCheckedPass(null)
       setCode('')
+      reload()
+    }
+  }
+
+  /** Turning someone away is the gate's own refusal: a reason from the list, never an approval. */
+  async function turnAway(visit: Visit) {
+    if (!turning || turning.id !== visit.id) return
+    const reason = turning.reason
+    const note = turning.note.trim()
+    if (reason === 'OTHER' && note.length < 3) return
+    const ok = await entryAction.run(() => rejectVisitAtGate(accessToken, visit.id, { reason, ...(note ? { note } : {}) }))
+    if (ok) {
+      setDone(t('area.guard.gate.turnedAway', { name: visit.visitorName }))
+      setTurning(null)
       reload()
     }
   }
@@ -372,11 +400,49 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
                 <span className="text-[14px] font-semibold text-ink">{visit.visitorName}</span>
                 <Badge tone="neutral">{t(`area.guard.purposes.${visit.purpose}`)}</Badge>
                 <span className="text-[13px] text-ink-soft">{visit.flat.label}</span>
-                <span className="ml-auto">
+                <span className="ml-auto flex gap-2">
                   <RowButton disabled={entryAction.pending} onClick={() => letInWaiting(visit)}>
                     {t('area.guard.gate.recordEntry')}
                   </RowButton>
+                  <RowButton
+                    tone="danger"
+                    disabled={entryAction.pending}
+                    onClick={() => setTurning({ id: visit.id, reason: 'DETAILS_MISMATCH', note: '' })}
+                  >
+                    {t('area.guard.gate.turnAway')}
+                  </RowButton>
                 </span>
+                {turning?.id === visit.id && (
+                  <div className="flex w-full flex-wrap items-end gap-3 pt-1">
+                    <div className="min-w-[220px] flex-1">
+                      <Select
+                        id={`turn-away-${visit.id}`}
+                        label={t('area.guard.gate.turnAwayReason')}
+                        options={VISIT_REJECTION_REASONS.map((value) => ({ value, label: t(`area.guard.rejectionReasons.${value}`) }))}
+                        value={turning.reason}
+                        onChange={(event) => setTurning({ ...turning, reason: event.target.value as VisitRejectionReason })}
+                      />
+                    </div>
+                    {turning.reason === 'OTHER' && (
+                      <div className="min-w-[220px] flex-1">
+                        <TextField
+                          id={`turn-away-note-${visit.id}`}
+                          label={t('area.guard.gate.turnAwayNote')}
+                          value={turning.note}
+                          onChange={(event) => setTurning({ ...turning, note: event.target.value })}
+                          maxLength={200}
+                          required
+                        />
+                      </div>
+                    )}
+                    <div className="flex gap-2 pb-0.5">
+                      <RowButton onClick={() => setTurning(null)}>{t('shell.cancel')}</RowButton>
+                      <RowButton tone="danger" disabled={entryAction.pending} onClick={() => turnAway(visit)}>
+                        {t('area.guard.gate.turnAway')}
+                      </RowButton>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

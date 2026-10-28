@@ -124,6 +124,22 @@ export function SettingsTab({ token, societyId }: { token: string; societyId: st
         </fieldset>
         <div className="max-w-[260px]">
           <TextField
+            id="society-validity-hours"
+            label={t('area.admin.society.settings.validityHours')}
+            hint={t('area.admin.society.settings.validityHoursHint')}
+            type="number"
+            min={1}
+            max={336}
+            defaultValue={current.visitValidityHours}
+            onBlur={(event) => {
+              const hours = Number(event.target.value)
+              if (hours >= 1 && hours <= 336 && hours !== current.visitValidityHours) void change({ visitValidityHours: hours })
+            }}
+            error={save.fieldError('visitValidityHours')}
+          />
+        </div>
+        <div className="max-w-[260px]">
+          <TextField
             id="society-timezone"
             label={t('area.admin.society.settings.timezone')}
             value={current.timezone}

@@ -226,6 +226,9 @@
         "approve": "Approve entry",
         "leaveAtGate": "Leave at gate",
         "deny": "Deny",
+        "cancel": "Cancel pass",
+        "cancelReason": "Reason (optional)",
+        "cancelled": "{{name}}’s visit is cancelled. The guard will not let them in.",
         "leaveAtGateHint": "Leave at gate is for deliveries. Your answer is separate from the guard’s final decision at the gate.",
         "status": {
           "AWAITING_APPROVAL": "Waiting for the flat",
@@ -234,7 +237,9 @@
           "LEAVE_AT_GATE": "Left at gate",
           "DENIED": "Denied",
           "ENTERED": "Inside",
-          "CLOSED": "Left"
+          "CLOSED": "Left",
+          "CANCELLED": "Cancelled",
+          "REJECTED_AT_GATE": "Turned away at the gate"
         },
         "recentTitle": "Earlier visitors",
         "recentDescription": "What happened at the gate for your flat.",
@@ -262,7 +267,6 @@
         },
         "share": "Share on WhatsApp",
         "shareText": "Your CivicKey entry code is {{code}}. Valid {{date}}, {{from}} to {{to}}. Show it at the gate.",
-        "cancel": "Cancel pass",
         "empty": {
           "title": "Nobody is waiting",
           "description": "When a guard registers a visitor for your flat, the request appears here."
@@ -520,6 +524,11 @@
         "validUntil": "Valid until {{date}}",
         "noEnd": "No end date",
         "recordEntry": "Record entry",
+        "turnAway": "Turn away",
+        "turnAwayTitle": "Turn {{name}} away",
+        "turnAwayReason": "Reason",
+        "turnAwayNote": "What happened",
+        "turnedAway": "{{name}} was turned away at the gate.",
         "recordExit": "Record exit",
         "insideSince": "Inside since {{at}}",
         "comparePhoto": "The flats they serve are told automatically.",
@@ -603,6 +612,14 @@
           "title": "Nothing was recorded",
           "description": "No entry or exit was recorded at the gate on this day."
         }
+      },
+      "rejectionReasons": {
+        "APPROVAL_NOT_RECEIVED": "No approval from the resident",
+        "DETAILS_MISMATCH": "Details do not match",
+        "VERIFICATION_FAILED": "Verification refused or failed",
+        "INVALID_PASS": "Invalid or expired pass",
+        "SECURITY_CONCERN": "Security concern",
+        "OTHER": "Other"
       }
     },
     "admin": {
@@ -953,6 +970,8 @@
           "leaveAtGateHint": "A resident may ask the guard to keep a parcel or a food delivery at the gate.",
           "purposes": "Visitor types the gate offers",
           "purposesHint": "Untick the ones this society does not use. At least one stays on.",
+          "validityHours": "Registration valid for (hours)",
+          "validityHoursHint": "How long a gate registration can still be used for an entry. 24 by default.",
           "timezone": "Timezone"
         },
         "backups": {

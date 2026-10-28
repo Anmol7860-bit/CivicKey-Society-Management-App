@@ -142,6 +142,8 @@ export const updateSettingsSchema = z
     /** Which visitor types the gate offers; an empty list means all of them */
     visitorPurposes: z.array(z.enum(visitPurpose.enumValues)).max(visitPurpose.enumValues.length).optional(),
     leaveAtGateAllowed: z.boolean().optional(),
+    /** One hour to a fortnight; the gate's own default is 24 */
+    visitValidityHours: z.number().int().min(1).max(336).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'Nothing to change' })
 

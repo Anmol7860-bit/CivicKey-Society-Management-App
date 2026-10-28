@@ -14,7 +14,16 @@ export type VisitPurpose =
   | 'BUSINESS'
   | 'OTHER'
 /** AWAITING_MANUAL is a visit nobody answered: the guard decides at the gate. */
-export type VisitStatus = 'AWAITING_APPROVAL' | 'AWAITING_MANUAL' | 'APPROVED' | 'LEAVE_AT_GATE' | 'DENIED' | 'ENTERED' | 'CLOSED'
+export type VisitStatus =
+  | 'AWAITING_APPROVAL'
+  | 'AWAITING_MANUAL'
+  | 'APPROVED'
+  | 'LEAVE_AT_GATE'
+  | 'DENIED'
+  | 'ENTERED'
+  | 'CLOSED'
+  | 'CANCELLED'
+  | 'REJECTED_AT_GATE'
 export type PassType = 'ONE_ENTRY' | 'MULTI_ENTRY'
 export type PassStatus = 'ACTIVE' | 'USED' | 'CANCELLED'
 export type VehicleType = 'CAR' | 'BIKE' | 'SCOOTER' | 'BICYCLE' | 'OTHER'
@@ -55,6 +64,11 @@ export interface Visit {
   passCode: string | null
   intendedResidentId?: string | null
   expectedAt?: string
+  expiresAt?: string | null
+  rejectionReason?: VisitRejectionReason | null
+  cancelledAt?: string | null
+  cancelledBy?: string | null
+  cancellationReason?: string | null
   /** On registration only, and only when nobody in the flat can approve: who the guard may ring */
   contact?: { name: string; phone: string } | null
 }
@@ -400,6 +414,22 @@ export function listStaffMovements(token: string, societyId: string, filters: St
 export const listMyVisits = (token: string) => call<Visit[]>(token, 'GET', '/me/visits')
 export const decideVisit = (token: string, visitId: string, body: { decision: 'APPROVED' | 'LEAVE_AT_GATE' | 'DENIED'; reason?: string }) =>
   call<Visit>(token, 'POST', `/visits/${visitId}/decision`, body)
+
+/** The resident calls a visit off. Only before the visitor is inside; the reason is optional. */
+export const cancelVisit = (token: string, visitId: string, body: { reason?: string } = {}) =>
+  call<Visit>(token, 'POST', `/visits/${visitId}/cancel`, body)
+
+export type VisitRejectionReason =
+  | 'APPROVAL_NOT_RECEIVED'
+  | 'DETAILS_MISMATCH'
+  | 'VERIFICATION_FAILED'
+  | 'INVALID_PASS'
+  | 'SECURITY_CONCERN'
+  | 'OTHER'
+
+/** The guard turns the visitor away. Never an approval, and the reason is never blank. */
+export const rejectVisitAtGate = (token: string, visitId: string, body: { reason: VisitRejectionReason; note?: string; gateId?: string }) =>
+  call<Visit>(token, 'POST', `/visits/${visitId}/gate-rejection`, body)
 
 export const listMyPasses = (token: string) => call<VisitorPass[]>(token, 'GET', '/me/passes')
 export const createPass = (token: string, flatId: string, body: CreatePassBody) =>
