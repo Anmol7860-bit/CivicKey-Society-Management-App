@@ -125,7 +125,7 @@ function StaffRow({ member, token, onEdit, onDeactivate, onReactivate, onReissue
     .join(', ')
 
   return (
-    <div className="flex flex-col gap-2 border-t border-line px-4 py-3">
+    <div data-testid="staff-row" className="flex flex-col gap-2 border-t border-line px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[14px] font-semibold text-ink">{member.name}</span>
         <span className="text-[12px] text-muted">{member.phone}</span>

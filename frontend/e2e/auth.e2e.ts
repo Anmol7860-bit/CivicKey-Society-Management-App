@@ -1,12 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, request, test, type Page } from '@playwright/test'
+import { accounts, openLogin, signIn } from './accounts'
 
-// Seeded by `npm run db:seed` in backend (see global-setup.ts)
-const accounts = {
-  RESIDENT: { phone: '9876543210', password: 'Resident@123', label: 'Resident', area: '/resident/overview', name: 'Riya Sharma' },
-  GUARD: { phone: '9876543211', password: 'Guard@123', label: 'Guard', area: '/guard/operations', name: 'Mahesh Patil' },
-  ADMIN: { phone: '9876543212', password: 'Admin@123', label: 'Admin', area: '/admin/overview', name: 'Anita Rao' },
-}
 const INACTIVE = { phone: '9876543213', password: 'Inactive@123' }
 
 /** Desktop and tablet log out from the account menu; mobile from the navigation drawer. */
@@ -14,19 +9,6 @@ async function logOut(page: Page) {
   const account = page.getByLabel('Account menu')
   await ((await account.isVisible()) ? account : page.getByRole('button', { name: 'Open menu' })).click()
   await page.getByRole('button', { name: 'Log out' }).filter({ visible: true }).click()
-}
-
-async function signIn(page: Page, phone: string, password: string, roleLabel = 'Resident') {
-  await page.locator('fieldset label', { hasText: roleLabel }).click()
-  await page.getByLabel('Phone number').fill(phone)
-  await page.getByLabel('Password', { exact: true }).fill(password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
-}
-
-// The app renders nothing until its session-restore call answers, so wait for the form
-async function openLogin(page: Page) {
-  await page.goto('/login')
-  await expect(page.getByRole('heading', { name: 'Sign in to CivicKey' })).toBeVisible()
 }
 
 test.beforeEach(async ({ page }) => {
