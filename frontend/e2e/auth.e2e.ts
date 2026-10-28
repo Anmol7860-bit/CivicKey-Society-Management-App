@@ -153,7 +153,8 @@ test.describe('session expiry', () => {
     await expect(page).toHaveURL(accounts.ADMIN.area)
 
     const refreshed = page.waitForResponse('**/api/v1/auth/refresh')
-    await page.clock.fastForward('14:00')
+    // The access token lives six hours and is swapped a minute before it expires
+    await page.clock.fastForward('05:59:30')
     expect((await refreshed).status()).toBe(200)
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   })
@@ -170,7 +171,8 @@ test.describe('session expiry', () => {
     await attacker.dispose()
 
     const refreshed = page.waitForResponse('**/api/v1/auth/refresh')
-    await page.clock.fastForward('14:00')
+    // The access token lives six hours and is swapped a minute before it expires
+    await page.clock.fastForward('05:59:30')
     expect((await refreshed).status()).toBe(401)
     await expect(page).toHaveURL('/login')
     await expect(page.getByRole('alert')).toHaveText('Your session has ended. Please sign in again.')

@@ -47,7 +47,7 @@ describe('POST /api/v1/auth/refresh', () => {
       expect(res.headers['cache-control']).toBe('no-store')
       expect(res.body.data).toMatchObject({
         tokenType: 'Bearer',
-        expiresIn: 900,
+        expiresIn: 21600,
         user: { id: user.id, role: 'RESIDENT', societyId: user.societyId },
       })
 

@@ -26,7 +26,7 @@ describe('POST /api/v1/auth/login', () => {
       expect(res.headers['cache-control']).toBe('no-store')
       expect(res.body.data).toMatchObject({
         tokenType: 'Bearer',
-        expiresIn: 900,
+        expiresIn: 21600,
         user: {
           id: user.id,
           name: 'Riya Sharma',
@@ -53,7 +53,8 @@ describe('POST /api/v1/auth/login', () => {
       const [session] = await db.select().from(authSessions)
       expect(protectedHeader.alg).toBe('HS256')
       expect(payload).toMatchObject({ sub: user.id, role: 'RESIDENT', society_id: user.societyId, sid: session!.id })
-      expect(payload.exp! - payload.iat!).toBe(900)
+      // Six hours: the access token the mentor confirmed for SMB-2
+      expect(payload.exp! - payload.iat!).toBe(21600)
     })
 
     it('creates a session storing only the refresh-token hash', async () => {

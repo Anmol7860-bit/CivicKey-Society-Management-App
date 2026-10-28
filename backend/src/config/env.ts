@@ -9,7 +9,8 @@ const envSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_ISSUER: z.string().default('civickey-api'),
   JWT_AUDIENCE: z.string().default('civickey-app'),
-  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  // Six hours, as confirmed for SMB-2; the refresh token takes over from there
+  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(21600),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(7),
   BCRYPT_COST: z.coerce.number().int().min(4).max(15).default(12),
   /**
