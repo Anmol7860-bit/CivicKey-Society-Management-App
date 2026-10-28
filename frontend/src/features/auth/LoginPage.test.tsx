@@ -25,7 +25,7 @@ describe('LoginPage', () => {
 
     expect(fetch).toHaveBeenCalledWith('/api/v1/auth/login', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ phone: '9876543210', password: 'Resident@123' }),
+      body: JSON.stringify({ phone: '9876543210', password: 'Resident@123', role: 'RESIDENT' }),
     }))
     expect(onSignedIn).toHaveBeenCalledWith(session)
   })
@@ -33,6 +33,7 @@ describe('LoginPage', () => {
   it.each([
     [401, 'INVALID_CREDENTIALS', {}, 'Incorrect phone number or password.'],
     [403, 'USER_INACTIVE', {}, 'This account is inactive. Contact property support.'],
+    [403, 'ROLE_MISMATCH', {}, 'This account is not registered as Resident. Select the correct role and try again.'],
     [422, 'VALIDATION_ERROR', {}, 'Check your phone number and password, then try again.'],
     [429, 'TOO_MANY_REQUESTS', { retryAfterSeconds: 600 }, 'Too many attempts. Try again in 10 min.'],
     [500, 'INTERNAL_ERROR', {}, 'Something went wrong. Please try again.'],
