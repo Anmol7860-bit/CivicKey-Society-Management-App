@@ -118,10 +118,12 @@ export interface Resident {
   proofReference: string | null
   relationship: string | null
   idDocumentOnFile: boolean
+  /** Whether the Admin set this person up to answer visitors for the flat */
+  visitorApprovalEligible: boolean
   user: { id: string; name: string; phone: string | null; email: string | null }
   /** Verified and inside its dates */
   active: boolean
-  /** Active with FULL access, so visitor approvals route here */
+  /** Active and set up to answer visitors, so approvals route here */
   eligible: boolean
   flat?: { id: string; number: string; flatType?: FlatType | null; carpetAreaSqft?: number | null }
   floor?: { id: string; floorLabel: string }
@@ -241,7 +243,7 @@ export const rejectResident = (token: string, id: string, body: { reason: string
 export const updateResident = (
   token: string,
   id: string,
-  body: { endDate?: string | null; accessLevel?: AccessLevel; reason?: string },
+  body: { endDate?: string | null; accessLevel?: AccessLevel; visitorApprovalEligible?: boolean; reason?: string },
 ) => call<Resident>(token, 'PUT', `/residents/${id}`, body)
 
 /** The signed-in person's own assignments. No management permission; the server returns only their rows. */
@@ -252,12 +254,19 @@ export interface SocietySettings {
   timezone: string
   /** When true, staff cannot be registered without a government ID */
   idRequired: boolean
+  /** The visitor types the gate offers; empty means all of them */
+  visitorPurposes: string[]
+  leaveAtGateAllowed: boolean
 }
 
 export const getSettings = (token: string, societyId: string) =>
   call<SocietySettings>(token, 'GET', `/societies/${societyId}/settings`)
 
-export const updateSettings = (token: string, societyId: string, body: Partial<Pick<SocietySettings, 'timezone' | 'idRequired'>>) =>
+export const updateSettings = (
+  token: string,
+  societyId: string,
+  body: Partial<Pick<SocietySettings, 'timezone' | 'idRequired' | 'visitorPurposes' | 'leaveAtGateAllowed'>>,
+) =>
   call<SocietySettings>(token, 'PUT', `/societies/${societyId}/settings`, body)
 
 export type BackupStatus = 'PENDING' | 'RUNNING' | 'READY' | 'FAILED' | 'EXPIRED'

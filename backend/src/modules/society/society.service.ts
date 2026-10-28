@@ -1,6 +1,6 @@
 import { and, asc, count, eq, gte, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { blocks, flatResidents, flats, floors, gates, societies, societySettings, users } from '../../db/schema.js'
+import { blocks, flatResidents, flats, floors, gates, societies, societySettings, users, visitPurpose } from '../../db/schema.js'
 import { AppError, type ErrorCode } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assertState, requireRecord, UUID } from '../access/scope.js'
@@ -165,6 +165,40 @@ export function updateSettings(ctx: AuthContext, societyId: string, body: Update
     await audit(tx, ctx, 'SOCIETY_UPDATED', { societyId, changes: body })
     return row!
   })
+}
+
+/**
+ * The visitor purposes the gate offers, in the order the guard's form shows them. A society that
+ * has chosen none gets all of them, so a new society works before anyone opens the settings.
+ */
+export const VISITOR_PURPOSES = [
+  'GUEST',
+  'FOOD_DELIVERY',
+  'DELIVERY',
+  'CAB',
+  'DOMESTIC_HELP',
+  'MAINTENANCE',
+  'SERVICE',
+  'BUSINESS',
+  'OTHER',
+] as const satisfies readonly (typeof visitPurpose.enumValues)[number][]
+
+export async function visitorPurposes(societyId: string) {
+  const [row] = await db
+    .select({ chosen: societySettings.visitorPurposes })
+    .from(societySettings)
+    .where(eq(societySettings.societyId, societyId))
+  const chosen = row?.chosen ?? []
+  return VISITOR_PURPOSES.filter((purpose) => chosen.length === 0 || chosen.includes(purpose))
+}
+
+/** Whether this society lets a resident answer "leave it at the gate". */
+export async function leaveAtGateAllowed(societyId: string) {
+  const [row] = await db
+    .select({ allowed: societySettings.leaveAtGateAllowed })
+    .from(societySettings)
+    .where(eq(societySettings.societyId, societyId))
+  return row?.allowed ?? true
 }
 
 /** Whether this society insists on a government ID. Read by staff and resident registration. */

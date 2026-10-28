@@ -33,6 +33,8 @@ export const registerResidentSchema = identityRefinements(
       ...identitySchema,
       /** Sale deed, rent agreement or other proof reference */
       proofReference: z.string().trim().min(1).max(200).optional(),
+      /** Whether the gate may ask this person to approve a visitor. Defaults to their access level. */
+      visitorApprovalEligible: z.boolean().optional(),
     })
     .refine((body) => body.dateOfBirth === undefined || body.dateOfBirth < new Date().toISOString().slice(0, 10), {
       message: 'The date of birth must be in the past',
@@ -70,6 +72,7 @@ export const updateResidentSchema = z
   .strictObject({
     endDate: isoDate.nullable().optional(),
     accessLevel: accessLevel.optional(),
+    visitorApprovalEligible: z.boolean().optional(),
     /** Required when the change closes the assignment; kept in the audit trail with the actor */
     reason: z.string().trim().min(3, 'Give a reason').max(200).optional(),
   })

@@ -49,6 +49,10 @@ function ResidentRow({ resident, token, onChanged, onReject, onClose }: {
 
   const verify = () => action.run(() => verifyResident(token, resident.id, { accessLevel })).then((ok) => ok && onChanged())
 
+  /** Who the gate may ask about a visitor. Owner or tenant, full or view-only, does not decide it. */
+  const setApprover = (visitorApprovalEligible: boolean) =>
+    action.run(() => updateResident(token, resident.id, { visitorApprovalEligible })).then((ok) => ok && onChanged())
+
   async function handleExtend(event: FormEvent) {
     event.preventDefault()
     if (await action.run(() => updateResident(token, resident.id, { endDate }))) {
@@ -144,6 +148,18 @@ function ResidentRow({ resident, token, onChanged, onReject, onClose }: {
           <RowButton disabled={action.pending} onClick={issueCode}>
             {t('area.admin.society.residents.loginCode')}
           </RowButton>
+          {resident.active && (
+            <label className="flex items-center gap-2 text-[12px] text-ink-soft">
+              <input
+                type="checkbox"
+                checked={resident.visitorApprovalEligible}
+                onChange={(event) => void setApprover(event.target.checked)}
+                disabled={action.pending}
+                className="size-4 accent-[var(--color-brand)]"
+              />
+              {t('area.admin.society.residents.visitorApprover')}
+            </label>
+          )}
           {resident.active && (
             <>
               <RowButton onClick={() => setExtending(true)}>{t('area.admin.society.residents.extend')}</RowButton>

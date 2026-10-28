@@ -20,7 +20,13 @@ const job = (overrides: Partial<api.BackupJob> = {}): api.BackupJob => ({
 
 beforeEach(() => {
   vi.resetAllMocks()
-  mocked.getSettings.mockResolvedValue({ societyId: 's1', timezone: 'Asia/Kolkata', idRequired: false })
+  mocked.getSettings.mockResolvedValue({
+    societyId: 's1',
+    timezone: 'Asia/Kolkata',
+    idRequired: false,
+    visitorPurposes: [],
+    leaveAtGateAllowed: true,
+  })
   mocked.listBackups.mockResolvedValue([])
 })
 

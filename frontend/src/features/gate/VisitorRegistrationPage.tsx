@@ -8,9 +8,7 @@ import type { AuthUser } from '../auth/api'
 import { PhotoField } from '../file/PhotoField'
 import { FormGrid, Panel, RowButton, useAction } from '../society/parts'
 import { useResource } from '../society/useResource'
-import { flatDirectory, lookupVisitor, registerVisit, validatePass, type VisitPurpose } from './api'
-
-const PURPOSES: VisitPurpose[] = ['GUEST', 'DELIVERY', 'CAB', 'SERVICE', 'OTHER']
+import { flatDirectory, lookupVisitor, registerVisit, validatePass, visitPurposes, type VisitPurpose } from './api'
 
 /** The gate's own clock, as the two inputs want it: 2026-10-28 and 14:35. */
 const localNow = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString()
@@ -41,13 +39,14 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
   const { t } = useTranslation()
   const societyId = user.societyId
   const [form, setForm] = useState(blank)
-  const [sent, setSent] = useState<{ name: string; approved: boolean } | null>(null)
+  const [sent, setSent] = useState<{ name: string; approved: boolean; contact?: { name: string; phone: string } | null } | null>(null)
   const [known, setKnown] = useState<string | null>(null)
   const [refused, setRefused] = useState<string | null>(null)
   const action = useAction()
   const pass = useAction()
 
   const flats = useResource(societyId ? () => flatDirectory(accessToken, societyId) : null, [accessToken, societyId])
+  const purposes = useResource(societyId ? () => visitPurposes(accessToken, societyId) : null, [accessToken, societyId])
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((previous) => ({ ...previous, [key]: value }))
 
   if (!societyId) return <ErrorState message={t('area.guard.noSociety')} />
@@ -100,6 +99,7 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
       form.expectedDate &&
       form.expectedTime &&
       // A pass holder was identified and approved when the resident issued the pass
+      (form.purpose !== 'OTHER' || form.note.trim()) &&
       (form.entryCode.trim() || (form.photoReference.trim() && (form.purpose !== 'GUEST' || form.intendedResidentId))),
   )
 
@@ -123,7 +123,7 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
         ...(form.note.trim() ? { note: form.note.trim() } : {}),
         ...(form.entryCode.trim() ? { entryCode: form.entryCode.trim() } : {}),
       })
-      setSent({ name: visit.visitorName, approved: visit.status === 'APPROVED' })
+      setSent({ name: visit.visitorName, approved: visit.status === 'APPROVED', contact: visit.contact })
     })
     if (ok) {
       setForm(blank())
@@ -147,6 +147,7 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
           onDismiss={() => setSent(null)}
         />
       )}
+      {sent?.contact && <ErrorState message={t('area.guard.register.noApprover', sent.contact)} />}
 
       <Panel title={t('area.guard.register.passTitle')} description={t('area.guard.register.passDescription')}>
         <div className="flex flex-wrap items-end gap-3">
@@ -204,7 +205,7 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
           <fieldset className="flex flex-col gap-2 border-0 p-0">
             <legend className="text-[11px] font-semibold text-ink-soft">{t('area.guard.register.purpose')}</legend>
             <div className="flex flex-wrap gap-2">
-              {PURPOSES.map((purpose) => (
+              {(purposes.data ?? []).map((purpose) => (
                 <button
                   key={purpose}
                   type="button"
@@ -282,10 +283,12 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
             />
             <TextField
               id="visit-note"
-              label={t('area.guard.register.note')}
+              label={form.purpose === 'OTHER' ? t('area.guard.register.noteRequired') : t('area.guard.register.note')}
               value={form.note}
               onChange={(event) => set('note', event.target.value)}
+              error={action.fieldError('note')}
               maxLength={200}
+              required={form.purpose === 'OTHER'}
             />
             <PhotoField
               id="visit-photo"

@@ -51,32 +51,38 @@ export const entryCodeSchema = z.strictObject({
     .regex(/^\d{6}$/, 'An entry code is 6 digits'),
 })
 
-export const registerVisitSchema = z.strictObject({
-  flatId: uuid,
-  gateId: uuid.optional(),
-  visitorName: name,
-  visitorPhone: phone,
-  purpose: z.enum(visitPurpose.enumValues),
-  company: z.string().trim().max(120).optional(),
-  people: people.default(1),
-  vehicleNumber: vehicleNumber.optional(),
-  note: note.optional(),
-  /** The stored image of the visitor, as returned by POST /files */
-  photoReference: z.uuid().optional(),
-  /** The resident the visitor asked for; the approval is routed to them */
-  intendedResidentId: uuid.optional(),
-  /** When the visit is expected. Both parts together, or neither, which means now. */
-  expectedDate: isoDate.optional(),
-  expectedTime: clockTime.optional(),
-  /** One id per filled-in form, so a retry after a lost answer cannot register the visit twice */
-  clientEventId: z.uuid().optional(),
-  /** Present when the visitor arrived holding a pass, which approves the visit outright */
-  entryCode: z
-    .string()
-    .trim()
-    .regex(/^\d{6}$/, 'An entry code is 6 digits')
-    .optional(),
-})
+export const registerVisitSchema = z
+  .strictObject({
+    flatId: uuid,
+    gateId: uuid.optional(),
+    visitorName: name,
+    visitorPhone: phone,
+    purpose: z.enum(visitPurpose.enumValues),
+    company: z.string().trim().max(120).optional(),
+    people: people.default(1),
+    vehicleNumber: vehicleNumber.optional(),
+    note: note.optional(),
+    /** The stored image of the visitor, as returned by POST /files */
+    photoReference: z.uuid().optional(),
+    /** The resident the visitor asked for; the approval is routed to them */
+    intendedResidentId: uuid.optional(),
+    /** When the visit is expected. Both parts together, or neither, which means now. */
+    expectedDate: isoDate.optional(),
+    expectedTime: clockTime.optional(),
+    /** One id per filled-in form, so a retry after a lost answer cannot register the visit twice */
+    clientEventId: z.uuid().optional(),
+    /** Present when the visitor arrived holding a pass, which approves the visit outright */
+    entryCode: z
+      .string()
+      .trim()
+      .regex(/^\d{6}$/, 'An entry code is 6 digits')
+      .optional(),
+  })
+  // "Other" says nothing by itself, so the guard writes what this visit is
+  .refine((body) => body.purpose !== 'OTHER' || Boolean(body.note), {
+    message: 'Say what the visitor is here for',
+    path: ['note'],
+  })
 
 /**
  * The same form as it arrives from a guard standing at the gate, where the camera and the clock

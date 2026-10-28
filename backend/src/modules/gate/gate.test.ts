@@ -2,7 +2,7 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { gates, guardGateAssignments, notificationOutbox, societies, staff, staffFlats, visitorPasses } from '../../db/schema.js'
+import { blocks, gates, guardGateAssignments, notificationOutbox, societies, staff, staffFlats, visitorPasses } from '../../db/schema.js'
 import { addResident, createFlat, createPhoto, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 
 const app = createApp()
@@ -24,6 +24,7 @@ function tokenFor(user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) {
 const api = {
   get: (path: string, token: string) => request(app).get(`/api/v1${path}`).set('Authorization', token),
   post: (path: string, body: object = {}, token = guard) => request(app).post(`/api/v1${path}`).set('Authorization', token).send(body),
+  put: (path: string, body: object = {}, token = guard) => request(app).put(`/api/v1${path}`).set('Authorization', token).send(body),
   del: (path: string, token: string) => request(app).delete(`/api/v1${path}`).set('Authorization', token),
 }
 
@@ -172,6 +173,10 @@ describe('visits', () => {
     expect(
       (await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ purpose: 'GUEST', intendedResidentId: stranger.id }))).status,
     ).toBe(400)
+
+    // A flat in a closed block takes no visitors, however active the flat itself is
+    await db.update(blocks).set({ status: 'INACTIVE' }).where(eq(blocks.societyId, TEST_SOCIETY_ID))
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())).status).toBe(400)
   })
 
   it('asks the resident the visitor came to see, and keeps the expected time they gave', async () => {
@@ -199,6 +204,94 @@ describe('visits', () => {
     const again = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ clientEventId }))
     expect(again.status).toBe(409)
     expect(again.body.error.code).toBe('ALREADY_EXISTS')
+  })
+
+  it('offers the society\u2019s own visitor types and refuses one it does not use', async () => {
+    const all = await api.get(`/societies/${TEST_SOCIETY_ID}/visit-purposes`, guard)
+    expect(all.body.data).toEqual([
+      'GUEST',
+      'FOOD_DELIVERY',
+      'DELIVERY',
+      'CAB',
+      'DOMESTIC_HELP',
+      'MAINTENANCE',
+      'SERVICE',
+      'BUSINESS',
+      'OTHER',
+    ])
+
+    // The society narrows the list from its settings; no code change, no deployment
+    await api.put(`/societies/${TEST_SOCIETY_ID}/settings`, { visitorPurposes: ['GUEST', 'DELIVERY'] }, admin)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/visit-purposes`, guard)).body.data).toEqual(['GUEST', 'DELIVERY'])
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ purpose: 'CAB' }))).status).toBe(400)
+
+    // "Other" is not a description, so the guard writes one
+    await api.put(`/societies/${TEST_SOCIETY_ID}/settings`, { visitorPurposes: [] }, admin)
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ purpose: 'OTHER' }))).status).toBe(422)
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ purpose: 'OTHER', note: 'Meter reading' }))).status).toBe(201)
+  })
+
+  it('asks every household approver at once when nobody was named', async () => {
+    const spouse = await createUser({ phone: '9811111111', email: null, role: 'RESIDENT' })
+    await addResident(flatId, spouse.id, { relationship: 'Spouse' })
+
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    const [queued] = await db.select().from(notificationOutbox).where(eq(notificationOutbox.entityId, visit.body.data.id))
+    expect(queued!.recipientIds).toEqual(expect.arrayContaining([residentUserId, spouse.id]))
+    expect(queued!.recipientIds).toHaveLength(2)
+
+    // One of them is enough, and the other cannot overwrite the answer afterwards
+    expect((await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'APPROVED' }, await tokenFor(spouse))).status).toBe(200)
+    expect((await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'DENIED' }, resident)).status).toBe(400)
+  })
+
+  it('leaves a resident the Admin did not set up for visitors out of it', async () => {
+    const child = await createUser({ phone: '9811111112', email: null, role: 'RESIDENT' })
+    await addResident(flatId, child.id, { relationship: 'Son', visitorApprovalEligible: false })
+
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    const [queued] = await db.select().from(notificationOutbox).where(eq(notificationOutbox.entityId, visit.body.data.id))
+    expect(queued!.recipientIds).toEqual([residentUserId])
+    expect((await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'APPROVED' }, await tokenFor(child))).status).toBe(400)
+
+    // Asked for by name, they still cannot answer; the flat's approver is asked instead
+    const named = await api.post(
+      `/societies/${TEST_SOCIETY_ID}/visits`,
+      visitBody({ purpose: 'GUEST', intendedResidentId: child.id, visitorPhone: '9844444441' }),
+    )
+    expect(named.body.data.intendedResidentId).toBe(child.id)
+    const [forNamed] = await db.select().from(notificationOutbox).where(eq(notificationOutbox.entityId, named.body.data.id))
+    expect(forNamed!.recipientIds).toEqual([residentUserId])
+  })
+
+  it('hands the guard a number to ring when the flat has nobody who may approve', async () => {
+    const quiet = await createFlat(TEST_SOCIETY_ID, '904')
+    const child = await createUser({ phone: '9811111113', email: null, role: 'RESIDENT' })
+    await addResident(quiet.id, child.id, { visitorApprovalEligible: false })
+
+    const visit = await api.post(
+      `/societies/${TEST_SOCIETY_ID}/visits`,
+      visitBody({ flatId: quiet.id, purpose: 'GUEST', intendedResidentId: child.id }),
+    )
+    // Not approved, and no decision recorded against anyone
+    expect(visit.body.data.status).toBe('AWAITING_MANUAL')
+    expect(visit.body.data.decidedBy).toBeNull()
+    expect(visit.body.data.contact).toEqual({ name: expect.any(String), phone: '9811111113' })
+  })
+
+  it('leaves a parcel at the gate only for a delivery, and only while the society allows it', async () => {
+    const guest = await api.post(
+      `/societies/${TEST_SOCIETY_ID}/visits`,
+      visitBody({ purpose: 'GUEST', intendedResidentId: residentUserId }),
+    )
+    expect((await api.post(`/visits/${guest.body.data.id}/decision`, { decision: 'LEAVE_AT_GATE' }, resident)).status).toBe(400)
+
+    await api.put(`/societies/${TEST_SOCIETY_ID}/settings`, { leaveAtGateAllowed: false }, admin)
+    const parcel = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorPhone: '9844444442' }))
+    expect((await api.post(`/visits/${parcel.body.data.id}/decision`, { decision: 'LEAVE_AT_GATE' }, resident)).status).toBe(400)
+
+    await api.put(`/societies/${TEST_SOCIETY_ID}/settings`, { leaveAtGateAllowed: true }, admin)
+    expect((await api.post(`/visits/${parcel.body.data.id}/decision`, { decision: 'LEAVE_AT_GATE' }, resident)).status).toBe(200)
   })
 
   it('waits on the resident, then records entry and exit', async () => {

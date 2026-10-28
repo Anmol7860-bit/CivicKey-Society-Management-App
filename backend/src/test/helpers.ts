@@ -70,6 +70,8 @@ export async function addResident(flatId: string, userId: string, overrides: Par
       residentType: 'OWNER',
       ...(overrides.residentType === 'TENANT' ? { endDate: '2099-12-31' } : {}),
       ...(decided ? {} : { verificationStatus: 'VERIFIED', verifiedBy: userId, verifiedAt: new Date() }),
+      // As registration does it: full access is asked to approve visitors, view-only is not
+      visitorApprovalEligible: (overrides.accessLevel ?? 'FULL') === 'FULL',
       ...overrides,
     })
     .returning()

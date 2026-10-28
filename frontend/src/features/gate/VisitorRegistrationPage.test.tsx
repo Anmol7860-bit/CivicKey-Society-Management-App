@@ -23,6 +23,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   mocked.flatDirectory.mockResolvedValue([{ id: 'fl1', label: 'A-101', residents: [{ id: 'r1', name: 'Riya Sharma' }] }])
   mocked.lookupVisitor.mockResolvedValue(null)
+  mocked.visitPurposes.mockResolvedValue(['GUEST', 'DELIVERY', 'OTHER'])
   vi.mocked(files).uploadImage.mockResolvedValue({ id: '11111111-1111-4111-8111-111111111111' } as never)
 })
 
@@ -38,7 +39,7 @@ it('registers a visitor against a flat and says the resident was asked', async (
 
   await userEvent.type(screen.getByLabelText(/Visitor mobile/), '9833333333')
   await userEvent.type(screen.getByLabelText(/Visitor name/), 'Dev Courier')
-  await userEvent.click(screen.getByRole('button', { name: 'Delivery' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Parcel or courier' }))
   await userEvent.selectOptions(await screen.findByLabelText(/Flat to visit/), 'fl1')
   await takePhoto()
   await userEvent.click(screen.getByRole('button', { name: 'Send for resident approval' }))
@@ -134,4 +135,30 @@ it('will not send a guest until the gate says who they asked for, and sends that
   await waitFor(() =>
     expect(mocked.registerVisit).toHaveBeenCalledWith('token', 's1', expect.objectContaining({ intendedResidentId: 'r1' })),
   )
+})
+
+it('offers only the society’s visitor types, and makes the guard describe an Other', async () => {
+  mocked.registerVisit.mockResolvedValue({
+    id: 'v3',
+    visitorName: 'Meter reader',
+    status: 'AWAITING_MANUAL',
+    contact: { name: 'Riya Sharma', phone: '9876543210' },
+  } as never)
+  show()
+
+  expect(await screen.findByRole('button', { name: 'Other' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Cab or ride' })).not.toBeInTheDocument()
+
+  await userEvent.type(screen.getByLabelText(/Visitor mobile/), '9866666666')
+  await userEvent.type(screen.getByLabelText(/Visitor name/), 'Meter reader')
+  await userEvent.selectOptions(await screen.findByLabelText(/Flat to visit/), 'fl1')
+  await takePhoto()
+  await userEvent.click(screen.getByRole('button', { name: 'Other' }))
+  expect(screen.getByRole('button', { name: 'Send for resident approval' })).toBeDisabled()
+
+  await userEvent.type(screen.getByLabelText(/Say what the visitor is here for/), 'Meter reading')
+  await userEvent.click(screen.getByRole('button', { name: 'Send for resident approval' }))
+
+  // Nobody could be asked, so the guard is given the number to ring and the visit stays unapproved
+  expect(await screen.findByText(/Call Riya Sharma on 9876543210/)).toBeInTheDocument()
 })

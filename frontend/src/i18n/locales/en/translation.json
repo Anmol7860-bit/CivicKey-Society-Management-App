@@ -444,10 +444,14 @@
       },
       "noSociety": "Your guard account is not linked to a society yet. Ask the society office to set it up.",
       "purposes": {
-        "GUEST": "Guest",
-        "DELIVERY": "Delivery",
-        "CAB": "Cab",
-        "SERVICE": "Service",
+        "GUEST": "Guest, family or friend",
+        "FOOD_DELIVERY": "Food delivery",
+        "DELIVERY": "Parcel or courier",
+        "CAB": "Cab or ride",
+        "DOMESTIC_HELP": "Domestic help",
+        "MAINTENANCE": "Maintenance or repair",
+        "SERVICE": "Service provider",
+        "BUSINESS": "Business or official",
         "OTHER": "Other"
       },
       "passTypes": {
@@ -481,10 +485,12 @@
         "people": "Number of people",
         "vehicle": "Vehicle number",
         "note": "Purpose or note",
+        "noteRequired": "Say what the visitor is here for",
         "photo": "Visitor photo",
         "send": "Send for resident approval",
         "clear": "Clear",
         "afterSending": "No answer in 2 minutes? Call the intercom, then record your own decision at the gate.",
+        "noApprover": "Nobody in this flat can approve right now. Call {{name}} on {{phone}}; the visit stays unapproved until someone answers in the app.",
         "sent": "Sent to the flat. {{name}} is waiting for the resident’s answer.",
         "letIn": "{{name}} has a valid pass, so they are approved already."
       },
@@ -882,7 +888,8 @@
             "description": "Change the filters, or register a resident from the Flats tab."
           },
           "addToFlat": "Add a resident",
-          "loginCode": "Login code"
+          "loginCode": "Login code",
+          "visitorApprover": "Can approve visitors"
         },
         "register": {
           "title": "Register a resident for flat {{number}}",
@@ -942,6 +949,10 @@
           "saved": "Saved.",
           "idRequired": "Require a government ID for staff",
           "idRequiredHint": "Staff cannot be registered without an ID type and number. Only the type and last 4 digits are ever shown.",
+          "leaveAtGate": "Allow leave at gate",
+          "leaveAtGateHint": "A resident may ask the guard to keep a parcel or a food delivery at the gate.",
+          "purposes": "Visitor types the gate offers",
+          "purposesHint": "Untick the ones this society does not use. At least one stays on.",
           "timezone": "Timezone"
         },
         "backups": {

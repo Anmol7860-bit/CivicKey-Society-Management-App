@@ -155,6 +155,8 @@ export function registerResident(ctx: AuthContext, flatId: string, body: Registe
           residentType: body.residentType,
           relationship: body.relationship ?? null,
           accessLevel: body.accessLevel ?? 'FULL',
+          // The Admin says who may answer visitors; full access is only the suggestion
+          visitorApprovalEligible: body.visitorApprovalEligible ?? (body.accessLevel ?? 'FULL') === 'FULL',
           startDate: body.startDate,
           endDate: body.endDate ?? null,
           ...identityOf(body),
@@ -206,7 +208,14 @@ async function syncOwnerAccess(tx: DbExecutor, ctx: AuthContext, flatId: string)
 
   const changed = await tx
     .update(flatResidents)
-    .set({ accessLevel: ownerAccess, accessSuspendedByTenancy: Boolean(tenant), updatedAt: new Date() })
+    // An owner a tenancy lowers stops being asked to approve visitors, and is asked again when
+    // the tenancy closes. Only the owners this mechanism touched, as the filter below says.
+    .set({
+      accessLevel: ownerAccess,
+      accessSuspendedByTenancy: Boolean(tenant),
+      visitorApprovalEligible: !tenant,
+      updatedAt: new Date(),
+    })
     .where(
       tenant
         ? // Only owners who hold full access are lowered; one an Admin already made view-only
@@ -322,7 +331,7 @@ export function updateResident(ctx: AuthContext, id: string, body: UpdateResiden
     const [updated] = await conflict(
       tx
         .update(flatResidents)
-        .set({ endDate, accessLevel: body.accessLevel, updatedAt: new Date() })
+        .set({ endDate, accessLevel: body.accessLevel, visitorApprovalEligible: body.visitorApprovalEligible, updatedAt: new Date() })
         .where(eq(flatResidents.id, id))
         .returning(),
       'This period overlaps another assignment of the same person on this flat',
@@ -335,14 +344,14 @@ export function updateResident(ctx: AuthContext, id: string, body: UpdateResiden
   })
 }
 
-/** active: verified and inside its period. eligible: active with FULL access, so visitor approvals route here. */
+/** active: verified and inside its period. eligible: active and marked able to answer visitors. */
 function view(row: { assignment: typeof flatResidents.$inferSelect; user: { id: string }; today: string }) {
   const { assignment, today } = row
   const active =
     assignment.verificationStatus === VERIFIED &&
     assignment.startDate <= today &&
     (assignment.endDate === null || assignment.endDate >= today)
-  return { ...withoutHash(assignment), user: row.user, active, eligible: active && assignment.accessLevel === 'FULL' }
+  return { ...withoutHash(assignment), user: row.user, active, eligible: active && assignment.visitorApprovalEligible }
 }
 
 /** Every assignment on the flat, current and historical, newest first. */

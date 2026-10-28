@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { visitPurpose } from '../../db/schema.js'
 
 const atLeastOneField = (body: object) => Object.keys(body).some((key) => key !== 'reason')
 const noFields = { message: 'Provide at least one field to update' }
@@ -138,6 +139,9 @@ export const updateSettingsSchema = z
   .strictObject({
     timezone: z.string().trim().min(3).max(80).optional(),
     idRequired: z.boolean().optional(),
+    /** Which visitor types the gate offers; an empty list means all of them */
+    visitorPurposes: z.array(z.enum(visitPurpose.enumValues)).max(visitPurpose.enumValues.length).optional(),
+    leaveAtGateAllowed: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'Nothing to change' })
 

@@ -3,6 +3,7 @@ import { requireAuth } from '../../middleware/requireAuth.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
 import { parseOrThrow, validateBody } from '../../middleware/validateBody.js'
 import * as flatService from '../flat/flat.service.js'
+import { visitorPurposes } from '../society/society.service.js'
 import {
   accessRequestSchema,
   addVehicleSchema,
@@ -52,6 +53,11 @@ export function createGateRouter() {
   router.get('/societies/:societyId/visitor-lookup', ...register, async (req, res) => {
     const { phone } = parseOrThrow(visitorLookupSchema, req.query)
     res.json({ data: await service.lookupVisitor(req.ctx!, req.params.societyId as string, phone) })
+  })
+  // The visitor types this society uses, which the guard's form is built from
+  router.get('/societies/:societyId/visit-purposes', ...atGate, async (req, res) => {
+    await service.assertInSociety(req.ctx!, req.params.societyId as string)
+    res.json({ data: await visitorPurposes(req.params.societyId as string) })
   })
   router.get('/societies/:societyId/flat-directory', ...atGate, async (req, res) => {
     res.json({ data: await service.flatDirectory(req.ctx!, req.params.societyId as string) })

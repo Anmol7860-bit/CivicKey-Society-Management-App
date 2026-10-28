@@ -141,6 +141,7 @@ try {
       flatId: row.id,
       residentType: flat.type,
       accessLevel: flat.access ?? 'FULL',
+      visitorApprovalEligible: (flat.access ?? 'FULL') === 'FULL',
       endDate: flat.type === 'TENANT' ? IN_A_YEAR : null,
       ...(flat.pending ? {} : { verificationStatus: 'VERIFIED', verifiedBy: granter!, verifiedAt: new Date() }),
     })

@@ -3,7 +3,16 @@ import { call, type Gender, type IdDocumentType, type Status } from '../society/
 import { enqueue, type OperationType } from '../sync/queue'
 import type { PoliceVerification, Staff, StaffKind } from '../staff/api'
 
-export type VisitPurpose = 'GUEST' | 'DELIVERY' | 'CAB' | 'SERVICE' | 'OTHER'
+export type VisitPurpose =
+  | 'GUEST'
+  | 'FOOD_DELIVERY'
+  | 'DELIVERY'
+  | 'CAB'
+  | 'DOMESTIC_HELP'
+  | 'MAINTENANCE'
+  | 'SERVICE'
+  | 'BUSINESS'
+  | 'OTHER'
 /** AWAITING_MANUAL is a visit nobody answered: the guard decides at the gate. */
 export type VisitStatus = 'AWAITING_APPROVAL' | 'AWAITING_MANUAL' | 'APPROVED' | 'LEAVE_AT_GATE' | 'DENIED' | 'ENTERED' | 'CLOSED'
 export type PassType = 'ONE_ENTRY' | 'MULTI_ENTRY'
@@ -44,6 +53,10 @@ export interface Visit {
   /** The guard who registered the visit, shown beside the gate */
   registeredByName: string | null
   passCode: string | null
+  intendedResidentId?: string | null
+  expectedAt?: string
+  /** On registration only, and only when nobody in the flat can approve: who the guard may ring */
+  contact?: { name: string; phone: string } | null
 }
 
 export interface VisitorPass {
@@ -300,6 +313,9 @@ export interface FlatOption {
 
 // --- The guard's screens ----------------------------------------------------
 export const flatDirectory = (token: string, societyId: string) => call<FlatOption[]>(token, 'GET', `/societies/${societyId}/flat-directory`)
+/** The visitor types this society uses, in the order its form shows them */
+export const visitPurposes = (token: string, societyId: string) =>
+  call<VisitPurpose[]>(token, 'GET', `/societies/${societyId}/visit-purposes`)
 export const gateSummary = (token: string, societyId: string) => call<GateSummary>(token, 'GET', `/societies/${societyId}/gate-summary`)
 
 export function listVisits(token: string, societyId: string, filters: { status?: VisitStatus; gateId?: string; search?: string } = {}) {

@@ -334,6 +334,12 @@ export const flatResidents = pgTable(
     relationship: varchar('relationship', { length: 60 }),
     accessLevel: flatAccess('access_level').notNull().default('FULL'),
     /**
+     * Whether a visitor approval may be asked of this person for this flat. Owner or tenant, and
+     * full or view-only access, do not decide it: the Admin does, per assignment. Existing rows
+     * were given the answer their access level implied, which is what the gate did before.
+     */
+    visitorApprovalEligible: boolean('visitor_approval_eligible').notNull().default(true),
+    /**
      * True when this owner's VIEW_ONLY was imposed because a tenant holds the flat, so it is
      * lifted when the tenancy ends. An owner an Admin made VIEW_ONLY on purpose - a co-owner who
      * does not approve visitors - keeps it false and is never restored behind their back.
@@ -774,7 +780,21 @@ export const receipts = pgTable(
 // The gate: passes a resident issues, the visits a guard records, and who is inside
 // ---------------------------------------------------------------------------
 
-export const visitPurpose = pgEnum('visit_purpose', ['GUEST', 'DELIVERY', 'CAB', 'SERVICE', 'OTHER'])
+/**
+ * Why the visitor is here. DELIVERY is a parcel or courier, kept under its original name; the
+ * society chooses which of these its gate offers, in `society_settings.visitor_purposes`.
+ */
+export const visitPurpose = pgEnum('visit_purpose', [
+  'GUEST',
+  'DELIVERY',
+  'CAB',
+  'SERVICE',
+  'OTHER',
+  'FOOD_DELIVERY',
+  'DOMESTIC_HELP',
+  'MAINTENANCE',
+  'BUSINESS',
+])
 
 /** One entry closes the pass on first use; a day pass lets the same person come and go. */
 export const visitorPassType = pgEnum('visitor_pass_type', ['ONE_ENTRY', 'MULTI_ENTRY'])
@@ -1427,6 +1447,10 @@ export const societySettings = pgTable('society_settings', {
   timezone: varchar('timezone', { length: 80 }).notNull().default('Asia/Kolkata'),
   /** When true, a staff member cannot be registered without an ID type and number */
   idRequired: boolean('id_required').notNull().default(false),
+  /** Which visitor purposes the gate offers. Empty means all of them. */
+  visitorPurposes: jsonb('visitor_purposes').$type<string[]>().notNull().default([]),
+  /** Whether a resident may answer a delivery with "leave it at the gate" */
+  leaveAtGateAllowed: boolean('leave_at_gate_allowed').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })

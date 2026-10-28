@@ -24,6 +24,9 @@ const TONE: Record<BackupStatus, Tone> = {
   EXPIRED: 'neutral',
 }
 
+/** The visitor types the gate can offer, in the order the guard's form shows them. */
+const PURPOSES = ['GUEST', 'FOOD_DELIVERY', 'DELIVERY', 'CAB', 'DOMESTIC_HELP', 'MAINTENANCE', 'SERVICE', 'BUSINESS', 'OTHER']
+
 const size = (bytes: number | null) => (bytes === null ? '—' : `${(bytes / 1024 / 1024).toFixed(1)} MB`)
 
 /**
@@ -46,20 +49,21 @@ export function SettingsTab({ token, societyId }: { token: string; societyId: st
   if (settings.error) return <ErrorState message={settings.error} onRetry={settings.reload} />
   const current = settings.data!
 
-  async function toggleId(idRequired: boolean) {
+  /** Every settings change goes the same way: save, say so, read back what was stored. */
+  async function change(body: Parameters<typeof updateSettings>[2]) {
     setSaved(false)
-    if (await save.run(() => updateSettings(token, societyId, { idRequired }))) {
+    if (await save.run(() => updateSettings(token, societyId, body))) {
       setSaved(true)
       settings.reload()
     }
   }
 
-  async function saveTimezone(timezone: string) {
-    setSaved(false)
-    if (await save.run(() => updateSettings(token, societyId, { timezone }))) {
-      setSaved(true)
-      settings.reload()
-    }
+  /** An empty stored list means the gate offers all of them, so unticking the last one is refused. */
+  function togglePurpose(purpose: string, offered: boolean) {
+    const chosen = current.visitorPurposes.length ? current.visitorPurposes : PURPOSES
+    const next = offered ? [...chosen, purpose] : chosen.filter((value) => value !== purpose)
+    if (next.length === 0) return
+    void change({ visitorPurposes: next.length === PURPOSES.length ? [] : PURPOSES.filter((value) => next.includes(value)) })
   }
 
   async function handleExport() {
@@ -75,7 +79,7 @@ export function SettingsTab({ token, societyId }: { token: string; societyId: st
           <input
             type="checkbox"
             checked={current.idRequired}
-            onChange={(event) => void toggleId(event.target.checked)}
+            onChange={(event) => void change({ idRequired: event.target.checked })}
             disabled={save.pending}
             className="mt-0.5 size-4 accent-[var(--color-brand)]"
           />
@@ -84,12 +88,46 @@ export function SettingsTab({ token, societyId }: { token: string; societyId: st
             <span className="text-[12px] text-muted">{t('area.admin.society.settings.idRequiredHint')}</span>
           </span>
         </label>
+        <label className="flex items-start gap-3 rounded-xl border border-line p-3.5">
+          <input
+            type="checkbox"
+            checked={current.leaveAtGateAllowed}
+            onChange={(event) => void change({ leaveAtGateAllowed: event.target.checked })}
+            disabled={save.pending}
+            className="mt-0.5 size-4 accent-[var(--color-brand)]"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-[14px] font-semibold text-ink">{t('area.admin.society.settings.leaveAtGate')}</span>
+            <span className="text-[12px] text-muted">{t('area.admin.society.settings.leaveAtGateHint')}</span>
+          </span>
+        </label>
+        <fieldset className="flex flex-col gap-2 border-0 p-0">
+          <legend className="text-[11px] font-semibold text-ink-soft">{t('area.admin.society.settings.purposes')}</legend>
+          <p className="m-0 text-[12px] text-muted">{t('area.admin.society.settings.purposesHint')}</p>
+          <div className="flex flex-wrap gap-2">
+            {PURPOSES.map((purpose) => {
+              const offered = current.visitorPurposes.length === 0 || current.visitorPurposes.includes(purpose)
+              return (
+                <label key={purpose} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-[13px] text-ink">
+                  <input
+                    type="checkbox"
+                    checked={offered}
+                    onChange={(event) => togglePurpose(purpose, event.target.checked)}
+                    disabled={save.pending}
+                    className="size-4 accent-[var(--color-brand)]"
+                  />
+                  {t(`area.guard.purposes.${purpose}`)}
+                </label>
+              )
+            })}
+          </div>
+        </fieldset>
         <div className="max-w-[260px]">
           <TextField
             id="society-timezone"
             label={t('area.admin.society.settings.timezone')}
             value={current.timezone}
-            onChange={(event) => void saveTimezone(event.target.value.trim())}
+            onChange={(event) => void change({ timezone: event.target.value.trim() })}
             error={save.fieldError('timezone')}
             maxLength={80}
           />

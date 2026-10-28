@@ -21,6 +21,7 @@ import { AppError } from '../../lib/errors.js'
 import { enqueueNotification } from '../notification/outbox.service.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { requireFile } from '../file/file.service.js'
+import { leaveAtGateAllowed, visitorPurposes } from '../society/society.service.js'
 import { assertFlatAccess, assertSameSociety, assertState, deny, permissionDenied, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import type {
@@ -79,6 +80,7 @@ async function loadFlat(executor: DbExecutor, ctx: AuthContext, flatId: string) 
           number: flats.number,
           societyId: blocks.societyId,
           blockName: blocks.name,
+          blockStatus: blocks.status,
           floorLabel: floors.floorLabel,
           status: flats.status,
         })
@@ -263,7 +265,9 @@ export async function currentResidents(flatId: string) {
       userId: flatResidents.userId,
       residentType: flatResidents.residentType,
       accessLevel: flatResidents.accessLevel,
+      eligible: flatResidents.visitorApprovalEligible,
       name: users.name,
+      phone: users.phone,
     })
     .from(flatResidents)
     .innerJoin(users, eq(users.id, flatResidents.userId))
@@ -278,10 +282,18 @@ export async function currentResidents(flatId: string) {
     )
 }
 
-/** The one of them who answers for the flat, or undefined when nobody can. */
+/**
+ * Everyone the Admin marked as able to answer a visitor for this flat. Owner or tenant, full or
+ * view-only, decides nothing by itself: the assignment's own flag does.
+ */
+function eligibleAmong(rows: Awaited<ReturnType<typeof currentResidents>>) {
+  return rows.filter((row) => row.eligible)
+}
+
+/** The first of them to ask when nobody was named: a tenant in the flat answers before its owner. */
 function approverAmong(rows: Awaited<ReturnType<typeof currentResidents>>) {
-  const full = rows.filter((row) => row.accessLevel === 'FULL')
-  return full.find((row) => row.residentType === 'TENANT') ?? full.find((row) => row.residentType === 'OWNER')
+  const able = eligibleAmong(rows)
+  return able.find((row) => row.residentType === 'TENANT') ?? able.find((row) => row.residentType === 'OWNER') ?? able[0]
 }
 
 export async function effectiveApprover(flatId: string) {
@@ -291,7 +303,7 @@ export async function effectiveApprover(flatId: string) {
 /** Who answers this visit: the resident who was asked for, when they may, else the flat's approver. */
 export async function approverFor(flatId: string, intendedResidentId?: string | null) {
   const rows = await currentResidents(flatId)
-  return rows.find((row) => row.userId === intendedResidentId && row.accessLevel === 'FULL') ?? approverAmong(rows)
+  return rows.find((row) => row.userId === intendedResidentId && row.eligible) ?? approverAmong(rows)
 }
 
 /**
@@ -319,7 +331,9 @@ export async function registerVisit(
   await assertGate(ctx, body.gateId)
   const flat = await loadFlat(db, ctx, body.flatId)
   assertState(flat.societyId === societyId, 'That flat belongs to another society')
+  assertState(flat.blockStatus === 'ACTIVE', 'This block is not active')
   assertState(flat.status === 'ACTIVE', 'This flat is not active')
+  assertState((await visitorPurposes(societyId)).includes(body.purpose), 'This society does not use that visitor type')
   // The gate photograph is required by the form; a reference that was never stored is not accepted
   if (body.photoReference) await requireFile(societyId, body.photoReference)
   const residents = await currentResidents(flat.id)
@@ -344,10 +358,10 @@ export async function registerVisit(
     status = AWAITING_MANUAL
   }
 
-  // The resident who was asked for answers for themselves, as long as they may; otherwise the
-  // flat's usual approver does.
-  const asked = residents.find((resident) => resident.userId === body.intendedResidentId && resident.accessLevel === 'FULL')
-  const approver = status === AWAITING_APPROVAL ? (asked ?? approverAmong(residents)) : undefined
+  // The resident who was asked for answers for themselves, as long as they may. Otherwise every
+  // approver the household has is asked at once, and the first answer settles it.
+  const asked = residents.find((resident) => resident.userId === body.intendedResidentId && resident.eligible)
+  const approvers = status === AWAITING_APPROVAL ? (asked ? [asked] : eligibleAmong(residents)) : []
   const now = new Date()
   const { entryCode: _code, expectedDate, expectedTime, clientEventId: bodyEventId, flatId, ...rest } = body
   const [visit] = await unique(
@@ -383,13 +397,13 @@ export async function registerVisit(
     'This visit is already registered',
   )
   const label_ = label(flat)
-  if (approver) {
+  if (approvers.length > 0) {
     await enqueueNotification(db, {
       societyId,
       eventType: 'VISITOR_WAITING_APPROVAL',
       entityType: 'visit',
       entityId: visit!.id,
-      recipientIds: [approver.userId],
+      recipientIds: approvers.map((resident) => resident.userId),
       payload: { name: visit!.visitorName, flat: label_, purpose: visit!.purpose },
     })
   } else if (status === AWAITING_MANUAL) {
@@ -420,8 +434,17 @@ export async function registerVisit(
     status,
     ...(manualOffline ? { reason: manualOffline.reason, recordedAt: manualOffline.at.toISOString() } : {}),
   })
-  return serializeVisit({ visit: visit!, flat, gateName: null, passCode: body.entryCode ?? null })
+  // Nobody can answer, so the guard is given the registered number to ring. A call settles
+  // nothing by itself: the visit stays unapproved until somebody decides it in the app.
+  const called = residents.find((resident) => resident.userId === body.intendedResidentId) ?? approverAmong(residents)
+  return {
+    ...serializeVisit({ visit: visit!, flat, gateName: null, passCode: body.entryCode ?? null }),
+    contact: status === AWAITING_MANUAL && called ? { name: called.name, phone: called.phone } : null,
+  }
 }
+
+/** A guard may only read a society they are signed in to. */
+export const assertInSociety = (ctx: AuthContext, societyId: string) => assertSameSociety(ctx, societyId)
 
 /** The gate's list: today by default, newest first. */
 export async function listVisits(ctx: AuthContext, societyId: string, query: ListVisitsQuery) {
@@ -487,10 +510,25 @@ async function loadVisit(ctx: AuthContext, id: string) {
 export async function decideVisit(ctx: AuthContext, id: string, body: DecideVisitBody) {
   const row = await loadVisit(ctx, id)
   const asGuard = ctx.permissions?.includes('VISIT_DECIDE') ?? false
-  if (!asGuard) await assertFlatAccess(ctx, row.visit.flatId, { write: true })
+  if (!asGuard) {
+    await assertFlatAccess(ctx, row.visit.flatId, { write: true })
+    const residents = await currentResidents(row.visit.flatId)
+    assertState(
+      residents.some((resident) => resident.userId === ctx.userId && resident.eligible),
+      'You are not set up to answer visitors for this flat',
+    )
+  }
 
   // A resident answers while the visit is waiting on them. Once it has escalated the decision is
   // the guard's, and the guard has to say why, because nobody upstairs was asked.
+  // Leaving a parcel at the gate is the society's choice, and only ever for something delivered
+  if (body.decision === 'LEAVE_AT_GATE') {
+    assertState(await leaveAtGateAllowed(row.visit.societyId), 'This society does not allow leaving anything at the gate')
+    assertState(
+      row.visit.purpose === 'DELIVERY' || row.visit.purpose === 'FOOD_DELIVERY',
+      'Only a delivery can be left at the gate',
+    )
+  }
   const open: ('AWAITING_APPROVAL' | 'AWAITING_MANUAL')[] = asGuard ? [AWAITING_APPROVAL, AWAITING_MANUAL] : [AWAITING_APPROVAL]
   assertState(open.some((status) => status === row.visit.status), 'This visit has already been decided')
   if (asGuard && row.visit.status === AWAITING_MANUAL) {
