@@ -14,7 +14,7 @@ import {
   listVisitsSchema,
   markLeaveSchema,
   recordEntrySchema,
-  registerVisitSchema,
+  registerVisitAtGateSchema,
   staffMovementHistorySchema,
   staffMovementSchema,
   staffRejectionSchema,
@@ -46,7 +46,7 @@ export function createGateRouter() {
     const query = parseOrThrow(listVisitsSchema, req.query)
     res.json({ data: await service.listVisits(req.ctx!, req.params.societyId as string, query) })
   })
-  router.post('/societies/:societyId/visits', ...register, validateBody(registerVisitSchema), async (req, res) => {
+  router.post('/societies/:societyId/visits', ...register, validateBody(registerVisitAtGateSchema), async (req, res) => {
     res.status(201).json({ data: await service.registerVisit(req.ctx!, req.params.societyId as string, req.body) })
   })
   router.get('/societies/:societyId/visitor-lookup', ...register, async (req, res) => {

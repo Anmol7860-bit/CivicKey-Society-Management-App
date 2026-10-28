@@ -3,7 +3,7 @@ import { db } from '../../db/client.js'
 import { blocks, flats, invoices, communityTasks, notificationOutbox, visits } from '../../db/schema.js'
 import { logger } from '../../lib/logger.js'
 import { renderPendingReceipts } from '../billing/receipt.service.js'
-import { effectiveApprover } from '../gate/gate.service.js'
+import { approverFor, effectiveApprover } from '../gate/gate.service.js'
 import { enqueueNotification } from './outbox.service.js'
 
 /**
@@ -33,17 +33,25 @@ async function sendApprovalReminders() {
         lte(visits.reminderAt, sql`now()`),
       ),
     )
-    .returning({ id: visits.id, societyId: visits.societyId, flatId: visits.flatId, visitorName: visits.visitorName })
+    .returning({
+      id: visits.id,
+      societyId: visits.societyId,
+      flatId: visits.flatId,
+      visitorName: visits.visitorName,
+      intendedResidentId: visits.intendedResidentId,
+    })
 
   for (const visit of due) {
-    const approver = await effectiveApprover(visit.flatId)
+    // The reminder follows the first notice: the resident the visitor asked for, when there is one
+    const approver = await approverFor(visit.flatId, visit.intendedResidentId)
     if (!approver) continue
+    const recipient = approver.userId
     await enqueueNotification(db, {
       societyId: visit.societyId,
       eventType: 'VISITOR_APPROVAL_REMINDER',
       entityType: 'visit',
       entityId: visit.id,
-      recipientIds: [approver.userId],
+      recipientIds: [recipient],
       payload: { name: visit.visitorName, flat: await labelFor(visit.flatId) },
     })
   }

@@ -125,6 +125,10 @@ export interface RegisterVisitBody {
   vehicleNumber?: string
   note?: string
   photoReference?: string
+  intendedResidentId?: string
+  expectedDate?: string
+  expectedTime?: string
+  clientEventId?: string
   entryCode?: string
 }
 
@@ -290,8 +294,8 @@ export interface AccessRequestBody {
 export interface FlatOption {
   id: string
   label: string
-  /** First names only, which is all the gate is told about who lives there */
-  residents: string[]
+  /** Who lives there, so the guard can say which of them the visitor asked for */
+  residents: { id: string; name: string }[]
 }
 
 // --- The guard's screens ----------------------------------------------------

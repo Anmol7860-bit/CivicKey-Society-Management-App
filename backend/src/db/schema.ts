@@ -1095,6 +1095,10 @@ export const visits = pgTable(
     needsReview: boolean('needs_review').notNull().default(false),
     reviewReason: varchar('review_reason', { length: 120 }),
     registeredBy: uuid('registered_by').references(() => users.id),
+    /** Who the visitor asked for. The approval goes to them when they are one of the flat's approvers. */
+    intendedResidentId: uuid('intended_resident_id').references(() => users.id),
+    /** When the visit is expected, as the guard entered it; the registration time is createdAt */
+    expectedAt: timestamp('expected_at', { withTimezone: true }).notNull().defaultNow(),
     /** The resident who answered, or the guard who decided after the intercom call */
     decidedBy: uuid('decided_by').references(() => users.id),
     decidedAt: timestamp('decided_at', { withTimezone: true }),

@@ -10,7 +10,7 @@ import {
   pushSubscriptions,
   visits,
 } from '../../db/schema.js'
-import { addResident, createFlat, createUser, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
+import { addResident, createFlat, createPhoto, createUser, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 import { deliverDue, fanOutPending, nextAttempt, runDispatcherOnce } from './dispatcher.js'
 import { runJobsOnce } from './jobs.js'
 import { enqueueNotification } from './outbox.service.js'
@@ -23,6 +23,7 @@ let resident: string
 let residentUserId: string
 let flatId: string
 let gateId: string
+let photoId: string
 
 const tokenFor = (user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) =>
   signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID }).then((t) => `Bearer ${t}`)
@@ -40,6 +41,9 @@ const visitBody = (overrides: object = {}) => ({
   visitorPhone: '9833333333',
   purpose: 'DELIVERY' as const,
   people: 1,
+  photoReference: photoId,
+  expectedDate: new Date().toISOString().slice(0, 10),
+  expectedTime: '10:30',
   ...overrides,
 })
 
@@ -47,6 +51,7 @@ const deliveriesFor = (notificationId: string) =>
   db.select().from(notificationDeliveries).where(eq(notificationDeliveries.notificationId, notificationId))
 
 beforeEach(async () => {
+  photoId = await createPhoto()
   const guardUser = await createUser({ phone: '9000000002', email: null, role: 'GUARD' })
   guardUserId = guardUser.id
   guard = await tokenFor(guardUser)

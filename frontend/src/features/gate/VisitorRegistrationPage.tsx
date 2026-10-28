@@ -12,18 +12,26 @@ import { flatDirectory, lookupVisitor, registerVisit, validatePass, type VisitPu
 
 const PURPOSES: VisitPurpose[] = ['GUEST', 'DELIVERY', 'CAB', 'SERVICE', 'OTHER']
 
-const empty = {
+/** The gate's own clock, as the two inputs want it: 2026-10-28 and 14:35. */
+const localNow = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString()
+
+const blank = () => ({
   visitorPhone: '',
   visitorName: '',
   company: '',
   purpose: 'GUEST' as VisitPurpose,
   flatId: '',
+  intendedResidentId: '',
+  expectedDate: localNow().slice(0, 10),
+  expectedTime: localNow().slice(11, 16),
   people: '1',
   vehicleNumber: '',
   note: '',
   photoReference: '',
   entryCode: '',
-}
+  // One id for this filled-in form: a second tap after a lost answer is refused, not registered twice
+  clientEventId: crypto.randomUUID(),
+})
 
 /**
  * The guard's form, in the order the gate works: the mobile first, because a returning visitor
@@ -32,7 +40,7 @@ const empty = {
 export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser; accessToken: string }) {
   const { t } = useTranslation()
   const societyId = user.societyId
-  const [form, setForm] = useState(empty)
+  const [form, setForm] = useState(blank)
   const [sent, setSent] = useState<{ name: string; approved: boolean } | null>(null)
   const [known, setKnown] = useState<string | null>(null)
   const [refused, setRefused] = useState<string | null>(null)
@@ -82,7 +90,18 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
     })
   }
 
-  const ready = Boolean(form.visitorName.trim() && /^[6-9]\d{9}$/.test(form.visitorPhone.trim()) && form.flatId)
+  const chosenFlat = (flats.data ?? []).find((flat) => flat.id === form.flatId)
+  // Everything the gate must capture before a visit exists: the photograph and the expected time
+  // among them, and for a named guest, the resident they asked for.
+  const ready = Boolean(
+    form.visitorName.trim() &&
+      /^[6-9]\d{9}$/.test(form.visitorPhone.trim()) &&
+      form.flatId &&
+      form.expectedDate &&
+      form.expectedTime &&
+      // A pass holder was identified and approved when the resident issued the pass
+      (form.entryCode.trim() || (form.photoReference.trim() && (form.purpose !== 'GUEST' || form.intendedResidentId))),
+  )
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -94,16 +113,20 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
         visitorPhone: form.visitorPhone.trim(),
         purpose: form.purpose,
         people: Number(form.people) || 1,
+        expectedDate: form.expectedDate,
+        expectedTime: form.expectedTime,
+        clientEventId: form.clientEventId,
+        ...(form.photoReference.trim() ? { photoReference: form.photoReference.trim() } : {}),
+        ...(form.intendedResidentId ? { intendedResidentId: form.intendedResidentId } : {}),
         ...(form.company.trim() ? { company: form.company.trim() } : {}),
         ...(form.vehicleNumber.trim() ? { vehicleNumber: form.vehicleNumber.trim() } : {}),
         ...(form.note.trim() ? { note: form.note.trim() } : {}),
-        ...(form.photoReference.trim() ? { photoReference: form.photoReference.trim() } : {}),
         ...(form.entryCode.trim() ? { entryCode: form.entryCode.trim() } : {}),
       })
       setSent({ name: visit.visitorName, approved: visit.status === 'APPROVED' })
     })
     if (ok) {
-      setForm(empty)
+      setForm(blank())
       setKnown(null)
       setRefused(null)
     }
@@ -203,12 +226,41 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
               label={t('area.guard.register.flat')}
               options={(flats.data ?? []).map((flat) => ({
                 value: flat.id,
-                label: flat.residents.length ? `${flat.label} · ${flat.residents.join(', ')}` : flat.label,
+                label: flat.residents.length ? `${flat.label} · ${flat.residents.map((person) => person.name).join(', ')}` : flat.label,
               }))}
               placeholder={t('area.guard.register.chooseFlat')}
               value={form.flatId}
-              onChange={(event) => set('flatId', event.target.value)}
+              onChange={(event) => setForm((previous) => ({ ...previous, flatId: event.target.value, intendedResidentId: '' }))}
               hint={t('area.guard.register.flatHint')}
+              required
+            />
+            <Select
+              id="visit-resident"
+              label={t('area.guard.register.resident')}
+              options={(chosenFlat?.residents ?? []).map((person) => ({ value: person.id, label: person.name }))}
+              placeholder={t('area.guard.register.chooseResident')}
+              value={form.intendedResidentId}
+              onChange={(event) => set('intendedResidentId', event.target.value)}
+              error={action.fieldError('intendedResidentId')}
+              hint={t('area.guard.register.residentHint')}
+              required={form.purpose === 'GUEST'}
+            />
+            <TextField
+              id="visit-expected-date"
+              label={t('area.guard.register.expectedDate')}
+              type="date"
+              value={form.expectedDate}
+              onChange={(event) => set('expectedDate', event.target.value)}
+              error={action.fieldError('expectedDate')}
+              required
+            />
+            <TextField
+              id="visit-expected-time"
+              label={t('area.guard.register.expectedTime')}
+              type="time"
+              value={form.expectedTime}
+              onChange={(event) => set('expectedTime', event.target.value)}
+              error={action.fieldError('expectedTime')}
               required
             />
             <TextField
@@ -241,6 +293,8 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
               accessToken={accessToken}
               value={form.photoReference}
               onChange={(reference) => set('photoReference', reference)}
+              error={action.fieldError('photoReference')}
+              required={!form.entryCode.trim()}
             />
           </FormGrid>
 
@@ -253,7 +307,7 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
                 {action.pending ? t('shell.saving') : t('area.guard.register.send')}
               </Button>
             </div>
-            <RowButton onClick={() => { setForm(empty); setKnown(null); action.clear() }}>{t('area.guard.register.clear')}</RowButton>
+            <RowButton onClick={() => { setForm(blank()); setKnown(null); action.clear() }}>{t('area.guard.register.clear')}</RowButton>
             <p className="text-[12px] text-muted">{t('area.guard.register.afterSending')}</p>
           </div>
         </form>

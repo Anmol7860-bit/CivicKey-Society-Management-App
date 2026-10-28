@@ -257,22 +257,41 @@ const serializeVisit = (row: VisitRow) => ({
  * Returns undefined when the flat has nobody who can answer. The visit then goes straight to the
  * guard rather than waiting three minutes for a decision that cannot come.
  */
-export async function effectiveApprover(flatId: string) {
-  const rows = await db
-    .select({ userId: flatResidents.userId, residentType: flatResidents.residentType })
+export async function currentResidents(flatId: string) {
+  return db
+    .select({
+      userId: flatResidents.userId,
+      residentType: flatResidents.residentType,
+      accessLevel: flatResidents.accessLevel,
+      name: users.name,
+    })
     .from(flatResidents)
     .innerJoin(users, eq(users.id, flatResidents.userId))
     .where(
       and(
         eq(flatResidents.flatId, flatId),
-        eq(flatResidents.accessLevel, 'FULL'),
         eq(flatResidents.verificationStatus, 'VERIFIED'),
         eq(users.isActive, true),
         lte(flatResidents.startDate, sql`current_date`),
         or(isNull(flatResidents.endDate), gte(flatResidents.endDate, sql`current_date`))!,
       ),
     )
-  return rows.find((row) => row.residentType === 'TENANT') ?? rows.find((row) => row.residentType === 'OWNER')
+}
+
+/** The one of them who answers for the flat, or undefined when nobody can. */
+function approverAmong(rows: Awaited<ReturnType<typeof currentResidents>>) {
+  const full = rows.filter((row) => row.accessLevel === 'FULL')
+  return full.find((row) => row.residentType === 'TENANT') ?? full.find((row) => row.residentType === 'OWNER')
+}
+
+export async function effectiveApprover(flatId: string) {
+  return approverAmong(await currentResidents(flatId))
+}
+
+/** Who answers this visit: the resident who was asked for, when they may, else the flat's approver. */
+export async function approverFor(flatId: string, intendedResidentId?: string | null) {
+  const rows = await currentResidents(flatId)
+  return rows.find((row) => row.userId === intendedResidentId && row.accessLevel === 'FULL') ?? approverAmong(rows)
 }
 
 /**
@@ -301,8 +320,15 @@ export async function registerVisit(
   const flat = await loadFlat(db, ctx, body.flatId)
   assertState(flat.societyId === societyId, 'That flat belongs to another society')
   assertState(flat.status === 'ACTIVE', 'This flat is not active')
-  // A visitor photo is optional, but a reference that was never stored is not accepted
+  // The gate photograph is required by the form; a reference that was never stored is not accepted
   if (body.photoReference) await requireFile(societyId, body.photoReference)
+  const residents = await currentResidents(flat.id)
+  if (body.intendedResidentId) {
+    assertState(
+      residents.some((resident) => resident.userId === body.intendedResidentId),
+      'That resident does not live in this flat',
+    )
+  }
 
   let passId: string | null = null
   let status: typeof AWAITING_APPROVAL | typeof AWAITING_MANUAL | typeof APPROVED | typeof ENTERED = AWAITING_APPROVAL
@@ -314,41 +340,48 @@ export async function registerVisit(
     assertState(checked.pass!.flatId === flat.id, 'That pass was issued for another flat')
     passId = checked.pass!.id
     status = APPROVED
-  } else if (!(await effectiveApprover(flat.id))) {
+  } else if (!approverAmong(residents)) {
     status = AWAITING_MANUAL
   }
 
-  const approver = status === AWAITING_APPROVAL ? await effectiveApprover(flat.id) : undefined
+  // The resident who was asked for answers for themselves, as long as they may; otherwise the
+  // flat's usual approver does.
+  const asked = residents.find((resident) => resident.userId === body.intendedResidentId && resident.accessLevel === 'FULL')
+  const approver = status === AWAITING_APPROVAL ? (asked ?? approverAmong(residents)) : undefined
   const now = new Date()
-  const { entryCode: _code, flatId, ...rest } = body
-  const [visit] = await db
-    .insert(visits)
-    .values({
-      ...rest,
-      flatId,
-      societyId,
-      passId,
-      status,
-      clientEventId,
-      registeredBy: ctx.userId,
-      ...(status === APPROVED ? { decidedBy: ctx.userId, decidedAt: new Date(), decisionReason: 'Arrived with a valid pass' } : {}),
-      // One reminder a minute in, the guard's decision two minutes after that. Only a visit
-      // that is actually waiting on someone has deadlines.
-      ...(status === AWAITING_APPROVAL
-        ? { reminderAt: new Date(now.getTime() + REMINDER_AFTER_MS), escalateAt: new Date(now.getTime() + ESCALATE_AFTER_MS) }
-        : {}),
-      // No decidedBy: nobody approved this, and the record must not suggest anyone did
-      ...(manualOffline
-        ? {
-            source: 'MANUAL_OFFLINE' as const,
-            needsReview: true,
-            reviewReason: manualOffline.reason.slice(0, 120),
-            enteredAt: manualOffline.at,
-            entryBy: ctx.userId,
-          }
-        : {}),
-    })
-    .returning()
+  const { entryCode: _code, expectedDate, expectedTime, clientEventId: bodyEventId, flatId, ...rest } = body
+  const [visit] = await unique(
+    db
+      .insert(visits)
+      .values({
+        ...rest,
+        flatId,
+        societyId,
+        passId,
+        status,
+        expectedAt: expectedDate && expectedTime ? new Date(`${expectedDate}T${expectedTime}`) : now,
+        clientEventId: clientEventId ?? bodyEventId,
+        registeredBy: ctx.userId,
+        ...(status === APPROVED ? { decidedBy: ctx.userId, decidedAt: new Date(), decisionReason: 'Arrived with a valid pass' } : {}),
+        // One reminder a minute in, the guard's decision two minutes after that. Only a visit
+        // that is actually waiting on someone has deadlines.
+        ...(status === AWAITING_APPROVAL
+          ? { reminderAt: new Date(now.getTime() + REMINDER_AFTER_MS), escalateAt: new Date(now.getTime() + ESCALATE_AFTER_MS) }
+          : {}),
+        // No decidedBy: nobody approved this, and the record must not suggest anyone did
+        ...(manualOffline
+          ? {
+              source: 'MANUAL_OFFLINE' as const,
+              needsReview: true,
+              reviewReason: manualOffline.reason.slice(0, 120),
+              enteredAt: manualOffline.at,
+              entryBy: ctx.userId,
+            }
+          : {}),
+      })
+      .returning(),
+    'This visit is already registered',
+  )
   const label_ = label(flat)
   if (approver) {
     await enqueueNotification(db, {
@@ -1079,7 +1112,10 @@ export async function flatDirectory(ctx: AuthContext, societyId: string) {
       id: flats.id,
       number: flats.number,
       blockName: blocks.name,
-      residents: sql<string[]>`coalesce(array_agg(distinct split_part(${users.name}, ' ', 1)) filter (where ${users.name} is not null), '{}')`,
+      // The guard picks the resident the visitor asked for out of this, so each one needs an id
+      residents: sql<
+        { id: string; name: string }[]
+      >`coalesce(jsonb_agg(distinct jsonb_build_object('id', ${users.id}, 'name', ${users.name})) filter (where ${users.id} is not null), '[]')`,
     })
     .from(flats)
     .innerJoin(blocks, eq(blocks.id, flats.blockId))

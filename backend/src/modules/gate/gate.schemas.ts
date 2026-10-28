@@ -63,6 +63,13 @@ export const registerVisitSchema = z.strictObject({
   note: note.optional(),
   /** The stored image of the visitor, as returned by POST /files */
   photoReference: z.uuid().optional(),
+  /** The resident the visitor asked for; the approval is routed to them */
+  intendedResidentId: uuid.optional(),
+  /** When the visit is expected. Both parts together, or neither, which means now. */
+  expectedDate: isoDate.optional(),
+  expectedTime: clockTime.optional(),
+  /** One id per filled-in form, so a retry after a lost answer cannot register the visit twice */
+  clientEventId: z.uuid().optional(),
   /** Present when the visitor arrived holding a pass, which approves the visit outright */
   entryCode: z
     .string()
@@ -70,6 +77,32 @@ export const registerVisitSchema = z.strictObject({
     .regex(/^\d{6}$/, 'An entry code is 6 digits')
     .optional(),
 })
+
+/**
+ * The same form as it arrives from a guard standing at the gate, where the camera and the clock
+ * are to hand. A replay out of a device's offline queue uses the schema above: it was filled in
+ * with no server to store a photograph on.
+ */
+export const registerVisitAtGateSchema = registerVisitSchema
+  // A pass holder was identified when the resident issued the pass, and the pass carries its own
+  // window; everyone the guard registers by hand is photographed and timed at the gate.
+  .refine((body) => Boolean(body.entryCode || body.photoReference), {
+    message: 'Take the visitor\'s photograph',
+    path: ['photoReference'],
+  })
+  .refine((body) => Boolean(body.entryCode || body.expectedDate), {
+    message: 'Give the expected date',
+    path: ['expectedDate'],
+  })
+  .refine((body) => Boolean(body.entryCode || body.expectedTime), {
+    message: 'Give the expected time',
+    path: ['expectedTime'],
+  })
+  // Somebody asked for by name is a visit to a person; a delivery or a cab is a visit to the flat
+  .refine((body) => body.purpose !== 'GUEST' || Boolean(body.entryCode || body.intendedResidentId), {
+    message: 'Choose who the visitor is here to see',
+    path: ['intendedResidentId'],
+  })
 
 /** What the resident (or the guard, after the intercom call) decided. */
 export const decideVisitSchema = z

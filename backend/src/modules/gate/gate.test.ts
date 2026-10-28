@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import { gates, guardGateAssignments, notificationOutbox, societies, staff, staffFlats, visitorPasses } from '../../db/schema.js'
-import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
+import { addResident, createFlat, createPhoto, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 
 const app = createApp()
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
@@ -15,6 +15,7 @@ let flatId: string
 let gateId: string
 let residentUserId: string
 let guardUserId: string
+let photoId: string
 
 function tokenFor(user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) {
   return signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID }).then((token) => `Bearer ${token}`)
@@ -41,6 +42,7 @@ const passBody = (overrides: object = {}) => ({
   ...overrides,
 })
 
+/** What the guard's form sends: the photograph and the expected time are part of every one. */
 const visitBody = (overrides: object = {}) => ({
   flatId,
   gateId,
@@ -48,10 +50,14 @@ const visitBody = (overrides: object = {}) => ({
   visitorPhone: '9833333333',
   purpose: 'DELIVERY' as const,
   people: 1,
+  photoReference: photoId,
+  expectedDate: today(),
+  expectedTime: '10:30',
   ...overrides,
 })
 
 beforeEach(async () => {
+  photoId = await createPhoto()
   const guardUser = await createUser({ phone: '9000000002', email: null, role: 'GUARD' })
   guardUserId = guardUser.id
   guard = await tokenFor(guardUser)
@@ -148,6 +154,53 @@ describe('visits', () => {
     expect((await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'APPROVED' }, await tokenFor(tenant))).status).toBe(200)
   })
 
+  it('insists on the photograph, the expected time and, for a guest, who they asked for', async () => {
+    const { photoReference: _photo, ...noPhoto } = visitBody()
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, noPhoto)).status).toBe(422)
+
+    const { expectedTime: _time, ...noTime } = visitBody()
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, noTime)).status).toBe(422)
+
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ purpose: 'GUEST' }))).status).toBe(422)
+
+    // The photograph has to be one this society actually stored
+    const elsewhere = await createPhoto(OTHER_SOCIETY_ID)
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ photoReference: elsewhere }))).status).toBe(404)
+
+    // ...and the resident has to live in the flat the visitor is here for
+    const stranger = await createUser({ phone: '9811111117', email: null, role: 'RESIDENT' })
+    expect(
+      (await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ purpose: 'GUEST', intendedResidentId: stranger.id }))).status,
+    ).toBe(400)
+  })
+
+  it('asks the resident the visitor came to see, and keeps the expected time they gave', async () => {
+    const other = await createUser({ phone: '9811111116', email: null, role: 'RESIDENT' })
+    await addResident(flatId, other.id, { residentType: 'OWNER' })
+
+    const visit = await api.post(
+      `/societies/${TEST_SOCIETY_ID}/visits`,
+      visitBody({ purpose: 'GUEST', visitorName: 'Asha Mehta', intendedResidentId: other.id, expectedTime: '18:45' }),
+    )
+    expect(visit.status).toBe(201)
+    expect(visit.body.data.intendedResidentId).toBe(other.id)
+    expect(new Date(visit.body.data.expectedAt).getHours()).toBe(18)
+    // The registration time is its own field; the expected time is what the guard typed
+    expect(visit.body.data.createdAt).not.toBe(visit.body.data.expectedAt)
+
+    const [queued] = await db.select().from(notificationOutbox).where(eq(notificationOutbox.entityId, visit.body.data.id))
+    expect(queued).toMatchObject({ eventType: 'VISITOR_WAITING_APPROVAL', recipientIds: [other.id] })
+  })
+
+  it('refuses the same form twice, so a retry cannot register two visits', async () => {
+    const clientEventId = '55555555-5555-4555-8555-555555555555'
+    expect((await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ clientEventId }))).status).toBe(201)
+
+    const again = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ clientEventId }))
+    expect(again.status).toBe(409)
+    expect(again.body.error.code).toBe('ALREADY_EXISTS')
+  })
+
   it('waits on the resident, then records entry and exit', async () => {
     const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
     expect(visit.status).toBe(201)
@@ -193,9 +246,9 @@ describe('visits', () => {
     expect((await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-lookup?phone=9999999999`, guard)).body.data).toBeNull()
   })
 
-  it('offers the guard a flat picker with first names only', async () => {
+  it('offers the guard a flat picker naming who lives there', async () => {
     const directory = await api.get(`/societies/${TEST_SOCIETY_ID}/flat-directory`, guard)
-    expect(directory.body.data).toEqual([{ id: flatId, label: 'A-101-101', residents: ['Riya'] }])
+    expect(directory.body.data).toEqual([{ id: flatId, label: 'A-101-101', residents: [{ id: residentUserId, name: 'Riya Sharma' }] }])
   })
 
   it('keeps every gate route inside the guard’s own society and behind its permission', async () => {
@@ -536,7 +589,7 @@ describe('the gate log', () => {
     await api.post(`/visits/${inAndOut.body.data.id}/entry`, { gateId })
     await api.post(`/visits/${inAndOut.body.data.id}/exit`, {})
 
-    const staying = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorPhone: '9844444444', purpose: 'GUEST', visitorName: 'Riya Guest' }))
+    const staying = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorPhone: '9844444444', purpose: 'GUEST', visitorName: 'Riya Guest', intendedResidentId: residentUserId }))
     await api.post(`/visits/${staying.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
     await api.post(`/visits/${staying.body.data.id}/entry`, {})
 
