@@ -680,6 +680,25 @@ export async function assertGateAssigned(ctx: AuthContext, gateId: string) {
   }
 }
 
+/**
+ * SMB-52 hears that a staff member moved: one event per flat they serve, to the residents who
+ * hold that flat. Enqueuing is a row in the outbox, so a failing channel later never reaches the
+ * movement that is already recorded. A staff member who serves no flat has nobody to tell.
+ */
+async function announceStaffMovement(ctx: AuthContext, member: typeof staff.$inferSelect, eventType: 'STAFF_ENTERED' | 'STAFF_EXITED', attendanceId: string) {
+  const served = await flatsServedBy([member.id])
+  for (const flat of served) {
+    await enqueueNotification(db, {
+      societyId: member.societyId,
+      eventType,
+      entityType: 'staff',
+      entityId: attendanceId,
+      recipientIds: await flatAudience(flat.flatId, ctx.userId),
+      payload: { name: member.name, flat: `${flat.blockName}-${flat.number}` },
+    })
+  }
+}
+
 /** The movement a request id already produced, so a retry of the same tap is answered, not repeated. */
 async function movementFor(staffId: string, key: string | undefined, column: AnyColumn) {
   if (!key) return undefined
@@ -707,6 +726,7 @@ export async function recordStaffEntry(ctx: AuthContext, id: string, body: Staff
     'This staff member is already inside',
   )
   await audit(db, ctx, 'STAFF_ENTRY_RECORDED', { staffId: id, name: member.name, gateId: body.gateId ?? null })
+  await announceStaffMovement(ctx, member, 'STAFF_ENTERED', row!.id)
   return row!
 }
 
@@ -725,6 +745,7 @@ export async function recordStaffExit(ctx: AuthContext, id: string, body: StaffM
     .returning()
   assertState(Boolean(row), 'This staff member is not inside')
   await audit(db, ctx, 'STAFF_EXIT_RECORDED', { staffId: id, name: member.name, gateId: body.gateId ?? null })
+  await announceStaffMovement(ctx, member, 'STAFF_EXITED', row!.id)
   return row!
 }
 

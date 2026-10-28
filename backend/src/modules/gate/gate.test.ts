@@ -2,7 +2,7 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { gates, societies, staff, staffFlats, visitorPasses } from '../../db/schema.js'
+import { gates, guardGateAssignments, notificationOutbox, societies, staff, staffFlats, visitorPasses } from '../../db/schema.js'
 import { addResident, createFlat, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 
 const app = createApp()
@@ -14,6 +14,7 @@ let admin: string
 let flatId: string
 let gateId: string
 let residentUserId: string
+let guardUserId: string
 
 function tokenFor(user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) {
   return signTestToken({ userId: user.id, role: user.role, societyId: TEST_SOCIETY_ID }).then((token) => `Bearer ${token}`)
@@ -52,6 +53,7 @@ const visitBody = (overrides: object = {}) => ({
 
 beforeEach(async () => {
   const guardUser = await createUser({ phone: '9000000002', email: null, role: 'GUARD' })
+  guardUserId = guardUser.id
   guard = await tokenFor(guardUser)
 
   const residentUser = await createUser({ phone: '9876543210', email: null, role: 'RESIDENT' })
@@ -484,6 +486,34 @@ describe('staff movement and verification', () => {
     expect((await api.post(`/staff/${member.id}/movement/entry-rejection`, { reason: 'STAFF_INACTIVE' }, resident)).status).toBe(403)
     expect((await api.get(`/staff/${member.id}/verification`, resident)).status).toBe(403)
     expect((await api.get(`/societies/${TEST_SOCIETY_ID}/staff-movements`, resident)).status).toBe(403)
+  })
+
+  // AC15, test cases 27 and 28: the movement raises an event for SMB-52 to deliver, and the
+  // delivery is a separate row, so a channel failing later cannot undo what the gate recorded
+  it('hands a successful entry and exit to the notification outbox', async () => {
+    const member = await seedStaff()
+    await api.post(`/staff/${member.id}/entry`, { gateId })
+    await api.post(`/staff/${member.id}/exit`, { gateId })
+
+    const queued = await db.select().from(notificationOutbox).where(eq(notificationOutbox.entityType, 'staff'))
+    expect(queued.map((row) => row.eventType).sort()).toEqual(['STAFF_ENTERED', 'STAFF_EXITED'])
+    expect(queued[0]).toMatchObject({ societyId: TEST_SOCIETY_ID, payload: { name: 'Ahmed Khan', flat: 'A-101-101' } })
+    // The resident of the flat they serve is told; the guard who recorded it is not
+    expect(queued[0]!.recipientIds).toEqual([residentUserId])
+    // Nothing was delivered inside the movement: that is the dispatcher's own, later, work
+    expect(queued.every((row) => row.processedAt === null)).toBe(true)
+  })
+
+  // Test case 16: a guard posted to one gate records nothing at another
+  it('refuses a movement at a gate the guard is not posted to', async () => {
+    const member = await seedStaff()
+    const [other] = await db.insert(gates).values({ societyId: TEST_SOCIETY_ID, code: 'BACK', name: 'Back gate' }).returning()
+    await db.insert(guardGateAssignments).values({ guardUserId, gateId: other!.id, assignedBy: guardUserId })
+
+    const denied = await api.post(`/staff/${member.id}/entry`, { gateId })
+    expect(denied.status).toBe(403)
+    expect(denied.body.error.code).toBe('GATE_ACCESS_DENIED')
+    expect((await api.post(`/staff/${member.id}/entry`, { gateId: other!.id })).status).toBe(201)
   })
 
   // Test case 16: a gate from another society, or one taken out of use, is not a valid place
