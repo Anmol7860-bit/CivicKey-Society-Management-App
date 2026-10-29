@@ -137,7 +137,7 @@ it('records a refused entry with its reason instead of letting the staff member 
 
 it('records an exit from the inside list', async () => {
   mocked.listInside.mockResolvedValue([
-    { id: 'v2', kind: 'VISITOR', name: 'Dev Courier', type: 'DELIVERY', flat: 'B-204', enteredAt: '2026-10-22T12:20:00.000Z', vehicleNumber: null, gateName: 'Main gate' },
+    { id: 'v2', kind: 'VISITOR', name: 'Dev Courier', type: 'DELIVERY', flat: 'B-204', enteredAt: '2026-10-22T12:20:00.000Z', vehicleNumber: null, gateName: 'Main gate', overstayed: false },
   ])
   mocked.recordExit.mockResolvedValue({ id: 'v2' } as never)
   show()

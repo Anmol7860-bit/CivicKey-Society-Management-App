@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '../../db/client.js'
 import { pushSubscriptions } from '../../db/schema.js'
+import { AppError } from '../../lib/errors.js'
 
 interface Subscription {
   endpoint: string
@@ -31,13 +32,19 @@ export async function savePushSubscription(userId: string, subscription: Subscri
   return { id: row!.id }
 }
 
-/** Stops pushing to one of this person's browsers, or to all of them. */
-export async function removePushSubscription(userId: string, endpoint: string | null) {
+/**
+ * Stops pushing to one of this person's browsers, or to all of them.
+ *
+ * Ownership is part of the update rather than a check before it: an id belonging to somebody else
+ * matches nothing and is answered 404, so the route cannot be used to find out whose it is.
+ */
+export async function removePushSubscription(userId: string, id: string | null) {
   const mine = eq(pushSubscriptions.userId, userId)
   const rows = await db
     .update(pushSubscriptions)
     .set({ isActive: false })
-    .where(endpoint ? and(mine, eq(pushSubscriptions.endpoint, endpoint)) : mine)
+    .where(id ? and(mine, eq(pushSubscriptions.id, id)) : mine)
     .returning({ id: pushSubscriptions.id })
+  if (id && rows.length === 0) throw new AppError(404, 'NOT_FOUND', 'That push subscription does not exist')
   return { removed: rows.length }
 }

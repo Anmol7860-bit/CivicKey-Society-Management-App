@@ -407,6 +407,7 @@
         "sentTitle": "Sent to you",
         "sentDescription": "The notices CivicKey sent you, newest first.",
         "unread": "Unread",
+        "offline": "Real-time updates unavailable. Notifications will refresh automatically.",
         "push": {
           "offer": "Get alerted on this device when a visitor is at your gate.",
           "enable": "Turn on push",

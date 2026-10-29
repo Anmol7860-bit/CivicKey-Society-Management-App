@@ -24,7 +24,11 @@ export function useResource<T>(load: (() => Promise<T>) | null, deps: unknown[])
     setState((previous) => ({ ...previous, loading: true, error: undefined }))
     load().then(
       (data) => active && setState({ data, loading: false }),
-      (error: unknown) => active && setState({ loading: false, error: error instanceof ApiError ? error.message : String(error) }),
+      // What was already loaded is kept beside the error: a failed refresh should not blank a
+      // screen the reader was using, and a first load has nothing to keep anyway
+      (error: unknown) =>
+        active &&
+        setState((previous) => ({ ...previous, loading: false, error: error instanceof ApiError ? error.message : String(error) })),
     )
     return () => {
       active = false

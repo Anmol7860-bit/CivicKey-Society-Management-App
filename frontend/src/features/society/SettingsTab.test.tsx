@@ -35,7 +35,15 @@ beforeEach(() => {
 const show = () => render(<SettingsTab token="token" societyId="s1" />)
 
 it('turns the government-ID requirement on for the whole society', async () => {
-  mocked.updateSettings.mockResolvedValue({ societyId: 's1', timezone: 'Asia/Kolkata', idRequired: true })
+  mocked.updateSettings.mockResolvedValue({
+    societyId: 's1',
+    timezone: 'Asia/Kolkata',
+    idRequired: true,
+    visitorPurposes: [],
+    leaveAtGateAllowed: true,
+    visitValidityHours: 24,
+    photoRetentionDays: 30,
+  })
   show()
 
   await userEvent.click(await screen.findByLabelText(/Require a government ID/))

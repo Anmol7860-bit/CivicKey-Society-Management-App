@@ -28,6 +28,7 @@ const assignment = (overrides: Partial<MyAssignment> = {}): MyAssignment => ({
   user: { id: 'u1', name: 'Arjun Nair', phone: '9876543216', email: null },
   active: true,
   eligible: true,
+  visitorApprovalEligible: true,
   flat: { id: 'fl1', number: '204', sharingAllowed: true, maxOccupants: 3 },
   floor: { id: 'f1', floorLabel: '2nd Floor' },
   block: { id: 'b1', name: 'B' },

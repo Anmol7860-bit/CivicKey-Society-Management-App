@@ -42,11 +42,15 @@ export interface Notification {
   createdAt: string
 }
 
-export const listNotifications = (token: string) =>
-  call<{ items: Notification[]; unread: number }>(token, 'GET', '/notifications')
+export const listNotifications = (token: string, page = 1, limit = 20) =>
+  call<{ items: Notification[]; unread: number; page: number; limit: number }>(
+    token,
+    'GET',
+    `/notifications?page=${page}&limit=${limit}`,
+  )
 
-export const markAllRead = (token: string) => call<{ marked: number }>(token, 'POST', '/notifications/read', {})
-export const markRead = (token: string, id: string) => call<{ marked: number }>(token, 'POST', `/notifications/${id}/read`, {})
+export const markAllRead = (token: string) => call<{ marked: number }>(token, 'PATCH', '/notifications/read-all', {})
+export const markRead = (token: string, id: string) => call<{ marked: number }>(token, 'PATCH', `/notifications/${id}/read`, {})
 
 export const getPushKey = (token: string) => call<{ publicKey: string | null }>(token, 'GET', '/notifications/push-key')
 
@@ -55,4 +59,4 @@ export interface PushSubscriptionBody {
   keys: { p256dh: string; auth: string }
 }
 export const savePushSubscription = (token: string, body: PushSubscriptionBody) =>
-  call<{ id: string }>(token, 'POST', '/notifications/push', body)
+  call<{ id: string }>(token, 'POST', '/notifications/push-subscription', body)

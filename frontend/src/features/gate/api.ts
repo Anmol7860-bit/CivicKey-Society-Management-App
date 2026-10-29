@@ -454,7 +454,7 @@ export const staffVerification = (token: string, staffId: string) =>
   call<StaffVerification>(token, 'GET', `/staff/${staffId}/verification`)
 export const listStaffInside = (token: string, societyId: string) =>
   call<StaffInsideRow[]>(token, 'GET', `/societies/${societyId}/staff-inside`)
-const queryString = (filters: Record<string, unknown>) =>
+const queryString = (filters: object) =>
   new URLSearchParams(
     Object.entries(filters)
       .filter(([, value]) => value !== undefined && value !== '')

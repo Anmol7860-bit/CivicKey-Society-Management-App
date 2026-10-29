@@ -5,7 +5,7 @@ import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States'
 import type { AuthUser } from '../auth/api'
 import { markAllRead } from '../notification/api'
 import { enablePush, pushState } from '../notification/push'
-import { NOTIFICATION_ARRIVED, useNotifications } from '../notification/useNotifications'
+import { NOTIFICATION_ARRIVED, useLiveStatus, useNotifications } from '../notification/useNotifications'
 import { Panel, RowButton, useAction } from '../society/parts'
 import { EventRow } from './ActivityPage'
 import { useFeed } from './feed'
@@ -24,6 +24,7 @@ const RECENT = 15
 export function NotificationsPage({ user, accessToken }: { user: AuthUser; accessToken: string }) {
   const { t } = useTranslation()
   const sent = useNotifications(accessToken)
+  const live = useLiveStatus()
   const feed = useFeed(accessToken)
   const area = user.role === 'ADMIN' ? 'admin' : 'resident'
   const readAction = useAction()
@@ -34,8 +35,11 @@ export function NotificationsPage({ user, accessToken }: { user: AuthUser; acces
     void pushState().then(setPush)
   }, [])
 
-  if (sent.loading || feed.loading) return <Skeleton rows={5} />
-  if (sent.error) return <ErrorState message={sent.error} onRetry={sent.reload} />
+  // A refresh keeps the page it refreshes: only a first load, with nothing on screen yet, waits
+  if ((sent.loading && !sent.items) || feed.loading) return <Skeleton rows={5} />
+  // A failed refresh keeps what was already loaded on the screen; only a first load with nothing
+  // to show is replaced by the error
+  if (sent.error && !sent.items) return <ErrorState message={sent.error} onRetry={sent.reload} />
   if (feed.error) return <ErrorState message={feed.error} onRetry={feed.reload} />
 
   const pending = feed.events.filter((event) => event.pending)
@@ -59,6 +63,12 @@ export function NotificationsPage({ user, accessToken }: { user: AuthUser; acces
         <h1 className="text-[22px] leading-7 font-bold text-ink">{t('area.resident.notifications.title')}</h1>
         <p className="text-[13px] text-muted">{t('area.resident.notifications.intro')}</p>
       </header>
+
+      {live === false && (
+        <p className="rounded-xl border border-line bg-paper p-3 text-[12px] text-muted">
+          {t('area.resident.notifications.offline')}
+        </p>
+      )}
 
       {push === 'OFF' && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-white p-3.5">

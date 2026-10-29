@@ -7,6 +7,7 @@ import {
   pushSubscriptions,
   users,
 } from '../../db/schema.js'
+import { AppError } from '../../lib/errors.js'
 import { logger } from '../../lib/logger.js'
 import { ChannelError, EMAIL_EVENTS, sendEmail, sendPush } from './channels.js'
 import { emitToUser, isConnected } from './realtime.js'
@@ -139,6 +140,16 @@ async function fanOut(event: ClaimedEvent) {
     .select({ id: users.id, email: users.email })
     .from(users)
     .where(and(inArray(users.id, recipientIds), eq(users.isActive, true), eq(users.societyId, event.societyId)))
+
+  if (people.length < recipientIds.length) {
+    // §15: a caller named somebody this event may not reach. Dropped, and said out loud: the
+    // silent version of this is how a wrong recipient list survives unnoticed.
+    const kept = new Set(people.map((person) => person.id))
+    logger.warn(
+      { outboxId: event.id, eventType: event.eventType, societyId: event.societyId, refused: recipientIds.filter((id) => !kept.has(id)) },
+      'Refused a notification recipient who is inactive or outside the society',
+    )
+  }
 
   const wantsEmail = EMAIL_EVENTS.includes(event.eventType)
   const pushable = await db
@@ -374,8 +385,15 @@ const outbound = (status: 'SENT' | 'DEAD') => sql<boolean>`exists (
   where d.notification_id = notifications.id and d.channel <> 'IN_APP' and d.status = ${status}
 )`
 
-/** Unread count and the most recent notifications for one person. */
-export async function listNotifications(userId: string, limit = 50) {
+export interface NotificationQuery {
+  page: number
+  limit: number
+  unreadOnly: boolean
+}
+
+/** Unread count and one page of this person's notifications, newest first. */
+export async function listNotifications(userId: string, { page, limit, unreadOnly }: NotificationQuery) {
+  const mine = unreadOnly ? and(eq(notifications.userId, userId), isNull(notifications.readAt)) : eq(notifications.userId, userId)
   const rows = await db
     .select({
       id: notifications.id,
@@ -389,9 +407,10 @@ export async function listNotifications(userId: string, limit = 50) {
       dead: outbound('DEAD'),
     })
     .from(notifications)
-    .where(eq(notifications.userId, userId))
+    .where(mine)
     .orderBy(sql`${notifications.createdAt} desc`)
     .limit(limit)
+    .offset((page - 1) * limit)
   return rows.map((row) => ({
     id: row.id,
     eventType: row.eventType,
@@ -405,9 +424,20 @@ export async function listNotifications(userId: string, limit = 50) {
   }))
 }
 
-/** Marks one notification, or every unread one, as read for this person only. */
+/**
+ * Marks one notification, or every unread one, as read for this person only.
+ *
+ * An id that is not theirs is a 404 rather than a quiet `{ marked: 0 }`, and the same 404 covers
+ * an id that does not exist: a reader cannot tell the two apart, which is the point. Marking one
+ * that is already read changes nothing and says so.
+ */
 export async function markRead(userId: string, id?: string) {
   const mine = eq(notifications.userId, userId)
+  if (id) {
+    const [owned] = await db.select({ readAt: notifications.readAt }).from(notifications).where(and(mine, eq(notifications.id, id)))
+    if (!owned) throw new AppError(404, 'NOT_FOUND', 'That notification does not exist')
+    if (owned.readAt) return { marked: 0 }
+  }
   const rows = await db
     .update(notifications)
     .set({ readAt: new Date() })

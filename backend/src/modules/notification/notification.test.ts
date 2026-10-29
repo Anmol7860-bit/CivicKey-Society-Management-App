@@ -34,6 +34,7 @@ const tokenFor = (user: { id: string; role: 'ADMIN' | 'RESIDENT' | 'GUARD' }) =>
 const api = {
   get: (path: string, token: string) => request(app).get(`/api/v1${path}`).set('Authorization', token),
   post: (path: string, body: object = {}, token = guard) => request(app).post(`/api/v1${path}`).set('Authorization', token).send(body),
+  patch: (path: string, token: string) => request(app).patch(`/api/v1${path}`).set('Authorization', token).send({}),
   del: (path: string, token: string) => request(app).delete(`/api/v1${path}`).set('Authorization', token),
 }
 
@@ -318,7 +319,7 @@ describe('reading notifications', () => {
     expect(mine.body.data.items[0]).toMatchObject({ eventType: 'VISITOR_WAITING_APPROVAL', readAt: null })
     expect(mine.body.data.items[0].title).toBe('A visitor is at the gate')
 
-    expect((await api.post('/notifications/read', {}, resident)).body.data).toEqual({ marked: 1 })
+    expect((await api.patch('/notifications/read-all', resident)).body.data).toEqual({ marked: 1 })
     expect((await api.get('/notifications', resident)).body.data.unread).toBe(0)
   })
 
@@ -330,7 +331,7 @@ describe('reading notifications', () => {
     await deliverDue()
     expect((await api.get('/notifications', resident)).body.data.items[0]).toMatchObject({ deliveryStatus: 'DELIVERED' })
 
-    await api.post('/notifications/read', {}, resident)
+    await api.patch('/notifications/read-all', resident)
     expect((await api.get('/notifications', resident)).body.data.items[0]).toMatchObject({ deliveryStatus: 'READ' })
   })
 
@@ -342,22 +343,65 @@ describe('reading notifications', () => {
     expect(theirs.body.data.items).toHaveLength(0)
 
     // Marking by id only works on your own
+    // Someone else's id is a 404, the same answer an id that exists nowhere gets: a reader
+    // cannot tell from the reply whether the notification is real
     const [record] = await db.select().from(notifications).where(eq(notifications.userId, residentUserId))
-    expect((await api.post(`/notifications/${record!.id}/read`, {}, guard)).body.data).toEqual({ marked: 0 })
+    expect((await api.patch(`/notifications/${record!.id}/read`, guard)).status).toBe(404)
     const [untouched] = await db.select().from(notifications).where(eq(notifications.id, record!.id))
     expect(untouched!.readAt).toBeNull()
+
+    expect((await api.patch('/notifications/11111111-1111-4111-8111-111111111111/read', resident)).status).toBe(404)
+    expect((await api.patch('/notifications/not-a-uuid/read', resident)).status).toBe(404)
+    // Reading one twice is not a second change, and not an error
+    expect((await api.patch(`/notifications/${record!.id}/read`, resident)).body.data).toEqual({ marked: 1 })
+    expect((await api.patch(`/notifications/${record!.id}/read`, resident)).body.data).toEqual({ marked: 0 })
+  })
+
+  it('hands back one page at a time, and the unread ones on their own', async () => {
+    for (let i = 0; i < 3; i += 1) await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorPhone: `98100000${i}0` }))
+    await fanOutPending()
+
+    const first = await api.get('/notifications?page=1&limit=2', resident)
+    expect(first.body.data).toMatchObject({ unread: 3, page: 1, limit: 2 })
+    expect(first.body.data.items).toHaveLength(2)
+
+    const second = await api.get('/notifications?page=2&limit=2', resident)
+    expect(second.body.data.items).toHaveLength(1)
+    // The pages do not overlap: the oldest is the one the second page holds
+    expect(second.body.data.items[0].id).not.toBe(first.body.data.items[0].id)
+
+    await api.patch(`/notifications/${first.body.data.items[0].id}/read`, resident)
+    const unread = await api.get('/notifications?unreadOnly=true', resident)
+    expect(unread.body.data.items).toHaveLength(2)
+    expect(unread.body.data.items.every((item: { readAt: string | null }) => item.readAt === null)).toBe(true)
+
+    expect((await api.get('/notifications?page=0', resident)).status).toBe(422)
   })
 
   it('stores a push subscription once per browser, and stops using it on request', async () => {
     const subscription = { endpoint: 'https://push.example/xyz', keys: { p256dh: 'key', auth: 'secret' } }
-    expect((await api.post('/notifications/push', subscription, resident)).status).toBe(201)
+    expect((await api.post('/notifications/push-subscription', subscription, resident)).status).toBe(201)
     // The same browser again is the same row, not a second one
-    await api.post('/notifications/push', subscription, resident)
+    await api.post('/notifications/push-subscription', subscription, resident)
     expect(await db.$count(pushSubscriptions)).toBe(1)
 
-    expect((await api.del('/notifications/push', resident)).body.data).toEqual({ removed: 1 })
+    expect((await api.del('/notifications/push-subscription', resident)).body.data).toEqual({ removed: 1 })
     const [row] = await db.select().from(pushSubscriptions)
     expect(row!.isActive).toBe(false)
+  })
+
+  it('keeps one subscription per device, and only its owner may remove it', async () => {
+    const phone = await api.post('/notifications/push-subscription', { endpoint: 'https://push.example/phone', keys: { p256dh: 'k', auth: 's' } }, resident)
+    const laptop = await api.post('/notifications/push-subscription', { endpoint: 'https://push.example/laptop', keys: { p256dh: 'k', auth: 's' } }, resident)
+    expect(await db.$count(pushSubscriptions, eq(pushSubscriptions.isActive, true))).toBe(2)
+
+    // The guard cannot switch off a browser that is not theirs, and is not told it exists
+    expect((await api.del(`/notifications/push-subscription/${phone.body.data.id}`, guard)).status).toBe(404)
+    expect((await api.del('/notifications/push-subscription/not-a-uuid', resident)).status).toBe(404)
+
+    expect((await api.del(`/notifications/push-subscription/${phone.body.data.id}`, resident)).body.data).toEqual({ removed: 1 })
+    const still = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.id, laptop.body.data.id))
+    expect(still[0]!.isActive).toBe(true)
   })
 
   it('needs a signed-in person', async () => {

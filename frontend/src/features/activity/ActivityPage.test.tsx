@@ -8,12 +8,19 @@ import * as notification from '../notification/api'
 import type { Notification } from '../notification/api'
 import type { AccessRequest, Visit, VisitorPass } from '../gate/api'
 import type { AuthUser } from '../auth/api'
+import { NOTIFICATION_ARRIVED } from '../notification/useNotifications'
 import { ActivityPage } from './ActivityPage'
 import { NotificationsPage } from './NotificationsPage'
 
 vi.mock('../gate/api')
 vi.mock('../billing/api')
 vi.mock('../notification/api')
+/** The live connection is the shell's; the page only reads whether it is up. */
+let liveStatus: boolean | null = true
+vi.mock('../notification/useNotifications', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../notification/useNotifications')>()),
+  useLiveStatus: () => liveStatus,
+}))
 const gateApi = vi.mocked(gate)
 const billingApi = vi.mocked(billing)
 const notificationApi = vi.mocked(notification)
@@ -205,13 +212,15 @@ describe('Notifications', () => {
     entityId: 'v1',
     title: 'Amit Kulkarni is at your gate',
     body: 'Approve or deny the visit from the visitors page.',
+    deliveryStatus: 'DELIVERED',
     readAt: null,
     createdAt: '2026-10-23T10:00:00.000Z',
     ...overrides,
   })
 
   beforeEach(() => {
-    notificationApi.listNotifications.mockResolvedValue({ items: [notice()], unread: 1 })
+    liveStatus = true
+    notificationApi.listNotifications.mockResolvedValue({ items: [notice()], unread: 1, page: 1, limit: 20 })
     notificationApi.markAllRead.mockResolvedValue({ marked: 1 })
   })
 
@@ -234,10 +243,28 @@ describe('Notifications', () => {
     expect(notificationApi.markAllRead).toHaveBeenCalledWith('token')
   })
 
+  it('says so when live updates are not arriving, instead of implying they are', async () => {
+    liveStatus = false
+    showNotifications()
+
+    expect(await screen.findByText(/Real-time updates unavailable/)).toBeInTheDocument()
+  })
+
+  it('keeps the notices already on screen when a refresh fails', async () => {
+    showNotifications()
+    expect(await screen.findByText('Amit Kulkarni is at your gate')).toBeInTheDocument()
+
+    notificationApi.listNotifications.mockRejectedValue(new Error('offline'))
+    window.dispatchEvent(new Event(NOTIFICATION_ARRIVED))
+
+    // The reader keeps what they were reading; the failure does not blank the screen
+    expect(await screen.findByText('Amit Kulkarni is at your gate')).toBeInTheDocument()
+  })
+
   it('says when nothing is waiting on the resident', async () => {
     gateApi.listMyVisits.mockResolvedValue([visit({ status: 'CLOSED', exitedAt: '2026-10-23T12:00:00.000Z' })])
     billingApi.listMyInvoices.mockResolvedValue([invoice({ status: 'PAID', paid: 4125, outstanding: 0 })])
-    notificationApi.listNotifications.mockResolvedValue({ items: [], unread: 0 })
+    notificationApi.listNotifications.mockResolvedValue({ items: [], unread: 0, page: 1, limit: 20 })
     showNotifications()
 
     expect(await screen.findByText('Nothing waiting on you')).toBeInTheDocument()

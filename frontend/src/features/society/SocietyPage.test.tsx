@@ -261,6 +261,7 @@ describe('registration review', () => {
     user: { id: 'u9', name: 'Arjun Nair', phone: '9876543216', email: null },
     active: false,
     eligible: false,
+    visitorApprovalEligible: false,
     flat: { id: 'fl1', number: '204' },
     block: { id: 'b2', name: 'B' },
   }
