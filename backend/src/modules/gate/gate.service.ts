@@ -37,6 +37,7 @@ import type {
   StaffMovementBody,
   StaffMovementHistoryQuery,
   StaffRejectionBody,
+  VisitMovementHistoryQuery,
 } from './gate.schemas.js'
 
 /** The approver's single reminder, and the point at which the guard decides instead. */
@@ -70,6 +71,17 @@ async function unique<T>(write: PromiseLike<T>, message: string) {
     if ((pgError.code ?? pgError.cause?.code) === '23505') throw new AppError(409, 'ALREADY_EXISTS', message)
     throw error
   }
+}
+
+/**
+ * A movement the gate has already recorded. 409 rather than a plain refusal, and the current
+ * movement state travels with it, so a double tap or a retry after a lost response shows the
+ * guard what is already true instead of a bare error.
+ */
+function alreadyMoved(visit: typeof visits.$inferSelect, message: string) {
+  return new AppError(409, 'ALREADY_EXISTS', message, {
+    details: { visitId: visit.id, status: visit.status, movementState: movementStateOf(visit), enteredAt: visit.enteredAt, exitedAt: visit.exitedAt },
+  })
 }
 
 function audit(executor: DbExecutor, ctx: AuthContext, eventType: AuditEventType, metadata: Record<string, unknown>) {
@@ -865,6 +877,7 @@ export async function recordEntry(ctx: AuthContext, id: string, gateId?: string)
   const row = await loadVisit(ctx, id)
   await assertSameSociety(ctx, row.visit.societyId)
   await assertGate(ctx, gateId ?? row.visit.gateId ?? undefined)
+  if (row.visit.enteredAt) throw alreadyMoved(row.visit, row.visit.exitedAt ? 'This visit has already been closed' : 'This visitor is already inside')
   assertState(row.visit.status === APPROVED, 'Only an approved visit can be let in')
   // Expiry stops a new entry and does nothing else: a visitor already inside stays inside until
   // the guard records their exit, and no exit is ever written here.
@@ -897,13 +910,15 @@ export async function recordEntry(ctx: AuthContext, id: string, gateId?: string)
     })
     return updated
   })
-  assertState(Boolean(entered), 'Only an approved visit can be let in')
-  return serializeVisit({ ...row, visit: entered! })
+  // Two guards tapping at once: the conditional update decides, and the loser is told the state
+  if (!entered) throw alreadyMoved((await loadVisit(ctx, id)).visit, 'This visitor is already inside')
+  return serializeVisit({ ...row, visit: entered })
 }
 
 export async function recordExit(ctx: AuthContext, id: string) {
   const row = await loadVisit(ctx, id)
   await assertSameSociety(ctx, row.visit.societyId)
+  if (row.visit.exitedAt) throw alreadyMoved(row.visit, 'This visit has already been closed')
   assertState(row.visit.status === ENTERED, 'This visitor is not inside')
 
   const [updated] = await db
@@ -911,7 +926,7 @@ export async function recordExit(ctx: AuthContext, id: string) {
     .set({ status: 'CLOSED', exitedAt: new Date(), exitBy: ctx.userId, updatedAt: new Date() })
     .where(and(eq(visits.id, id), eq(visits.status, ENTERED)))
     .returning()
-  assertState(Boolean(updated), 'This visitor is not inside')
+  if (!updated) throw alreadyMoved((await loadVisit(ctx, id)).visit, 'This visit has already been closed')
   await audit(db, ctx, 'VISIT_EXIT_RECORDED', { visitId: id, flat: label(row.flat), name: row.visit.visitorName })
   await enqueueNotification(db, {
     societyId: row.visit.societyId,
@@ -921,7 +936,145 @@ export async function recordExit(ctx: AuthContext, id: string) {
     recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
     payload: { name: row.visit.visitorName, flat: label(row.flat) },
   })
-  return serializeVisit({ ...row, visit: updated! })
+  return serializeVisit({ ...row, visit: updated })
+}
+
+// ---------------------------------------------------------------------------
+// Visitor movement: entries, exits and refusals, read back from the visit itself
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the visitor physically is. Derived from the recorded events, never stored: approval and
+ * movement are different questions. An approved visit nobody turned up for is NOT_ENTERED, an
+ * exited visit keeps the approval it was let in on, and a refusal at the gate is not an entry.
+ *
+ * The visit row already carries entered/exited/decided with their actors, so this reads what the
+ * gate wrote rather than adding a second record of the same movement.
+ */
+export type MovementState = 'NOT_ENTERED' | 'INSIDE' | 'EXITED' | 'ENTRY_REJECTED'
+
+export function movementStateOf(visit: typeof visits.$inferSelect): MovementState {
+  if (visit.exitedAt) return 'EXITED'
+  if (visit.enteredAt) return 'INSIDE'
+  return visit.status === 'REJECTED_AT_GATE' ? 'ENTRY_REJECTED' : 'NOT_ENTERED'
+}
+
+export interface VisitMovement {
+  visitId: string
+  eventType: 'ENTRY' | 'EXIT' | 'ENTRY_REJECTED'
+  at: Date
+  name: string
+  phone: string
+  purpose: string
+  flat: string
+  gateName: string | null
+  performedBy: string | null
+  rejectionReason: string | null
+  rejectionNote: string | null
+}
+
+/** Expiry writes no event, and a parcel left at the gate writes none either. */
+function movementsOf(row: VisitRow, names: Map<string, string>): VisitMovement[] {
+  const { visit } = row
+  const common = {
+    visitId: visit.id,
+    name: visit.visitorName,
+    phone: visit.visitorPhone,
+    purpose: visit.purpose as string,
+    flat: label(row.flat),
+    gateName: row.gateName,
+    rejectionReason: null as string | null,
+    rejectionNote: null as string | null,
+  }
+  const by = (id: string | null) => (id ? (names.get(id) ?? null) : null)
+  const events: VisitMovement[] = []
+  if (visit.enteredAt) events.push({ ...common, eventType: 'ENTRY', at: visit.enteredAt, performedBy: by(visit.entryBy) })
+  if (visit.exitedAt) events.push({ ...common, eventType: 'EXIT', at: visit.exitedAt, performedBy: by(visit.exitBy) })
+  if (visit.status === 'REJECTED_AT_GATE' && visit.decidedAt)
+    events.push({
+      ...common,
+      eventType: 'ENTRY_REJECTED',
+      at: visit.decidedAt,
+      performedBy: by(visit.decidedBy),
+      rejectionReason: visit.rejectionReason,
+      rejectionNote: visit.decisionReason,
+    })
+  return events
+}
+
+/** The names behind the actor ids, in one lookup rather than three joins per event. */
+async function actorNames(ids: (string | null)[]) {
+  const wanted = [...new Set(ids.filter((id): id is string => Boolean(id)))]
+  if (wanted.length === 0) return new Map<string, string>()
+  const rows = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, wanted))
+  return new Map(rows.map((row) => [row.id, row.name]))
+}
+
+function actorIdsOf(rows: VisitRow[]) {
+  return rows.flatMap((row) => [row.visit.entryBy, row.visit.exitBy, row.visit.decidedBy])
+}
+
+/** One visit's movement, for the guard checking a visitor and the office investigating one. */
+export async function visitMovementHistory(ctx: AuthContext, id: string) {
+  const row = await loadVisit(ctx, id)
+  const permissions = ctx.permissions ?? []
+  // A resident reads only their own flat; the gate and the office are scoped by the route
+  if (!permissions.includes('VISIT_ENTRY_RECORD') && !permissions.includes('AUDIT_VIEW')) {
+    await assertFlatAccess(ctx, row.visit.flatId)
+  }
+  const names = await actorNames(actorIdsOf([row]))
+  return {
+    visitId: row.visit.id,
+    name: row.visit.visitorName,
+    flat: label(row.flat),
+    purpose: row.visit.purpose,
+    status: row.visit.status,
+    movementState: movementStateOf(row.visit),
+    expectedAt: row.visit.expectedAt,
+    expiresAt: row.visit.expiresAt,
+    registeredAt: row.visit.createdAt,
+    movements: movementsOf(row, names).sort((a, b) => a.at.getTime() - b.at.getTime()),
+  }
+}
+
+/**
+ * The office's audit of visitor movement across days, newest first.
+ *
+ * ponytail: the page is cut after the events are built, so `total` counts only the visits the
+ * capped query returned. Narrow with the filters for a long history; a movement-event table is
+ * the upgrade if a society ever needs an exact count over years.
+ */
+const MOVEMENT_SCAN_LIMIT = 1000
+
+export async function visitorMovementHistory(ctx: AuthContext, societyId: string, query: VisitMovementHistoryQuery) {
+  await assertSameSociety(ctx, societyId)
+  const limit = query.limit ?? 50
+  const offset = query.offset ?? 0
+  const from = query.dateFrom ? new Date(`${query.dateFrom}T00:00:00`) : undefined
+  const to = query.dateTo ? dayWindow(query.dateTo).to : undefined
+
+  // Only visits that moved: an approved visitor who never arrived has nothing to show here
+  const filters = [
+    eq(visits.societyId, societyId),
+    or(sql`${visits.enteredAt} is not null`, eq(visits.status, 'REJECTED_AT_GATE'))!,
+  ]
+  if (query.visitId) filters.push(eq(visits.id, query.visitId))
+  if (query.flatId) filters.push(eq(visits.flatId, query.flatId))
+  if (query.gateId) filters.push(eq(visits.gateId, query.gateId))
+  if (query.guardId)
+    filters.push(or(eq(visits.entryBy, query.guardId), eq(visits.exitBy, query.guardId), eq(visits.decidedBy, query.guardId))!)
+  if (query.search)
+    filters.push(or(ilike(visits.visitorName, `%${query.search}%`), ilike(visits.visitorPhone, `%${query.search}%`))!)
+
+  const rows = (await visitQuery().where(and(...filters)).orderBy(desc(visits.createdAt)).limit(MOVEMENT_SCAN_LIMIT)) as VisitRow[]
+
+  const names = await actorNames(actorIdsOf(rows))
+  const events = rows
+    .filter((row) => !query.movementState || movementStateOf(row.visit) === query.movementState)
+    .flatMap((row) => movementsOf(row, names))
+    .filter((event) => (!query.eventType || event.eventType === query.eventType) && (!from || event.at >= from) && (!to || event.at < to))
+  events.sort((a, b) => b.at.getTime() - a.at.getTime())
+  return { total: events.length, movements: events.slice(offset, offset + limit) }
 }
 
 // ---------------------------------------------------------------------------
@@ -1394,6 +1547,8 @@ export async function listInside(ctx: AuthContext, societyId: string) {
         enteredAt: visit.enteredAt,
         vehicleNumber: visit.vehicleNumber,
         gateName: visit.gateName,
+        // Past the end of its window and still inside: the guard's to look at, never an auto exit
+        overstayed: Boolean(visit.expiresAt && visit.expiresAt < new Date()),
       }
     }),
     ...staffRows.map((row) => ({
@@ -1408,6 +1563,7 @@ export async function listInside(ctx: AuthContext, societyId: string) {
       enteredAt: row.attendance.enteredAt,
       vehicleNumber: null,
       gateName: row.gateName,
+      overstayed: false,
     })),
   ]
   return people.sort((a, b) => (b.enteredAt?.getTime() ?? 0) - (a.enteredAt?.getTime() ?? 0))

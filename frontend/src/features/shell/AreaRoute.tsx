@@ -18,6 +18,7 @@ import { AddUserPage } from '../society/AddUserPage'
 import { MyFlatPage } from '../society/MyFlatPage'
 import { SocietyPage } from '../society/SocietyPage'
 import { StaffMovementPage } from '../staff/StaffMovementPage'
+import { VisitorMovementPage } from '../gate/VisitorMovementPage'
 import { StaffPage } from '../staff/StaffPage'
 import { SyncPage } from '../sync/SyncPage'
 import { TasksPage } from '../task/TasksPage'
@@ -124,6 +125,8 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
       <StaffPage user={user} accessToken={accessToken} />
     ) : item.key === 'staffMovement' ? (
       <StaffMovementPage user={user} accessToken={accessToken} />
+    ) : item.key === 'visitorMovement' ? (
+      <VisitorMovementPage user={user} accessToken={accessToken} />
     ) : item.key === 'billing' ? (
       <BillingPage user={user} accessToken={accessToken} />
     ) : item.key === 'reports' ? (

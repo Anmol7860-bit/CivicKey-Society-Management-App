@@ -109,6 +109,7 @@ describe('role destinations', () => {
       'Society & users',
       'Staff management',
       'Staff movement',
+      'Visitor movement',
       'Security activity',
       'Community tasks',
     ])

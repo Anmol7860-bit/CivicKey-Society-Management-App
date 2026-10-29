@@ -107,6 +107,7 @@ export const AREAS: Record<Role, AreaConfig> = {
       { key: 'society', path: 'society', icon: Building2, anyOf: ['SOCIETY_MANAGE', 'USER_MANAGE'] },
       { key: 'staff', path: 'staff', icon: Contact, anyOf: ['GUARD_MANAGE', 'STAFF_MANAGE'] },
       { key: 'staffMovement', path: 'staff-movement', icon: BadgeCheck, anyOf: ['STAFF_MANAGE', 'AUDIT_VIEW'] },
+      { key: 'visitorMovement', path: 'visitor-movement', icon: ArrowLeftRight, anyOf: ['STAFF_MANAGE', 'AUDIT_VIEW'] },
       { key: 'security', path: 'security', icon: ShieldCheck, anyOf: ['AUDIT_VIEW'] },
       { key: 'billing', path: 'billing', icon: Receipt, anyOf: BILLING },
       { key: 'reports', path: 'reports', icon: ChartNoAxesCombined, anyOf: ['REPORT_VIEW'] },

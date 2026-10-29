@@ -575,7 +575,11 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
                       </Badge>
                     </td>
                     <td className="px-3 py-2 text-[13px] text-ink-soft">{row.flat || '—'}</td>
-                    <td className="px-3 py-2 text-[13px] text-ink-soft">{time(row.enteredAt)}</td>
+                    <td className="px-3 py-2 text-[13px] text-ink-soft">
+                      {time(row.enteredAt)}
+                      {/* Past its window and still inside: the guard looks, the system never writes an exit */}
+                      {row.overstayed && <Badge tone="warning">{t('area.guard.gate.overstayed')}</Badge>}
+                    </td>
                     <td className="px-3 py-2 text-[13px] text-muted">{row.vehicleNumber ?? '—'}</td>
                     <td className="px-3 py-2 text-right">
                       <RowButton disabled={entryAction.pending} onClick={() => markExit(row)}>

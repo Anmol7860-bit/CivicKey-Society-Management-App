@@ -23,6 +23,7 @@ import {
   staffMovementHistorySchema,
   staffMovementSchema,
   staffRejectionSchema,
+  visitMovementHistorySchema,
   visitorLookupSchema,
 } from './gate.schemas.js'
 import * as service from './gate.service.js'
@@ -109,6 +110,16 @@ export function createGateRouter() {
   })
   router.post('/visits/:id/exit', requireAuth, requirePermission('VISIT_EXIT'), async (req, res) => {
     res.json({ data: await service.recordExit(req.ctx!, req.params.id as string) })
+  })
+  // --- Visitor movement history -------------------------------------------
+  // Entry, exit and refusal, read back from the visit. The office audits the society's; a
+  // resident may read their own flat's; neither can change what the gate recorded.
+  router.get('/visits/:id/movement-history', requireAuth, requirePermission('VISIT_ENTRY_RECORD', 'AUDIT_VIEW', 'VISIT_VIEW_OWN'), async (req, res) => {
+    res.json({ data: await service.visitMovementHistory(req.ctx!, req.params.id as string) })
+  })
+  router.get('/societies/:societyId/visitor-movements', ...movementHistory, async (req, res) => {
+    const query = parseOrThrow(visitMovementHistorySchema, req.query)
+    res.json({ data: await service.visitorMovementHistory(req.ctx!, req.params.societyId as string, query) })
   })
   // --- Staff movement ------------------------------------------------------
   router.get('/staff/:id/verification', ...validate, async (req, res) => {

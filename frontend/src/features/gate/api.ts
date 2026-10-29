@@ -120,6 +120,8 @@ export interface InsideRow {
   enteredAt: string | null
   vehicleNumber: string | null
   gateName: string | null
+  /** Past the end of its window and still inside: for the guard to look at, never an auto exit */
+  overstayed: boolean
 }
 
 export interface GateSummary {
@@ -244,6 +246,50 @@ export interface StaffMovementFilters {
   dateTo?: string
   eventType?: 'ENTRY' | 'EXIT' | 'ENTRY_REJECTED'
   verificationStatus?: 'VERIFIED' | 'REJECTED'
+  limit?: number
+  offset?: number
+}
+
+/** Where the visitor physically is, derived from what the gate recorded. */
+export type MovementState = 'NOT_ENTERED' | 'INSIDE' | 'EXITED' | 'ENTRY_REJECTED'
+
+export interface VisitMovement {
+  visitId: string
+  eventType: 'ENTRY' | 'EXIT' | 'ENTRY_REJECTED'
+  at: string
+  name: string
+  phone: string
+  purpose: string
+  flat: string
+  gateName: string | null
+  performedBy: string | null
+  rejectionReason: string | null
+  rejectionNote: string | null
+}
+
+export interface VisitMovementHistory {
+  visitId: string
+  name: string
+  flat: string
+  purpose: string
+  status: VisitStatus
+  movementState: MovementState
+  expectedAt: string
+  expiresAt: string | null
+  registeredAt: string
+  movements: VisitMovement[]
+}
+
+export interface VisitMovementFilters {
+  visitId?: string
+  flatId?: string
+  gateId?: string
+  guardId?: string
+  search?: string
+  dateFrom?: string
+  dateTo?: string
+  eventType?: 'ENTRY' | 'EXIT' | 'ENTRY_REJECTED'
+  movementState?: MovementState
   limit?: number
   offset?: number
 }
@@ -408,13 +454,25 @@ export const staffVerification = (token: string, staffId: string) =>
   call<StaffVerification>(token, 'GET', `/staff/${staffId}/verification`)
 export const listStaffInside = (token: string, societyId: string) =>
   call<StaffInsideRow[]>(token, 'GET', `/societies/${societyId}/staff-inside`)
-export function listStaffMovements(token: string, societyId: string, filters: StaffMovementFilters = {}) {
-  const query = new URLSearchParams(
+const queryString = (filters: Record<string, unknown>) =>
+  new URLSearchParams(
     Object.entries(filters)
       .filter(([, value]) => value !== undefined && value !== '')
       .map(([key, value]) => [key, String(value)]),
   ).toString()
+
+export function listStaffMovements(token: string, societyId: string, filters: StaffMovementFilters = {}) {
+  const query = queryString(filters)
   return call<{ total: number; movements: StaffMovement[] }>(token, 'GET', `/societies/${societyId}/staff-movements${query ? `?${query}` : ''}`)
+}
+
+/** One visit's entries, exits and refusal, in the order the gate recorded them */
+export const getVisitMovements = (token: string, visitId: string) =>
+  call<VisitMovementHistory>(token, 'GET', `/visits/${visitId}/movement-history`)
+
+export function listVisitorMovements(token: string, societyId: string, filters: VisitMovementFilters = {}) {
+  const query = queryString(filters)
+  return call<{ total: number; movements: VisitMovement[] }>(token, 'GET', `/societies/${societyId}/visitor-movements${query ? `?${query}` : ''}`)
 }
 
 // --- The resident's screens -------------------------------------------------

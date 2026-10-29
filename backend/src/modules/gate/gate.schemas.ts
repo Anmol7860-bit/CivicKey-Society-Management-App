@@ -244,6 +244,24 @@ export type GateLogQuery = z.infer<typeof gateLogSchema>
 export type StaffMovementBody = z.infer<typeof staffMovementSchema>
 export type StaffRejectionBody = z.infer<typeof staffRejectionSchema>
 export type StaffMovementHistoryQuery = z.infer<typeof staffMovementHistorySchema>
+
+/** The office's visitor-movement audit: who, where, when and in which direction. */
+export const visitMovementHistorySchema = z.strictObject({
+  visitId: uuid.optional(),
+  flatId: uuid.optional(),
+  gateId: uuid.optional(),
+  /** The guard who recorded any of the visit's movements */
+  guardId: uuid.optional(),
+  /** Visitor name or registered phone number */
+  search: z.string().trim().min(2).max(60).optional(),
+  dateFrom: isoDate.optional(),
+  dateTo: isoDate.optional(),
+  eventType: z.enum(['ENTRY', 'EXIT', 'ENTRY_REJECTED']).optional(),
+  movementState: z.enum(['NOT_ENTERED', 'INSIDE', 'EXITED', 'ENTRY_REJECTED']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+})
+export type VisitMovementHistoryQuery = z.infer<typeof visitMovementHistorySchema>
 export type AddVehicleBody = z.infer<typeof addVehicleSchema>
 export type AccessRequestBody = z.infer<typeof accessRequestSchema>
 export type DecideAccessRequestBody = z.infer<typeof decideAccessRequestSchema>

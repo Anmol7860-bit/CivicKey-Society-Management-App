@@ -304,7 +304,67 @@ describe('visits', () => {
     await api.post(`/visits/${first.body.data.id}/entry`, { gateId })
     await api.post(`/visits/${first.body.data.id}/exit`, {})
     // Closed is closed: the same record cannot carry a second visit
-    expect((await api.post(`/visits/${first.body.data.id}/entry`, { gateId })).status).toBe(400)
+    const again = await api.post(`/visits/${first.body.data.id}/entry`, { gateId })
+    expect(again.status).toBe(409)
+    expect(again.body.error.details.movementState).toBe('EXITED')
+  })
+
+  it('reads one visit\u2019s movement back as entry, exit and the actor behind each', async () => {
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    const id = visit.body.data.id
+    // Approved but never arrived: movement and approval are separate questions
+    await api.post(`/visits/${id}/decision`, { decision: 'APPROVED' }, resident)
+    const waiting = await api.get(`/visits/${id}/movement-history`, guard)
+    expect(waiting.body.data.movementState).toBe('NOT_ENTERED')
+    expect(waiting.body.data.movements).toHaveLength(0)
+
+    await api.post(`/visits/${id}/entry`, { gateId })
+    await api.post(`/visits/${id}/exit`, {})
+    const history = await api.get(`/visits/${id}/movement-history`, guard)
+    expect(history.body.data.movementState).toBe('EXITED')
+    expect(history.body.data.movements.map((event: { eventType: string }) => event.eventType)).toEqual(['ENTRY', 'EXIT'])
+    expect(history.body.data.movements[0].performedBy).toBe('Riya Sharma')
+    expect(new Date(history.body.data.movements[1].at).getTime()).toBeGreaterThanOrEqual(
+      new Date(history.body.data.movements[0].at).getTime(),
+    )
+  })
+
+  it('keeps a refusal at the gate in the history without ever showing it as an entry', async () => {
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    const id = visit.body.data.id
+    await api.post(`/visits/${id}/gate-rejection`, { reason: 'DETAILS_MISMATCH' })
+    const history = await api.get(`/visits/${id}/movement-history`, guard)
+    expect(history.body.data.movementState).toBe('ENTRY_REJECTED')
+    expect(history.body.data.movements).toEqual([
+      expect.objectContaining({ eventType: 'ENTRY_REJECTED', rejectionReason: 'DETAILS_MISMATCH' }),
+    ])
+  })
+
+  it('searches the society\u2019s movement history, filters it and hands it back in pages', async () => {
+    const inside = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    await api.post(`/visits/${inside.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    await api.post(`/visits/${inside.body.data.id}/entry`, { gateId })
+    const turned = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorName: 'Sunil Patel', visitorPhone: '9844444444' }))
+    await api.post(`/visits/${turned.body.data.id}/gate-rejection`, { reason: 'SECURITY_CONCERN' })
+
+    const all = await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-movements`, admin)
+    expect(all.body.data.total).toBe(2)
+    // An approved visit nobody turned up for never reaches the movement log
+    const waiting = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorPhone: '9855555555' }))
+    await api.post(`/visits/${waiting.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-movements`, admin)).body.data.total).toBe(2)
+
+    const byName = await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-movements?search=Sunil`, admin)
+    expect(byName.body.data.movements).toEqual([expect.objectContaining({ eventType: 'ENTRY_REJECTED', name: 'Sunil Patel' })])
+    const entries = await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-movements?eventType=ENTRY`, admin)
+    expect(entries.body.data.total).toBe(1)
+    const insideOnly = await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-movements?movementState=INSIDE`, admin)
+    expect(insideOnly.body.data.total).toBe(1)
+    const page = await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-movements?limit=1&offset=1`, admin)
+    expect(page.body.data).toMatchObject({ total: 2 })
+    expect(page.body.data.movements).toHaveLength(1)
+    // Nothing of another society's, whatever the id in the path says
+    expect((await api.get(`/societies/${OTHER_SOCIETY_ID}/visitor-movements`, admin)).status).toBe(403)
   })
 
   it('expires a registration after the society\u2019s own window, and only for a new entry', async () => {
@@ -456,7 +516,9 @@ describe('visits', () => {
     const left = await api.post(`/visits/${visit.body.data.id}/exit`, {})
     expect(left.body.data.status).toBe('CLOSED')
     expect((await api.get(`/societies/${TEST_SOCIETY_ID}/inside`, guard)).body.data).toHaveLength(0)
-    expect((await api.post(`/visits/${visit.body.data.id}/exit`, {})).status).toBe(400)
+    const twice = await api.post(`/visits/${visit.body.data.id}/exit`, {})
+    expect(twice.status).toBe(409)
+    expect(twice.body.error.details.movementState).toBe('EXITED')
   })
 
   it('will not let in a visit the resident denied or left at the gate', async () => {
