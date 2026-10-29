@@ -64,6 +64,17 @@ export function emitToUser(userId: string, event: string, payload: unknown) {
   io?.to(roomForUser(userId)).emit(event, payload)
 }
 
+/**
+ * Whether this person has the application open right now, which is what decides a push.
+ *
+ * ponytail: one node's own sockets. With more than one API instance each knows only its own
+ * connections, so a second instance would push to someone who is connected elsewhere. A shared
+ * adapter (Redis) is the upgrade if that ever matters.
+ */
+export function isConnected(userId: string) {
+  return (io?.sockets.adapter.rooms.get(roomForUser(userId))?.size ?? 0) > 0
+}
+
 /** Sends a live event to everyone in a society, used for gate-wide notices. */
 export function emitToSociety(societyId: string, event: string, payload: unknown) {
   io?.to(roomForSociety(societyId)).emit(event, payload)

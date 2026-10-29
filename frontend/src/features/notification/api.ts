@@ -27,6 +27,9 @@ export type NotificationEvent =
   | 'TASK_OVERDUE'
   | 'TASK_STATUS_CHANGED'
 
+/** Where the notification has got to. Derived by the server from its delivery rows. */
+export type NotificationLifecycle = 'CREATED' | 'DELIVERED' | 'READ' | 'DELIVERY_FAILED'
+
 export interface Notification {
   id: string
   eventType: NotificationEvent
@@ -34,6 +37,7 @@ export interface Notification {
   entityId: string | null
   title: string
   body: string
+  deliveryStatus: NotificationLifecycle
   readAt: string | null
   createdAt: string
 }

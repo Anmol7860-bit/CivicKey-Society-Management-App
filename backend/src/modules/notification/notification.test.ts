@@ -322,6 +322,18 @@ describe('reading notifications', () => {
     expect((await api.get('/notifications', resident)).body.data.unread).toBe(0)
   })
 
+  it('says where each one has got to, from created to delivered to read', async () => {
+    await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    await fanOutPending()
+    expect((await api.get('/notifications', resident)).body.data.items[0]).toMatchObject({ deliveryStatus: 'CREATED' })
+
+    await deliverDue()
+    expect((await api.get('/notifications', resident)).body.data.items[0]).toMatchObject({ deliveryStatus: 'DELIVERED' })
+
+    await api.post('/notifications/read', {}, resident)
+    expect((await api.get('/notifications', resident)).body.data.items[0]).toMatchObject({ deliveryStatus: 'READ' })
+  })
+
   it("never shows one person another person's notifications", async () => {
     await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
     await runDispatcherOnce()

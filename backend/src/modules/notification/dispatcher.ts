@@ -9,7 +9,7 @@ import {
 } from '../../db/schema.js'
 import { logger } from '../../lib/logger.js'
 import { ChannelError, EMAIL_EVENTS, sendEmail, sendPush } from './channels.js'
-import { emitToUser } from './realtime.js'
+import { emitToUser, isConnected } from './realtime.js'
 import type { NotificationEvent } from './outbox.service.js'
 
 /** How many rows one pass takes. Fixed by the baseline. */
@@ -281,6 +281,9 @@ async function attempt(delivery: ClaimedDelivery) {
   }
 
   if (delivery.channel === 'PUSH') {
+    // A push is for a person who is not looking: the socket already told the open application,
+    // and a lock-screen copy of what is on the screen is just noise.
+    if (isConnected(record.userId)) return markSent(delivery.id, 'SKIPPED')
     const targets = await db
       .select({ id: pushSubscriptions.id, endpoint: pushSubscriptions.endpoint, p256dh: pushSubscriptions.p256dh, auth: pushSubscriptions.auth })
       .from(pushSubscriptions)
@@ -355,10 +358,36 @@ export async function deliverDue() {
   return { attempted }
 }
 
+/**
+ * Where a notification has got to: in the centre, out of the door, read, or out of attempts.
+ *
+ * Derived from the delivery rows rather than stored, so it cannot disagree with them. IN_APP is
+ * left out of the question: it is SENT the moment the record exists, and every notification
+ * would read DELIVERED from birth.
+ */
+export type NotificationLifecycle = 'CREATED' | 'DELIVERED' | 'READ' | 'DELIVERY_FAILED'
+
+// notifications.id is written out rather than interpolated: drizzle renders the column of the
+// query's own table unqualified, and a bare "id" inside the subquery binds to the delivery's own.
+const outbound = (status: 'SENT' | 'DEAD') => sql<boolean>`exists (
+  select 1 from notification_deliveries d
+  where d.notification_id = notifications.id and d.channel <> 'IN_APP' and d.status = ${status}
+)`
+
 /** Unread count and the most recent notifications for one person. */
 export async function listNotifications(userId: string, limit = 50) {
   const rows = await db
-    .select()
+    .select({
+      id: notifications.id,
+      eventType: notifications.eventType,
+      entityType: notifications.entityType,
+      entityId: notifications.entityId,
+      payload: notifications.payload,
+      readAt: notifications.readAt,
+      createdAt: notifications.createdAt,
+      sent: outbound('SENT'),
+      dead: outbound('DEAD'),
+    })
     .from(notifications)
     .where(eq(notifications.userId, userId))
     .orderBy(sql`${notifications.createdAt} desc`)
@@ -370,6 +399,7 @@ export async function listNotifications(userId: string, limit = 50) {
     entityId: row.entityId,
     payload: row.payload,
     ...describe(row.eventType, (row.payload ?? {}) as Record<string, unknown>),
+    deliveryStatus: (row.readAt ? 'READ' : row.sent ? 'DELIVERED' : row.dead ? 'DELIVERY_FAILED' : 'CREATED') as NotificationLifecycle,
     readAt: row.readAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   }))

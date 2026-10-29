@@ -1,7 +1,7 @@
 # SMB-52 — Real-time notifications
 
-Covers §1–7 as given (objective, scope, events, recipient rules, solution design, backend logic,
-idempotency). An audit of what already stands, plus the gaps it turned up. It will grow as the
+Covers §1–12 as given (objective, scope, events, recipient rules, solution design, backend logic,
+idempotency, real-time delivery, Web Push, lifecycle, notification data, DDL). An audit of what already stands, plus the gaps it turned up. It will grow as the
 later sections arrive.
 
 ## §1 Objective — the boundary holds
@@ -170,6 +170,138 @@ reminder, escalation and task-deadline jobs claim their rows by the same update 
 
 `notification_deliveries` is unique on `(notification_id, channel)` as well, so a notification
 cannot grow a second copy of a channel.
+
+## §8 Real-time delivery — the room is the server's to choose
+
+Three rooms, all assigned from the verified handshake in `realtime.ts`:
+
+| Room | Who is in it |
+| --- | --- |
+| `user:{userId}` | that person's every open tab and device; this is the notification channel |
+| `society:{societyId}` | the society read from the **database**, not the token, because a token outlives a transfer |
+| `session:{sessionId}` | one sign-in, so a logout drops that device and leaves the others connected |
+
+> The frontend must never be allowed to subscribe to another user's private notification channel
+> merely by changing an ID.
+
+It cannot, because there is no ID to change. The handshake carries an access token and nothing
+else; the user id comes from its verified subject, and the rooms are joined by the server on
+connection. **There is no join handler at all** — a client that emits one is ignored rather than
+checked, which is the version of this rule that cannot be got wrong later. An inactive account is
+refused at the handshake.
+
+The subtask's alternative name, `society:{societyId}:user:{userId}`, is not used. Membership of a
+society is a property of the account, so folding it into the room name would mean rebuilding
+every room when somebody transfers, and the society check already happens where it decides
+something — `fanOut`, before a notification row exists (§4).
+
+## §9 Web Push — the four conditions
+
+| Condition | Where |
+| --- | --- |
+| the application is not currently open | **added here**: a `PUSH` delivery is skipped when `isConnected(userId)` finds a live socket for that person |
+| the browser supports push | no support means no subscription is ever posted, and `PUSH` is `SKIPPED` at fan-out |
+| the user has granted permission | a subscription exists only after the browser granted it |
+| a valid push subscription exists | `push_subscriptions`, `is_active`; a permanent rejection from the push service deactivates that endpoint |
+
+Push is optional, and nothing depends on it: the `IN_APP` record is written first, in the fan-out
+transaction, before any channel is attempted. A person with no push, no email and no socket still
+has every notification in the notification centre.
+
+`isConnected` reads this process's own Socket.IO rooms, which is why it carries a `ponytail:`
+comment. With more than one API instance, an instance that does not hold the connection would
+still push; a shared adapter is the upgrade, and only worth it once there is a second instance.
+There is no automated test for the skip, because the suite has no socket client and the one-line
+guard did not justify adding one — the condition is a single `isConnected` call.
+
+## §10 Lifecycle
+
+The recommended states are derived from the delivery rows rather than stored, so a status can
+never disagree with the rows it describes. `listNotifications` returns one as `deliveryStatus`:
+
+| State | How it is derived |
+| --- | --- |
+| `CREATED` | the record exists and no outbound channel has reported success yet |
+| `DELIVERED` | some channel other than `IN_APP` is `SENT` |
+| `READ` | `read_at` is set; it wins over the others, because the person has it |
+| `DELIVERY_FAILED` | nothing was sent and some channel is `DEAD` — five attempts over an hour and a half |
+| retry | a channel sits at `PENDING` with `attempts > 0` and `next_attempt_at` in the future: 30s, 2m, 10m, 1h |
+
+`IN_APP` is excluded on purpose: it is `SENT` the moment the record is written, so counting it
+would make every notification read `DELIVERED` from birth and the state would say nothing.
+
+> A failed push must not mean that the business event failed.
+
+It cannot, and not by convention. The event is written to the outbox inside the transaction that
+made the change (§6.1) and is then handed to a dispatcher **pass that runs later and separately**.
+A channel failure writes to `notification_deliveries` and nothing else; there is no path from a
+dead push back to the visit it was about.
+
+## §11 Notification data
+
+| Field asked for | Where it is |
+| --- | --- |
+| notification ID | `notifications.id` |
+| event ID | `notifications.outbox_id` — the outbox row is the application event |
+| recipient user ID | `notifications.user_id` |
+| society ID | `notifications.society_id` |
+| notification type | `notifications.event_type` (a Postgres enum, not a string) |
+| title | rendered by `describe()`, not stored — see below |
+| short message | the same, returned as `body` |
+| related entity type / ID | `entity_type`, `entity_id` |
+| created / read timestamp | `created_at`, `read_at` |
+| delivery status | **added here**: `deliveryStatus` on each item in the read path (§10) |
+| metadata where required | `payload` (jsonb), the values the message is built from |
+| deep-link / navigation target | **not built** — see below |
+
+**Title and message are rendered, not stored.** One switch in `describe()` turns an event and its
+payload into the two lines, and every channel uses it: the socket event, the push, the email and
+the notification centre read the same words. Wording is corrected in one place and old
+notifications say the new thing, which is the behaviour wanted here; a stored string would freeze
+whatever was written the day it was sent.
+
+**The deep link is not built.** The subtask calls it optional, and the same notification belongs
+on a different screen for each role — a guard opens a visit at the gate, a resident opens it in
+their own visitor list. Picking one without a rule would send half the recipients to a screen
+their role cannot open. Web Push points at `/notifications`, the one screen every role has.
+
+> Avoid storing unnecessary sensitive visitor information inside notification text.
+
+Checked, every payload in the codebase: visitor or staff name, flat label, purpose, rejection
+reason, decision status, a due date, a bill amount, a task title, a receipt number. No phone
+number, no identity document, no address, no token, and no other flat's balance. The rule is also
+written on `OutboxEvent.payload` where a new caller will read it.
+
+## §12 DDL — reconciled with the schema that exists
+
+The proposal matches what is there, with the differences the project's own schema already
+decided. No migration is written for this section: the two tables below are in production use and
+the proposal is explicitly a logical design "to be reconciled".
+
+| Proposed column | In `notifications` | Note |
+| --- | --- | --- |
+| `notification_id UUID PK` | `id uuid primary key default gen_random_uuid()` | |
+| `event_id UUID NOT NULL` | `outbox_id uuid references notification_outbox on delete set null` | nullable so a purged outbox row does not take the notification with it |
+| `recipient_user_id UUID` | `user_id uuid not null references users on delete cascade` | |
+| `society_id UUID` | `society_id uuid not null references societies` | |
+| `notification_type VARCHAR(100)` | `event_type notification_event` | an enum: a typo is a failed insert rather than a row nobody can render |
+| `title VARCHAR(200)`, `message TEXT` | — | rendered from `event_type` + `payload`; see §11 |
+| `related_entity_type VARCHAR(50)` | `entity_type varchar(40)` | |
+| `related_entity_id UUID` | `entity_id uuid` | |
+| `delivery_status VARCHAR(30)` | — | one row per channel in `notification_deliveries` (`status`, `attempts`, `last_error`, `next_attempt_at`, `sent_at`); the single value is derived (§10) |
+| `created_at`, `read_at` | the same | |
+| `delivered_at` | `notification_deliveries.sent_at` | per channel, because "delivered" is a different fact for a socket and for an email |
+
+| Proposed index | Built |
+| --- | --- |
+| `(recipient_user_id, created_at DESC)` | `notifications_user_created_idx` on `(user_id, created_at)` — Postgres reads a btree backwards, so it serves the `desc` listing |
+| `(society_id, created_at DESC)` | **not built**: nothing reads notifications by society. Every read is one person's own, and an index that no query uses is paid for on every insert |
+| `(event_id)` | covered: `outbox_id` leads the unique index below |
+| `unique (event_id, recipient_user_id, notification_type)` | `notifications_outbox_user_unique` on `(outbox_id, user_id)` — stronger, since the type is a column of the outbox row (§7) |
+
+Also built and not in the proposal: `notifications_user_unread_idx`, a partial index on
+`(user_id) where read_at is null`, which is what the unread badge counts.
+
 
 ## Fixed in this pass
 
