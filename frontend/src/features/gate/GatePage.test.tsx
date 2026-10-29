@@ -41,6 +41,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   mocked.listInside.mockResolvedValue([])
   mocked.listVisits.mockResolvedValue([])
+  mocked.listDeliveriesAtGate.mockResolvedValue([])
 })
 
 const show = () => render(<GatePage user={guard} accessToken="token" />)

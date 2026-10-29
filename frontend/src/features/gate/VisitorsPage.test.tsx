@@ -45,6 +45,7 @@ beforeEach(() => {
   society.listMyFlats.mockResolvedValue([assignment as never])
   mocked.listMyVisits.mockResolvedValue([waiting as never])
   mocked.listMyPasses.mockResolvedValue([])
+  mocked.listMyDeliveries.mockResolvedValue([])
 })
 
 it('shows who is at the gate and sends the approval', async () => {
@@ -118,4 +119,25 @@ it('lists an issued pass with its code and cancels it', async () => {
   const card = (await screen.findByText('482913')).closest('div')!
   await userEvent.click(within(card.parentElement!).getByRole('button', { name: 'Cancel pass' }))
   await waitFor(() => expect(mocked.cancelPass).toHaveBeenCalledWith('token', 'p1'))
+})
+
+it('shows the collection code for a parcel at the gate and acknowledges it', async () => {
+  mocked.listMyDeliveries.mockResolvedValue([
+    {
+      id: 'd1',
+      visitId: 'v1',
+      visitorName: 'Dev Courier',
+      purpose: 'DELIVERY',
+      collectionCode: '482913',
+      receivedAt: new Date().toISOString(),
+      collectedAt: null,
+      flat: { label: 'A-101' },
+    } as never,
+  ])
+  mocked.collectDelivery.mockResolvedValue({ id: 'd1' } as never)
+  render(<VisitorsPage accessToken="token" />)
+
+  expect(await screen.findByText('482913')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Collected' }))
+  await waitFor(() => expect(mocked.collectDelivery).toHaveBeenCalledWith('token', 'd1'))
 })

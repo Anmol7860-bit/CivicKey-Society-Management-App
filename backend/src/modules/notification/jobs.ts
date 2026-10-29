@@ -1,8 +1,10 @@
-import { and, eq, isNull, lte, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { blocks, flats, invoices, communityTasks, notificationOutbox, visits } from '../../db/schema.js'
+import { blocks, flats, invoices, communityTasks, notificationOutbox, societySettings, visits } from '../../db/schema.js'
 import { logger } from '../../lib/logger.js'
 import { renderPendingReceipts } from '../billing/receipt.service.js'
+import { recordAuditEvent } from '../audit/audit.service.js'
+import { deleteStoredFile } from '../file/file.service.js'
 import { approverFor, effectiveApprover } from '../gate/gate.service.js'
 import { enqueueNotification } from './outbox.service.js'
 
@@ -213,8 +215,47 @@ async function billReminders() {
 }
 
 /** One pass of every scheduled job. Returns what each did, which is what the tests assert on. */
+/**
+ * Deletes visitor photographs once the society's retention period has passed.
+ *
+ * A photograph is personal data with no reason to outlive the visit it belonged to. The visit row,
+ * its times and its audit trail all stay: only the image goes, and the deletion is itself audited
+ * so the record shows a photo was removed rather than never taken.
+ */
+async function deleteExpiredPhotos() {
+  const over = ['CLOSED', 'CANCELLED', 'DENIED', 'REJECTED_AT_GATE', 'LEAVE_AT_GATE'] as const
+  const due = await db
+    .select({ id: visits.id, societyId: visits.societyId, photoReference: visits.photoReference })
+    .from(visits)
+    .leftJoin(societySettings, eq(societySettings.societyId, visits.societyId))
+    .where(
+      and(
+        isNotNull(visits.photoReference),
+        inArray(visits.status, over),
+        // Closed long enough ago by this society's own rule, with the shipped default behind it
+        lte(visits.updatedAt, sql`now() - make_interval(days => coalesce(${societySettings.photoRetentionDays}, 90))`),
+      ),
+    )
+    .limit(200)
+
+  let deleted = 0
+  for (const visit of due) {
+    // The reference is cleared first: a row pointing at a file that is gone is the worse of the
+    // two half-states, and a file left behind is picked up on the next tick.
+    await db.update(visits).set({ photoReference: null, updatedAt: new Date() }).where(eq(visits.id, visit.id))
+    await deleteStoredFile(visit.photoReference!)
+    await recordAuditEvent(db, {
+      eventType: 'VISIT_PHOTO_DELETED',
+      actorUserId: null,
+      metadata: { visitId: visit.id, societyId: visit.societyId, reason: 'retention' },
+    })
+    deleted += 1
+  }
+  return deleted
+}
+
 export async function runJobsOnce() {
-  const results = { reminders: 0, escalations: 0, tasks: 0, overdue: 0, bills: 0, receipts: 0 }
+  const results = { reminders: 0, escalations: 0, tasks: 0, overdue: 0, bills: 0, receipts: 0, photos: 0 }
   const steps = [
     ['reminders', sendApprovalReminders],
     ['escalations', escalateUnanswered],
@@ -223,6 +264,7 @@ export async function runJobsOnce() {
     ['overdue', markOverdue],
     ['bills', billReminders],
     ['receipts', renderPendingReceipts],
+    ['photos', deleteExpiredPhotos],
   ] as const
 
   // Each job is independent: one failing must not stop the others from running this tick

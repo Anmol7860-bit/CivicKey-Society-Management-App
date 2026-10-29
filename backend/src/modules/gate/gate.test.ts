@@ -374,6 +374,66 @@ describe('visits', () => {
     expect((await api.post(`/visits/${approved.body.data.id}/gate-rejection`, { reason: 'INVALID_PASS' })).status).toBe(400)
   })
 
+  it('keeps a delivery at the gate without ever letting the courier in', async () => {
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'LEAVE_AT_GATE' }, resident)
+
+    const handover = await api.post(`/visits/${visit.body.data.id}/leave-at-gate`, { gateId, note: 'Left with security' })
+    expect(handover.status).toBe(201)
+    expect(handover.body.data.collectionCode).toMatch(/^\d{6}$/)
+    expect(handover.body.data.receivedBy).toBe(guardUserId)
+
+    // The courier did not come in, and nothing says they did
+    const [after] = await db.select().from(visits).where(eq(visits.id, visit.body.data.id))
+    expect(after!.status).toBe('LEAVE_AT_GATE')
+    expect(after!.enteredAt).toBeNull()
+    expect(after!.exitedAt).toBeNull()
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/inside`, guard)).body.data).toHaveLength(0)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/deliveries`, guard)).body.data).toHaveLength(1)
+
+    // The resident acknowledges it, and only once
+    const collected = await api.post(`/deliveries/${handover.body.data.id}/collection`, {}, resident)
+    expect(collected.body.data).toMatchObject({ collectedBy: residentUserId, collectedByName: 'Riya Sharma' })
+    expect(collected.body.data.collectedAt).not.toBeNull()
+    expect((await api.post(`/deliveries/${handover.body.data.id}/collection`, {}, resident)).status).toBe(400)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/deliveries`, guard)).body.data).toHaveLength(0)
+  })
+
+  it('lets the gate confirm a collection only with the code and a name', async () => {
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'LEAVE_AT_GATE' }, resident)
+    const handover = await api.post(`/visits/${visit.body.data.id}/leave-at-gate`, { gateId })
+    const id = handover.body.data.id
+
+    expect((await api.post(`/deliveries/${id}/collection`, {})).status).toBe(400)
+    expect((await api.post(`/deliveries/${id}/collection`, { code: '000000', collectedByName: 'Riya Sharma' })).status).toBe(400)
+
+    // Someone from another flat cannot acknowledge it at all
+    const other = await createFlat(TEST_SOCIETY_ID, '905')
+    const neighbour = await createUser({ phone: '9811111114', email: null, role: 'RESIDENT' })
+    await addResident(other.id, neighbour.id)
+    expect((await api.post(`/deliveries/${id}/collection`, {}, await tokenFor(neighbour))).status).toBe(403)
+
+    const atGate = await api.post(`/deliveries/${id}/collection`, {
+      code: handover.body.data.collectionCode,
+      collectedByName: 'Riya’s mother',
+    })
+    expect(atGate.body.data).toMatchObject({ collectedBy: guardUserId, collectedByName: 'Riya’s mother' })
+  })
+
+  it('does not keep a guest at the gate, only a delivery the resident asked to leave', async () => {
+    const guest = await api.post(
+      `/societies/${TEST_SOCIETY_ID}/visits`,
+      visitBody({ purpose: 'GUEST', intendedResidentId: residentUserId }),
+    )
+    await api.post(`/visits/${guest.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    expect((await api.post(`/visits/${guest.body.data.id}/leave-at-gate`, { gateId })).status).toBe(400)
+
+    // A delivery nobody has answered yet is not at the gate either
+    const parcel = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody({ visitorPhone: '9844444445' }))
+    expect((await api.post(`/visits/${parcel.body.data.id}/leave-at-gate`, { gateId })).status).toBe(400)
+  })
+
   it('waits on the resident, then records entry and exit', async () => {
     const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
     expect(visit.status).toBe(201)

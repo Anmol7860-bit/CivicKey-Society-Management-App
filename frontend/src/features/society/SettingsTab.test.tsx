@@ -26,6 +26,8 @@ beforeEach(() => {
     idRequired: false,
     visitorPurposes: [],
     leaveAtGateAllowed: true,
+    visitValidityHours: 24,
+    photoRetentionDays: 90,
   })
   mocked.listBackups.mockResolvedValue([])
 })

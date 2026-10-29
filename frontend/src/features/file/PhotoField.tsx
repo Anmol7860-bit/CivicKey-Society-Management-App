@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Field } from '../../components/ui/Field'
 import { ApiError } from '../auth/api'
-import { ACCEPTED_TYPES, fetchImage, uploadImage } from './api'
+import { ACCEPTED_TYPES, compressImage, fetchImage, uploadImage } from './api'
 
 /**
  * A stored photo on screen.
@@ -60,6 +60,8 @@ interface PhotoFieldProps {
   onChange: (reference: string) => void
   error?: string
   required?: boolean
+  /** Opens the camera straight away on a phone, for a photo that has to be taken here and now */
+  capture?: boolean
 }
 
 /**
@@ -69,7 +71,7 @@ interface PhotoFieldProps {
  * through PrivateImage. The upload happens on choosing rather than on submit, so a slow upload
  * never holds up the rest of the form and its own error stays beside the field.
  */
-export function PhotoField({ id, label, accessToken, value, onChange, error, required }: PhotoFieldProps) {
+export function PhotoField({ id, label, accessToken, value, onChange, error, required, capture }: PhotoFieldProps) {
   const { t } = useTranslation()
   const [preview, setPreview] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -82,7 +84,7 @@ export function PhotoField({ id, label, accessToken, value, onChange, error, req
     setFailure(undefined)
     setBusy(true)
     try {
-      const stored = await uploadImage(accessToken, file)
+      const stored = await uploadImage(accessToken, await compressImage(file))
       setPreview(URL.createObjectURL(file))
       onChange(stored.id)
     } catch (problem) {
@@ -109,6 +111,7 @@ export function PhotoField({ id, label, accessToken, value, onChange, error, req
           id={id}
           type="file"
           accept={ACCEPTED_TYPES.join(',')}
+          capture={capture ? 'environment' : undefined}
           disabled={busy}
           onChange={(event) => void choose(event.target.files?.[0])}
           aria-invalid={error ?? failure ? true : undefined}

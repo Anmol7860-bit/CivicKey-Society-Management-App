@@ -10,9 +10,11 @@ import {
   createPassSchema,
   decideAccessRequestSchema,
   cancelVisitSchema,
+  collectDeliverySchema,
   decideVisitSchema,
   entryCodeSchema,
   gateLogSchema,
+  leaveAtGateSchema,
   listVisitsSchema,
   markLeaveSchema,
   recordEntrySchema,
@@ -85,6 +87,22 @@ export function createGateRouter() {
   router.post('/visits/:id/entry', requireAuth, requirePermission('VISIT_ENTRY_RECORD'), validateBody(recordEntrySchema), async (req, res) => {
     res.json({ data: await service.recordEntry(req.ctx!, req.params.id as string, req.body.gateId) })
   })
+  // --- Deliveries left at the gate ----------------------------------------
+  // A handover, never an entry: the courier does not come in and nothing is written against them.
+  router.post('/visits/:id/leave-at-gate', requireAuth, requirePermission('VISIT_ENTRY_RECORD'), validateBody(leaveAtGateSchema), async (req, res) => {
+    res.status(201).json({ data: await service.recordLeaveAtGate(req.ctx!, req.params.id as string, req.body) })
+  })
+  router.get('/societies/:societyId/deliveries', ...atGate, async (req, res) => {
+    res.json({ data: await service.listDeliveriesAtGate(req.ctx!, req.params.societyId as string) })
+  })
+  router.get('/me/deliveries', ...ownFlat, async (req, res) => {
+    res.json({ data: await service.listMyDeliveries(req.ctx!) })
+  })
+  // The resident acknowledges their own; a guard may confirm for someone who cannot use the app
+  router.post('/deliveries/:id/collection', requireAuth, requirePermission('VISIT_VIEW_OWN', 'VISIT_ENTRY_RECORD'), validateBody(collectDeliverySchema), async (req, res) => {
+    res.json({ data: await service.recordCollection(req.ctx!, req.params.id as string, req.body) })
+  })
+
   // The gate's own refusal, with a reason from the list. It never approves and never edits.
   router.post('/visits/:id/gate-rejection', requireAuth, requirePermission('VISIT_ENTRY_RECORD'), validateBody(rejectVisitSchema), async (req, res) => {
     res.json({ data: await service.rejectVisitAtGate(req.ctx!, req.params.id as string, req.body) })

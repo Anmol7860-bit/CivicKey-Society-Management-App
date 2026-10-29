@@ -56,6 +56,10 @@ function describe(eventType: NotificationEvent, payload: Record<string, unknown>
       return { title: 'Visitor let in', body: `${name} has entered for ${flat}.` }
     case 'VISITOR_EXITED':
       return { title: 'Visitor left', body: `${name} has left ${flat}.` }
+    case 'DELIVERY_AT_GATE':
+      return { title: 'A delivery is at the gate', body: `A delivery for ${flat} is waiting at the gate.` }
+    case 'DELIVERY_COLLECTED':
+      return { title: 'Delivery collected', body: `The delivery for ${flat} has been collected.` }
     case 'STAFF_ENTERED':
       return { title: 'Help arrived', body: `${name} has entered for ${flat}.` }
     case 'STAFF_EXITED':

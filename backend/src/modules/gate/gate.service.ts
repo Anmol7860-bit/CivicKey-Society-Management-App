@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, or, sql, 
 import { db } from '../../db/client.js'
 import {
   blocks,
+  deliveryHandovers,
   flatResidents,
   flats,
   floors,
@@ -26,7 +27,9 @@ import { assertFlatAccess, assertSameSociety, assertState, deny, permissionDenie
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import type {
   CancelVisitBody,
+  CollectDeliveryBody,
   CreatePassBody,
+  LeaveAtGateBody,
   DecideVisitBody,
   ListVisitsQuery,
   RegisterVisitBody,
@@ -665,6 +668,171 @@ export async function rejectVisitAtGate(ctx: AuthContext, id: string, body: Reje
     payload: { name: row.visit.visitorName, flat: label(row.flat), status: 'REJECTED_AT_GATE' },
   })
   return serializeVisit({ ...row, visit: updated! })
+}
+
+// ---------------------------------------------------------------------------
+// Deliveries left at the gate
+// ---------------------------------------------------------------------------
+
+const DELIVERY_PURPOSES = ['DELIVERY', 'FOOD_DELIVERY'] as const
+
+/** The parcel as both sides see it: the flat, the guard who took it, and whether it is still here. */
+function serializeDelivery(row: {
+  handover: typeof deliveryHandovers.$inferSelect
+  visit: { visitorName: string; purpose: string }
+  flat: { blockName: string; number: string }
+}) {
+  return {
+    ...row.handover,
+    visitorName: row.visit.visitorName,
+    purpose: row.visit.purpose,
+    flat: { ...row.flat, label: label(row.flat) },
+  }
+}
+
+function deliveryQuery() {
+  return db
+    .select({
+      handover: deliveryHandovers,
+      visit: { visitorName: visits.visitorName, purpose: sql<string>`${visits.purpose}` },
+      flat: { blockName: blocks.name, number: flats.number },
+    })
+    .from(deliveryHandovers)
+    .innerJoin(visits, eq(visits.id, deliveryHandovers.visitId))
+    .innerJoin(flats, eq(flats.id, deliveryHandovers.flatId))
+    .innerJoin(blocks, eq(blocks.id, flats.blockId))
+    .$dynamic()
+}
+
+/**
+ * The guard records that a delivery was left at the gate.
+ *
+ * This is a handover, not an entry: the courier never came inside, so no entry or exit is written
+ * and the visit keeps the resident's own LEAVE_AT_GATE answer. The code that comes back is what
+ * the flat shows the guard when they come down for the parcel.
+ */
+export async function recordLeaveAtGate(ctx: AuthContext, visitId: string, body: LeaveAtGateBody) {
+  const row = await loadVisit(ctx, visitId)
+  await assertSameSociety(ctx, row.visit.societyId)
+  await assertGate(ctx, body.gateId ?? row.visit.gateId ?? undefined)
+  assertState(await leaveAtGateAllowed(row.visit.societyId), 'This society does not allow leaving anything at the gate')
+  assertState(
+    (DELIVERY_PURPOSES as readonly string[]).includes(row.visit.purpose),
+    'Only a delivery can be left at the gate',
+  )
+  assertState(row.visit.status === 'LEAVE_AT_GATE', 'The resident has not asked for this to be left at the gate')
+
+  const handover = await insertWithCode((collectionCode) =>
+    unique(
+      db
+        .insert(deliveryHandovers)
+        .values({
+          visitId,
+          societyId: row.visit.societyId,
+          flatId: row.visit.flatId,
+          gateId: body.gateId ?? row.visit.gateId,
+          receivedBy: ctx.userId,
+          collectionCode,
+          note: body.note ?? null,
+        })
+        .returning(),
+      'This delivery is already recorded at the gate',
+    ).then((rows) => rows[0]!),
+  )
+  await audit(db, ctx, 'DELIVERY_LEFT_AT_GATE', {
+    visitId,
+    deliveryId: handover.id,
+    flat: label(row.flat),
+    name: row.visit.visitorName,
+  })
+  await enqueueNotification(db, {
+    societyId: row.visit.societyId,
+    eventType: 'DELIVERY_AT_GATE',
+    entityType: 'visit',
+    entityId: visitId,
+    recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
+    payload: { name: row.visit.visitorName, flat: label(row.flat) },
+  })
+  return serializeDelivery({ handover, visit: row.visit, flat: row.flat })
+}
+
+/** What is still waiting at the gate, for the guard standing next to it. */
+export async function listDeliveriesAtGate(ctx: AuthContext, societyId: string) {
+  await assertSameSociety(ctx, societyId)
+  return (
+    await deliveryQuery()
+      .where(and(eq(deliveryHandovers.societyId, societyId), isNull(deliveryHandovers.collectedAt)))
+      .orderBy(desc(deliveryHandovers.receivedAt))
+      .limit(100)
+  ).map(serializeDelivery)
+}
+
+/** The resident's own parcels, newest first, with the code they read out at the gate. */
+export async function listMyDeliveries(ctx: AuthContext) {
+  const flatIds = await myFlatIds(ctx)
+  if (flatIds.length === 0) return []
+  return (
+    await deliveryQuery()
+      .where(inArray(deliveryHandovers.flatId, flatIds))
+      .orderBy(desc(deliveryHandovers.receivedAt))
+      .limit(50)
+  ).map(serializeDelivery)
+}
+
+async function loadDelivery(ctx: AuthContext, id: string) {
+  const [row] = UUID.test(id) ? await deliveryQuery().where(eq(deliveryHandovers.id, id)) : []
+  await requireRecord(ctx, row?.handover, 'Delivery')
+  return row!
+}
+
+/**
+ * Somebody collected the parcel, and says so in a way that can be read back later.
+ *
+ * A resident of the flat acknowledges it themselves. A guard may confirm instead, for a resident
+ * who cannot use the app, and then has to hold the collection code and name who took it - so the
+ * record always has an actor, a moment and, where it matters, a named recipient.
+ */
+export async function recordCollection(ctx: AuthContext, id: string, body: CollectDeliveryBody) {
+  const row = await loadDelivery(ctx, id)
+  await assertSameSociety(ctx, row.handover.societyId)
+  assertState(row.handover.collectedAt === null, 'This delivery has already been collected')
+
+  const residents = await currentResidents(row.handover.flatId)
+  const resident = residents.find((person) => person.userId === ctx.userId)
+  if (!resident) {
+    // Not of this flat: only the gate may confirm, and only holding the code
+    if (!ctx.permissions?.includes('VISIT_ENTRY_RECORD')) throw await deny(ctx.userId, permissionDenied(), { deliveryId: id })
+    assertState(body.code === row.handover.collectionCode, 'That collection code does not match')
+    assertState(Boolean(body.collectedByName), 'Say who collected the delivery')
+  }
+
+  const [updated] = await db
+    .update(deliveryHandovers)
+    .set({
+      collectedAt: new Date(),
+      collectedBy: ctx.userId,
+      collectedByName: resident ? resident.name : body.collectedByName!,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(deliveryHandovers.id, id), isNull(deliveryHandovers.collectedAt)))
+    .returning()
+  assertState(Boolean(updated), 'This delivery has already been collected')
+  await audit(db, ctx, 'DELIVERY_COLLECTED', {
+    deliveryId: id,
+    visitId: row.handover.visitId,
+    flat: label(row.flat),
+    collectedByName: updated!.collectedByName,
+    atGate: !resident,
+  })
+  await enqueueNotification(db, {
+    societyId: row.handover.societyId,
+    eventType: 'DELIVERY_COLLECTED',
+    entityType: 'visit',
+    entityId: row.handover.visitId,
+    recipientIds: await flatAudience(row.handover.flatId, row.handover.receivedBy, ctx.userId),
+    payload: { name: row.visit.visitorName, flat: label(row.flat) },
+  })
+  return serializeDelivery({ ...row, handover: updated! })
 }
 
 /**

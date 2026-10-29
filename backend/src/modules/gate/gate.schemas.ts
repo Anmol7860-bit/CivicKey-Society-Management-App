@@ -137,6 +137,22 @@ export const rejectVisitSchema = z
     path: ['note'],
   })
 
+/** The guard taking a parcel in at the gate. */
+export const leaveAtGateSchema = z.strictObject({ gateId: uuid.optional(), note: note.optional() })
+
+/**
+ * Acknowledging a collection. A resident of the flat needs nothing: they are signed in and the
+ * flat is theirs. A guard confirming for someone who cannot use the app needs the code and a name.
+ */
+export const collectDeliverySchema = z.strictObject({
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'A collection code is 6 digits')
+    .optional(),
+  collectedByName: name.optional(),
+})
+
 export const listVisitsSchema = z.strictObject({
   status: z
     .enum(['AWAITING_APPROVAL', 'AWAITING_MANUAL', 'APPROVED', 'LEAVE_AT_GATE', 'DENIED', 'ENTERED', 'CLOSED', 'CANCELLED', 'REJECTED_AT_GATE'])
@@ -220,6 +236,8 @@ export type CreatePassBody = z.infer<typeof createPassSchema>
 export type RegisterVisitBody = z.infer<typeof registerVisitSchema>
 export type DecideVisitBody = z.infer<typeof decideVisitSchema>
 export type CancelVisitBody = z.infer<typeof cancelVisitSchema>
+export type LeaveAtGateBody = z.infer<typeof leaveAtGateSchema>
+export type CollectDeliveryBody = z.infer<typeof collectDeliverySchema>
 export type RejectVisitBody = z.infer<typeof rejectVisitSchema>
 export type ListVisitsQuery = z.infer<typeof listVisitsSchema>
 export type GateLogQuery = z.infer<typeof gateLogSchema>

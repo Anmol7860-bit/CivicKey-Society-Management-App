@@ -835,6 +835,51 @@ export const visitRejectionReason = pgEnum('visit_rejection_reason', [
   'OTHER',
 ])
 
+/**
+ * A delivery the resident asked the gate to keep, and what became of it.
+ *
+ * It hangs off the visit but is nothing to do with entry: the courier never came in, so there is
+ * no entry row to amend and no exit to invent. One handover per visit; the collection code is what
+ * a resident who cannot use the app reads out to the guard.
+ */
+export const deliveryHandovers = pgTable(
+  'delivery_handovers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    visitId: uuid('visit_id')
+      .notNull()
+      .references(() => visits.id),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id),
+    flatId: uuid('flat_id')
+      .notNull()
+      .references(() => flats.id),
+    gateId: uuid('gate_id').references(() => gates.id),
+    /** The guard who took it in, and when they took it */
+    receivedBy: uuid('received_by')
+      .notNull()
+      .references(() => users.id),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Six digits the resident shows or reads out; generated here, never by a paid SMS service */
+    collectionCode: varchar('collection_code', { length: 6 }).notNull(),
+    note: varchar('note', { length: 200 }),
+    collectedAt: timestamp('collected_at', { withTimezone: true }),
+    /** The resident who acknowledged in the app, or the guard who confirmed a handover at the gate */
+    collectedBy: uuid('collected_by').references(() => users.id),
+    /** Who physically took it, when the guard confirms for someone who cannot use the app */
+    collectedByName: varchar('collected_by_name', { length: 120 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('delivery_handovers_visit_id_unique').on(table.visitId),
+    index('delivery_handovers_flat_id_idx').on(table.flatId, table.collectedAt),
+    // A collection names its moment and its actor together, so neither can be guessed later
+    check('delivery_collection_recorded', sql`(${table.collectedAt} is null) = (${table.collectedBy} is null)`),
+  ],
+)
+
 export const vehicleType = pgEnum('vehicle_type', ['CAR', 'BIKE', 'SCOOTER', 'BICYCLE', 'OTHER'])
 
 export const accessRequestKind = pgEnum('access_request_kind', ['HOUSEHOLD_MEMBER', 'DAILY_HELP'])
@@ -899,6 +944,8 @@ export const notificationEvent = pgEnum('notification_event', [
   'VISITOR_DECIDED',
   'VISITOR_ENTERED',
   'VISITOR_EXITED',
+  'DELIVERY_AT_GATE',
+  'DELIVERY_COLLECTED',
   'STAFF_ENTERED',
   'STAFF_EXITED',
   'OFFLINE_EVENT_NEEDS_REVIEW',
@@ -1484,6 +1531,8 @@ export const societySettings = pgTable('society_settings', {
   leaveAtGateAllowed: boolean('leave_at_gate_allowed').notNull().default(true),
   /** How long a registration stays usable for an entry. The product owner's dial, not a constant. */
   visitValidityHours: integer('visit_validity_hours').notNull().default(24),
+  /** How long a visitor photograph is kept after the visit closes, before the retention job deletes it */
+  photoRetentionDays: integer('photo_retention_days').notNull().default(90),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })

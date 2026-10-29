@@ -3,11 +3,13 @@ import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
 import {
+  auditLogs,
   gates,
   notificationDeliveries,
   notificationOutbox,
   notifications,
   pushSubscriptions,
+  storedFiles,
   visits,
 } from '../../db/schema.js'
 import { addResident, createFlat, createPhoto, createUser, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
@@ -182,6 +184,32 @@ describe('the dispatcher', () => {
 })
 
 describe('scheduled jobs', () => {
+  it('deletes a visitor photograph once the retention period has passed, and keeps the visit', async () => {
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    const id = visit.body.data.id
+    await api.post(`/visits/${id}/decision`, { decision: 'APPROVED' }, resident)
+    await api.post(`/visits/${id}/entry`, {})
+    await api.post(`/visits/${id}/exit`, {})
+
+    // A photo still inside the window is left alone
+    await runJobsOnce()
+    expect((await db.select().from(visits).where(eq(visits.id, id)))[0]!.photoReference).toBe(photoId)
+
+    // The clock is a column here too: ninety days back puts it past the default
+    const longAgo = new Date(Date.now() - 91 * 24 * 3600_000)
+    await db.update(visits).set({ updatedAt: longAgo }).where(eq(visits.id, id))
+    expect((await runJobsOnce()).photos).toBe(1)
+
+    const [kept] = await db.select().from(visits).where(eq(visits.id, id))
+    expect(kept!.photoReference).toBeNull()
+    // The visit, its times and its history stay; only the image is gone
+    expect(kept!.enteredAt).not.toBeNull()
+    expect(kept!.exitedAt).not.toBeNull()
+    expect((await db.select().from(storedFiles).where(eq(storedFiles.id, photoId)))).toHaveLength(0)
+    const trail = await db.select().from(auditLogs).where(eq(auditLogs.eventType, 'VISIT_PHOTO_DELETED'))
+    expect(trail).toHaveLength(1)
+  })
+
   it('reminds the approver once, a minute in', async () => {
     const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
     const id = visit.body.data.id

@@ -9,6 +9,33 @@ export interface StoredImage {
   byteSize: number
 }
 
+/** The longest edge a stored photograph needs. A gate photo is looked at, never printed. */
+const MAX_EDGE = 1280
+
+/**
+ * Shrinks a photo before it leaves the device.
+ *
+ * A phone camera writes several megabytes; the gate needs a face. Resizing here saves the guard's
+ * data and the server's disk, and it happens on the device so a slow upload is short. Anything the
+ * browser cannot decode is sent as it is - the server checks the bytes either way.
+ */
+export async function compressImage(file: File) {
+  if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas !== 'function') return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height))
+    // Already small enough and already a JPEG: nothing to gain from a re-encode
+    if (scale === 1 && file.type === 'image/jpeg') return file
+    const canvas = new OffscreenCanvas(Math.round(bitmap.width * scale), Math.round(bitmap.height * scale))
+    canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 })
+    bitmap.close()
+    return blob.size < file.size ? new File([blob], 'photo.jpg', { type: 'image/jpeg' }) : file
+  } catch {
+    return file
+  }
+}
+
 /**
  * Uploads one image and returns the reference a record keeps.
  *

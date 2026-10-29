@@ -144,6 +144,8 @@ export const updateSettingsSchema = z
     leaveAtGateAllowed: z.boolean().optional(),
     /** One hour to a fortnight; the gate's own default is 24 */
     visitValidityHours: z.number().int().min(1).max(336).optional(),
+    /** A week to three years; the proposed default is 90 days after the visit closes */
+    photoRetentionDays: z.number().int().min(7).max(1095).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, { message: 'Nothing to change' })
 

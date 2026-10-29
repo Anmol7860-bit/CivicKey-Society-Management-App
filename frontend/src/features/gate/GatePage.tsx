@@ -19,6 +19,9 @@ import {
   recordManualOfflineEntry,
   recordStaffEntry,
   recordStaffExit,
+  collectDelivery,
+  leaveAtGate,
+  listDeliveriesAtGate,
   registerVisit,
   rejectVisitAtGate,
   type VisitRejectionReason,
@@ -215,6 +218,8 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
   const [tap, setTap] = useState(() => crypto.randomUUID())
   // The visit the guard is turning away, while they pick the reason
   const [turning, setTurning] = useState<{ id: string; reason: VisitRejectionReason; note: string } | null>(null)
+  // The parcel being handed over, while the guard takes the code and the name
+  const [collecting, setCollecting] = useState<{ id: string; code: string; name: string } | null>(null)
   const passAction = useAction()
   const staffAction = useAction()
   const entryAction = useAction()
@@ -224,12 +229,20 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
     societyId ? () => listVisits(accessToken, societyId, { status: 'APPROVED' }) : null,
     [accessToken, societyId],
   )
+  // Parcels the resident asked the gate to keep: the ones to take in, and the ones still here
+  const toKeep = useResource(
+    societyId ? () => listVisits(accessToken, societyId, { status: 'LEAVE_AT_GATE' }) : null,
+    [accessToken, societyId],
+  )
+  const parcels = useResource(societyId ? () => listDeliveriesAtGate(accessToken, societyId) : null, [accessToken, societyId])
 
   if (!societyId) return <ErrorState message={t('area.guard.noSociety')} />
 
   const reload = () => {
     inside.reload()
     waiting.reload()
+    toKeep.reload()
+    parcels.reload()
   }
 
   /** The pass names the flat, so a visit is registered and let in at once. */
@@ -258,6 +271,26 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
     if (ok) {
       setCheckedPass(null)
       setCode('')
+      reload()
+    }
+  }
+
+  /** Taking a parcel in. Nobody is let in by this: the courier hands it over and leaves. */
+  async function keepAtGate(visit: Visit) {
+    if (await entryAction.run(() => leaveAtGate(accessToken, visit.id))) {
+      setDone(t('area.guard.gate.parcelKept', { name: visit.visitorName }))
+      reload()
+    }
+  }
+
+  /** Handing it over: the resident reads out the code and the guard writes down who took it. */
+  async function handOver(id: string) {
+    if (!collecting || collecting.id !== id) return
+    const { code, name } = collecting
+    if (!/^\d{6}$/.test(code) || name.trim().length < 2) return
+    if (await entryAction.run(() => collectDelivery(accessToken, id, { code, collectedByName: name.trim() }))) {
+      setDone(t('area.guard.gate.parcelHandedOver', { name: name.trim() }))
+      setCollecting(null)
       reload()
     }
   }
@@ -439,6 +472,72 @@ export function GatePage({ user, accessToken }: { user: AuthUser; accessToken: s
                       <RowButton onClick={() => setTurning(null)}>{t('shell.cancel')}</RowButton>
                       <RowButton tone="danger" disabled={entryAction.pending} onClick={() => turnAway(visit)}>
                         {t('area.guard.gate.turnAway')}
+                      </RowButton>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      {((toKeep.data?.length ?? 0) > 0 || (parcels.data?.length ?? 0) > 0) && (
+        <Panel title={t('area.guard.gate.parcelsTitle')} description={t('area.guard.gate.parcelsDescription')}>
+          <div className="overflow-hidden rounded-xl border border-line">
+            {(toKeep.data ?? [])
+              .filter((visit) => !(parcels.data ?? []).some((parcel) => parcel.visitId === visit.id))
+              .map((visit) => (
+                <div key={visit.id} className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-2.5 first:border-t-0">
+                  <span className="text-[14px] font-semibold text-ink">{visit.visitorName}</span>
+                  <Badge tone="neutral">{t(`area.guard.purposes.${visit.purpose}`)}</Badge>
+                  <span className="text-[13px] text-ink-soft">{visit.flat.label}</span>
+                  <span className="ml-auto">
+                    <RowButton disabled={entryAction.pending} onClick={() => keepAtGate(visit)}>
+                      {t('area.guard.gate.keepAtGate')}
+                    </RowButton>
+                  </span>
+                </div>
+              ))}
+            {(parcels.data ?? []).map((parcel) => (
+              <div key={parcel.id} className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-2.5 first:border-t-0">
+                <span className="text-[14px] font-semibold text-ink">{parcel.flat.label}</span>
+                <span className="text-[13px] text-ink-soft">{parcel.visitorName}</span>
+                <Badge tone="warning">{t('area.guard.gate.parcelWaiting')}</Badge>
+                <span className="ml-auto">
+                  <RowButton
+                    disabled={entryAction.pending}
+                    onClick={() => setCollecting({ id: parcel.id, code: '', name: '' })}
+                  >
+                    {t('area.guard.gate.handOver')}
+                  </RowButton>
+                </span>
+                {collecting?.id === parcel.id && (
+                  <div className="flex w-full flex-wrap items-end gap-3 pt-1">
+                    <div className="w-[150px]">
+                      <TextField
+                        id={`collect-code-${parcel.id}`}
+                        label={t('area.guard.gate.collectionCode')}
+                        value={collecting.code}
+                        onChange={(event) => setCollecting({ ...collecting, code: event.target.value.replace(/\D/g, '').slice(0, 6) })}
+                        inputMode="numeric"
+                        required
+                      />
+                    </div>
+                    <div className="min-w-[200px] flex-1">
+                      <TextField
+                        id={`collect-name-${parcel.id}`}
+                        label={t('area.guard.gate.collectedBy')}
+                        value={collecting.name}
+                        onChange={(event) => setCollecting({ ...collecting, name: event.target.value })}
+                        maxLength={120}
+                        required
+                      />
+                    </div>
+                    <div className="flex gap-2 pb-0.5">
+                      <RowButton onClick={() => setCollecting(null)}>{t('shell.cancel')}</RowButton>
+                      <RowButton disabled={entryAction.pending} onClick={() => handOver(parcel.id)}>
+                        {t('area.guard.gate.handOver')}
                       </RowButton>
                     </div>
                   </div>

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { Fragment, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
@@ -8,7 +8,10 @@ import type { AuthUser } from '../auth/api'
 import { PhotoField } from '../file/PhotoField'
 import { FormGrid, Panel, RowButton, useAction } from '../society/parts'
 import { useResource } from '../society/useResource'
-import { flatDirectory, lookupVisitor, registerVisit, validatePass, visitPurposes, type VisitPurpose } from './api'
+import { flatDirectory, lookupVisitor, registerVisit, validatePass, visitPurposes, type Visit, type VisitPurpose } from './api'
+
+/** A stored timestamp as the gate reads it, and an em dash when there is none. */
+const when = (value?: string | null) => (value ? new Date(value).toLocaleString() : '—')
 
 /** The gate's own clock, as the two inputs want it: 2026-10-28 and 14:35. */
 const localNow = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString()
@@ -39,7 +42,7 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
   const { t } = useTranslation()
   const societyId = user.societyId
   const [form, setForm] = useState(blank)
-  const [sent, setSent] = useState<{ name: string; approved: boolean; contact?: { name: string; phone: string } | null } | null>(null)
+  const [sent, setSent] = useState<Visit | null>(null)
   const [known, setKnown] = useState<string | null>(null)
   const [refused, setRefused] = useState<string | null>(null)
   const action = useAction()
@@ -90,6 +93,8 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
   }
 
   const chosenFlat = (flats.data ?? []).find((flat) => flat.id === form.flatId)
+  const residentName = (id?: string | null) =>
+    (flats.data ?? []).flatMap((flat) => flat.residents).find((person) => person.id === id)?.name
   // Everything the gate must capture before a visit exists: the photograph and the expected time
   // among them, and for a named guest, the resident they asked for.
   const ready = Boolean(
@@ -123,7 +128,7 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
         ...(form.note.trim() ? { note: form.note.trim() } : {}),
         ...(form.entryCode.trim() ? { entryCode: form.entryCode.trim() } : {}),
       })
-      setSent({ name: visit.visitorName, approved: visit.status === 'APPROVED', contact: visit.contact })
+      setSent(visit)
     })
     if (ok) {
       setForm(blank())
@@ -143,11 +148,37 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
 
       {sent && (
         <SuccessNote
-          message={sent.approved ? t('area.guard.register.letIn', { name: sent.name }) : t('area.guard.register.sent', { name: sent.name })}
+          message={
+            sent.status === 'APPROVED'
+              ? t('area.guard.register.letIn', { name: sent.visitorName })
+              : t('area.guard.register.sent', { name: sent.visitorName })
+          }
           onDismiss={() => setSent(null)}
         />
       )}
       {sent?.contact && <ErrorState message={t('area.guard.register.noApprover', sent.contact)} />}
+      {sent && (
+        <Panel title={t('area.guard.register.receiptTitle')} description={t('area.guard.register.receiptDescription')}>
+          <dl className="grid grid-cols-[150px_1fr] gap-x-3 gap-y-1.5 text-[13px]">
+            {[
+              ['visitId', sent.id],
+              ['name', sent.visitorName],
+              ['destination', sent.flat?.label ?? '—'],
+              ['resident', residentName(sent.intendedResidentId) ?? '—'],
+              ['expected', when(sent.expectedAt)],
+              ['registered', when(sent.createdAt)],
+              ['expires', when(sent.expiresAt)],
+              ['status', t(`area.resident.visitors.status.${sent.status}`)],
+            ].map(([key, value]) => (
+              <Fragment key={key}>
+                <dt className="text-muted">{t(`area.guard.register.receipt.${key}`)}</dt>
+                <dd className="m-0 font-semibold break-words text-ink">{value}</dd>
+              </Fragment>
+            ))}
+          </dl>
+          <p className="m-0 text-[12px] text-muted">{t('area.guard.register.receiptReadOnly')}</p>
+        </Panel>
+      )}
 
       <Panel title={t('area.guard.register.passTitle')} description={t('area.guard.register.passDescription')}>
         <div className="flex flex-wrap items-end gap-3">
@@ -298,6 +329,7 @@ export function VisitorRegistrationPage({ user, accessToken }: { user: AuthUser;
               onChange={(reference) => set('photoReference', reference)}
               error={action.fieldError('photoReference')}
               required={!form.entryCode.trim()}
+              capture
             />
           </FormGrid>
 

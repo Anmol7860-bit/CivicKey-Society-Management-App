@@ -253,6 +253,13 @@
       "when": 1793207692665,
       "tag": "0035_visit_expiry_cancellation_and_gate_rejection",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793267367578,
+      "tag": "0036_delivery_handovers_and_photo_retention",
+      "breakpoints": true
     }
   ]
 }

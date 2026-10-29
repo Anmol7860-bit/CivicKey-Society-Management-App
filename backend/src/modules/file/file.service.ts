@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import { env } from '../../config/env.js'
@@ -89,4 +89,18 @@ export async function readStoredFile(societyId: string | null, id: string) {
   } catch (cause) {
     throw new AppError(503, 'STORAGE_ERROR', 'The image could not be read.', { details: String(cause) })
   }
+}
+
+/**
+ * Removes a stored file and its row, for the retention process.
+ *
+ * A file already gone from disk is not an error: what matters is that it is gone and the row no
+ * longer claims otherwise. Returns false when there was nothing to delete.
+ */
+export async function deleteStoredFile(id: string) {
+  const [row] = await db.select().from(storedFiles).where(eq(storedFiles.id, id))
+  if (!row) return false
+  await rm(join(directory, fileName(row.id, row.contentType)), { force: true })
+  await db.delete(storedFiles).where(eq(storedFiles.id, id))
+  return true
 }

@@ -24,14 +24,13 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('gate actions while the gate is offline', () => {
-  it('saves a registration on the device instead of losing it', async () => {
+  it('does not keep a registration on the device: registering is online-only', async () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
 
-    await expect(registerVisit('token', 'soc-1', visit)).rejects.toBeInstanceOf(QueuedOfflineError)
-
-    const [queued] = await readQueue()
-    expect(queued).toMatchObject({ operationType: 'VISITOR_REGISTER', status: 'PENDING_SYNC', entityId: null })
-    expect(queued!.payload).toMatchObject({ visitorName: 'Dev Courier' })
+    // The guard is told the gate is offline rather than left believing the visitor is registered,
+    // and no photograph or personal detail is parked on a shared tablet.
+    await expect(registerVisit('token', 'soc-1', visit)).rejects.toThrow()
+    expect(await readQueue()).toEqual([])
   })
 
   it('saves an entry and an exit against the visit they belong to', async () => {

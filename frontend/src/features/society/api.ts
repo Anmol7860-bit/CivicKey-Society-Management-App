@@ -259,6 +259,8 @@ export interface SocietySettings {
   leaveAtGateAllowed: boolean
   /** How long a gate registration stays usable for an entry */
   visitValidityHours: number
+  /** How long a visitor photograph is kept after the visit closes */
+  photoRetentionDays: number
 }
 
 export const getSettings = (token: string, societyId: string) =>
@@ -267,7 +269,7 @@ export const getSettings = (token: string, societyId: string) =>
 export const updateSettings = (
   token: string,
   societyId: string,
-  body: Partial<Pick<SocietySettings, 'timezone' | 'idRequired' | 'visitorPurposes' | 'leaveAtGateAllowed' | 'visitValidityHours'>>,
+  body: Partial<Pick<SocietySettings, 'timezone' | 'idRequired' | 'visitorPurposes' | 'leaveAtGateAllowed' | 'visitValidityHours' | 'photoRetentionDays'>>,
 ) =>
   call<SocietySettings>(token, 'PUT', `/societies/${societyId}/settings`, body)
 

@@ -353,8 +353,15 @@ async function queueable<T>(operation: OperationType, payload: Record<string, un
   }
 }
 
+/**
+ * Registration is online-only in this release, so this is a plain call and never a queued one.
+ *
+ * A registration carries a photograph and the visitor's personal details, and only the server can
+ * resolve the flat, the approvers and the expiry. Holding all that on a shared gate tablet until
+ * the network returns is what the subtask rules out; the guard is told the gate is offline instead.
+ */
 export const registerVisit = (token: string, societyId: string, body: RegisterVisitBody) =>
-  queueable('VISITOR_REGISTER', { ...body }, null, () => call<Visit>(token, 'POST', `/societies/${societyId}/visits`, body))
+  call<Visit>(token, 'POST', `/societies/${societyId}/visits`, body)
 
 /**
  * The guard let an unannounced visitor in while the gate was offline. Always queued: there is no
@@ -414,6 +421,32 @@ export function listStaffMovements(token: string, societyId: string, filters: St
 export const listMyVisits = (token: string) => call<Visit[]>(token, 'GET', '/me/visits')
 export const decideVisit = (token: string, visitId: string, body: { decision: 'APPROVED' | 'LEAVE_AT_GATE' | 'DENIED'; reason?: string }) =>
   call<Visit>(token, 'POST', `/visits/${visitId}/decision`, body)
+
+export interface Delivery {
+  id: string
+  visitId: string
+  flatId: string
+  receivedBy: string
+  receivedAt: string
+  collectionCode: string
+  note: string | null
+  collectedAt: string | null
+  collectedBy: string | null
+  collectedByName: string | null
+  visitorName: string
+  purpose: VisitPurpose
+  flat: FlatLabel
+}
+
+/** The guard takes a parcel in. A handover, never an entry. */
+export const leaveAtGate = (token: string, visitId: string, body: { gateId?: string; note?: string } = {}) =>
+  call<Delivery>(token, 'POST', `/visits/${visitId}/leave-at-gate`, body)
+export const listDeliveriesAtGate = (token: string, societyId: string) =>
+  call<Delivery[]>(token, 'GET', `/societies/${societyId}/deliveries`)
+export const listMyDeliveries = (token: string) => call<Delivery[]>(token, 'GET', '/me/deliveries')
+/** The resident acknowledges their own; the gate confirms with the code and who took it. */
+export const collectDelivery = (token: string, id: string, body: { code?: string; collectedByName?: string } = {}) =>
+  call<Delivery>(token, 'POST', `/deliveries/${id}/collection`, body)
 
 /** The resident calls a visit off. Only before the visitor is inside; the reason is optional. */
 export const cancelVisit = (token: string, visitId: string, body: { reason?: string } = {}) =>

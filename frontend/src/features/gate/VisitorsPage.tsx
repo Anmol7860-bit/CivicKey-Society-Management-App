@@ -15,7 +15,10 @@ import {
   cancelPass,
   createPass,
   cancelVisit,
+  collectDelivery,
   decideVisit,
+  listMyDeliveries,
+  type Delivery,
   listMyPasses,
   listMyVisits,
   type PassStatus,
@@ -201,6 +204,35 @@ function PassCard({ pass, onCancelled, token }: { pass: VisitorPass; onCancelled
   )
 }
 
+/**
+ * A parcel the gate is holding.
+ *
+ * Collecting it is an acknowledgment, not an entry: the courier never came in. The code is shown
+ * for a household member who goes down instead - they read it out and the guard records their name.
+ */
+function ParcelRow({ parcel, token, onCollected }: { parcel: Delivery; token: string; onCollected: () => void }) {
+  const { t } = useTranslation()
+  const action = useAction()
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-white p-3">
+      <span className="text-[13px] font-semibold text-ink">{parcel.visitorName}</span>
+      <span className="text-[12px] text-muted">{t(`area.guard.purposes.${parcel.purpose}`)}</span>
+      <span className="text-[12px] text-muted">{ago(parcel.receivedAt)}</span>
+      <span className="font-mono text-[15px] font-bold tracking-[2px] text-ink">{parcel.collectionCode}</span>
+      <span className="ml-auto">
+        <RowButton
+          disabled={action.pending}
+          onClick={() => action.run(() => collectDelivery(token, parcel.id)).then((ok) => ok && onCollected())}
+        >
+          {t('area.resident.visitors.collected')}
+        </RowButton>
+      </span>
+      {action.error && <ErrorState message={action.error} />}
+    </div>
+  )
+}
+
 /** Visitors and passes: answer the gate, and pre-approve the people you are expecting. */
 export function VisitorsPage({ accessToken }: { accessToken: string }) {
   const { t } = useTranslation()
@@ -210,6 +242,7 @@ export function VisitorsPage({ accessToken }: { accessToken: string }) {
 
   const assignments = useResource(() => listMyFlats(accessToken), [accessToken])
   const visits = useResource(() => listMyVisits(accessToken), [accessToken])
+  const deliveries = useResource(() => listMyDeliveries(accessToken), [accessToken])
   const passes = useResource(() => listMyPasses(accessToken), [accessToken])
 
   const flat = assignments.data?.find((assignment) => assignment.active && assignment.accessLevel === 'FULL')
@@ -268,6 +301,18 @@ export function VisitorsPage({ accessToken }: { accessToken: string }) {
           ) : (
             <Panel>
               <EmptyState icon={BellOff} title={t('area.resident.visitors.empty.title')} description={t('area.resident.visitors.empty.description')} />
+            </Panel>
+          )}
+
+          {(deliveries.data ?? []).filter((parcel) => !parcel.collectedAt).length > 0 && (
+            <Panel title={t('area.resident.visitors.parcelsTitle')} description={t('area.resident.visitors.parcelsDescription')}>
+              <div className="flex flex-col gap-2">
+                {(deliveries.data ?? [])
+                  .filter((parcel) => !parcel.collectedAt)
+                  .map((parcel) => (
+                    <ParcelRow key={parcel.id} parcel={parcel} token={accessToken} onCollected={deliveries.reload} />
+                  ))}
+              </div>
             </Panel>
           )}
 

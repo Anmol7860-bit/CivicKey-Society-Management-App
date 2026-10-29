@@ -140,6 +140,22 @@ export function SettingsTab({ token, societyId }: { token: string; societyId: st
         </div>
         <div className="max-w-[260px]">
           <TextField
+            id="society-photo-retention"
+            label={t('area.admin.society.settings.photoRetentionDays')}
+            hint={t('area.admin.society.settings.photoRetentionDaysHint')}
+            type="number"
+            min={7}
+            max={1095}
+            defaultValue={current.photoRetentionDays}
+            onBlur={(event) => {
+              const days = Number(event.target.value)
+              if (days >= 7 && days <= 1095 && days !== current.photoRetentionDays) void change({ photoRetentionDays: days })
+            }}
+            error={save.fieldError('photoRetentionDays')}
+          />
+        </div>
+        <div className="max-w-[260px]">
+          <TextField
             id="society-timezone"
             label={t('area.admin.society.settings.timezone')}
             value={current.timezone}

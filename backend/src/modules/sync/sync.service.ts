@@ -41,6 +41,9 @@ interface Operation {
 }
 
 const operations: Record<SyncEventType, Operation> = {
+  // SMB-49 asks for registration to be online-only, and the guard's screen no longer queues one.
+  // The operation itself stays: OFF-05 to OFF-07 of SMB-4 are written against it, and retiring
+  // another story's acceptance criteria is a product decision, not this subtask's.
   VISITOR_REGISTER: {
     permission: 'VISIT_REGISTER',
     async run(ctx, event) {
