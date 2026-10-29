@@ -385,76 +385,81 @@ export async function registerVisit(
   const now = new Date()
   const validityHours = await visitValidityHours(societyId)
   const { entryCode: _code, expectedDate, expectedTime, clientEventId: bodyEventId, flatId, ...rest } = body
-  const [visit] = await unique(
-    db
-      .insert(visits)
-      .values({
-        ...rest,
-        flatId,
-        societyId,
-        passId,
-        status,
-        expectedAt: expectedDate && expectedTime ? new Date(`${expectedDate}T${expectedTime}`) : now,
-      expiresAt: passExpiry ?? new Date(now.getTime() + validityHours * 3600_000),
-        clientEventId: clientEventId ?? bodyEventId,
-        registeredBy: ctx.userId,
-        ...(status === APPROVED ? { decidedBy: ctx.userId, decidedAt: new Date(), decisionReason: 'Arrived with a valid pass' } : {}),
-        // One reminder a minute in, the guard's decision two minutes after that. Only a visit
-        // that is actually waiting on someone has deadlines.
-        ...(status === AWAITING_APPROVAL
-          ? { reminderAt: new Date(now.getTime() + REMINDER_AFTER_MS), escalateAt: new Date(now.getTime() + ESCALATE_AFTER_MS) }
-          : {}),
-        // No decidedBy: nobody approved this, and the record must not suggest anyone did
-        ...(manualOffline
-          ? {
-              source: 'MANUAL_OFFLINE' as const,
-              needsReview: true,
-              reviewReason: manualOffline.reason.slice(0, 120),
-              enteredAt: manualOffline.at,
-              entryBy: ctx.userId,
-            }
-          : {}),
-      })
-      .returning(),
-    'This visit is already registered',
-  )
   const label_ = label(flat)
-  if (approvers.length > 0) {
-    await enqueueNotification(db, {
-      societyId,
-      eventType: 'VISITOR_WAITING_APPROVAL',
-      entityType: 'visit',
-      entityId: visit!.id,
-      recipientIds: approvers.map((resident) => resident.userId),
-      payload: { name: visit!.visitorName, flat: label_, purpose: visit!.purpose },
+  // The visit, the events about it and the audit row commit together: never a visit nobody was
+  // told about, and never a notification about a visit that was not written.
+  const visit = await db.transaction(async (tx) => {
+    const [row] = await unique(
+      tx
+        .insert(visits)
+        .values({
+          ...rest,
+          flatId,
+          societyId,
+          passId,
+          status,
+          expectedAt: expectedDate && expectedTime ? new Date(`${expectedDate}T${expectedTime}`) : now,
+          expiresAt: passExpiry ?? new Date(now.getTime() + validityHours * 3600_000),
+          clientEventId: clientEventId ?? bodyEventId,
+          registeredBy: ctx.userId,
+          ...(status === APPROVED ? { decidedBy: ctx.userId, decidedAt: new Date(), decisionReason: 'Arrived with a valid pass' } : {}),
+          // One reminder a minute in, the guard's decision two minutes after that. Only a visit
+          // that is actually waiting on someone has deadlines.
+          ...(status === AWAITING_APPROVAL
+            ? { reminderAt: new Date(now.getTime() + REMINDER_AFTER_MS), escalateAt: new Date(now.getTime() + ESCALATE_AFTER_MS) }
+            : {}),
+          // No decidedBy: nobody approved this, and the record must not suggest anyone did
+          ...(manualOffline
+            ? {
+                source: 'MANUAL_OFFLINE' as const,
+                needsReview: true,
+                reviewReason: manualOffline.reason.slice(0, 120),
+                enteredAt: manualOffline.at,
+                entryBy: ctx.userId,
+              }
+            : {}),
+        })
+        .returning(),
+      'This visit is already registered',
+    )
+    if (approvers.length > 0) {
+      await enqueueNotification(tx, {
+        societyId,
+        eventType: 'VISITOR_WAITING_APPROVAL',
+        entityType: 'visit',
+        entityId: row!.id,
+        recipientIds: approvers.map((resident) => resident.userId),
+        payload: { name: row!.visitorName, flat: label_, purpose: row!.purpose },
+      })
+    } else if (status === AWAITING_MANUAL) {
+      // Nobody can answer, so the gate and the office are told rather than a resident
+      await enqueueNotification(tx, {
+        societyId,
+        eventType: 'VISITOR_ESCALATED_TO_GATE',
+        entityType: 'visit',
+        entityId: row!.id,
+        recipientIds: [ctx.userId],
+        payload: { name: row!.visitorName, flat: label_ },
+      })
+    }
+    if (manualOffline) {
+      await enqueueNotification(tx, {
+        societyId,
+        eventType: 'OFFLINE_EVENT_NEEDS_REVIEW',
+        entityType: 'visit',
+        entityId: row!.id,
+        recipientIds: [ctx.userId],
+        payload: { name: row!.visitorName, flat: label_ },
+      })
+    }
+    await audit(tx, ctx, manualOffline ? 'VISIT_MANUAL_OFFLINE_ENTRY' : 'VISIT_REGISTERED', {
+      visitId: row!.id,
+      flat: label(flat),
+      name: row!.visitorName,
+      status,
+      ...(manualOffline ? { reason: manualOffline.reason, recordedAt: manualOffline.at.toISOString() } : {}),
     })
-  } else if (status === AWAITING_MANUAL) {
-    // Nobody can answer, so the gate and the office are told rather than a resident
-    await enqueueNotification(db, {
-      societyId,
-      eventType: 'VISITOR_ESCALATED_TO_GATE',
-      entityType: 'visit',
-      entityId: visit!.id,
-      recipientIds: [ctx.userId],
-      payload: { name: visit!.visitorName, flat: label_ },
-    })
-  }
-  if (manualOffline) {
-    await enqueueNotification(db, {
-      societyId,
-      eventType: 'OFFLINE_EVENT_NEEDS_REVIEW',
-      entityType: 'visit',
-      entityId: visit!.id,
-      recipientIds: [ctx.userId],
-      payload: { name: visit!.visitorName, flat: label_ },
-    })
-  }
-  await audit(db, ctx, manualOffline ? 'VISIT_MANUAL_OFFLINE_ENTRY' : 'VISIT_REGISTERED', {
-    visitId: visit!.id,
-    flat: label(flat),
-    name: visit!.visitorName,
-    status,
-    ...(manualOffline ? { reason: manualOffline.reason, recordedAt: manualOffline.at.toISOString() } : {}),
+    return row
   })
   // Nobody can answer, so the guard is given the registered number to ring. A call settles
   // nothing by itself: the visit stays unapproved until somebody decides it in the app.
@@ -557,36 +562,39 @@ export async function decideVisit(ctx: AuthContext, id: string, body: DecideVisi
     assertState(Boolean(body.reason), 'Give the reason for deciding this at the gate')
   }
 
-  const [updated] = await db
-    .update(visits)
-    .set({
-      status: body.decision,
-      decidedBy: ctx.userId,
-      decidedAt: new Date(),
-      decisionReason: body.reason ?? null,
-      updatedAt: new Date(),
+  const updated = await db.transaction(async (tx) => {
+    const [decided] = await tx
+      .update(visits)
+      .set({
+        status: body.decision,
+        decidedBy: ctx.userId,
+        decidedAt: new Date(),
+        decisionReason: body.reason ?? null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(visits.id, id), inArray(visits.status, open)))
+      .returning()
+    assertState(Boolean(decided), 'This visit has already been decided')
+    await audit(tx, ctx, 'VISIT_DECIDED', {
+      visitId: id,
+      flat: label(row.flat),
+      name: row.visit.visitorName,
+      decision: body.decision,
+      ...(asGuard ? { byGuard: true } : {}),
+      ...(body.reason ? { reason: body.reason } : {}),
     })
-    .where(and(eq(visits.id, id), inArray(visits.status, open)))
-    .returning()
-  assertState(Boolean(updated), 'This visit has already been decided')
-  await audit(db, ctx, 'VISIT_DECIDED', {
-    visitId: id,
-    flat: label(row.flat),
-    name: row.visit.visitorName,
-    decision: body.decision,
-    ...(asGuard ? { byGuard: true } : {}),
-    ...(body.reason ? { reason: body.reason } : {}),
+    // The gate needs the answer, and the flat needs to know what was decided in its name
+    await enqueueNotification(tx, {
+      societyId: row.visit.societyId,
+      eventType: 'VISITOR_DECIDED',
+      entityType: 'visit',
+      entityId: id,
+      recipientIds: await flatAudience(row.visit.flatId, row.visit.registeredBy, ctx.userId),
+      payload: { name: row.visit.visitorName, flat: label(row.flat), status: body.decision },
+    })
+    return decided!
   })
-  // The gate needs the answer, and the flat needs to know what was decided in its name
-  await enqueueNotification(db, {
-    societyId: row.visit.societyId,
-    eventType: 'VISITOR_DECIDED',
-    entityType: 'visit',
-    entityId: id,
-    recipientIds: await flatAudience(row.visit.flatId, row.visit.registeredBy, ctx.userId),
-    payload: { name: row.visit.visitorName, flat: label(row.flat), status: body.decision },
-  })
-  return serializeVisit({ ...row, visit: updated! })
+  return serializeVisit({ ...row, visit: updated })
 }
 
 /**
@@ -607,33 +615,36 @@ export async function cancelVisit(ctx: AuthContext, id: string, body: CancelVisi
   const open: (typeof row.visit.status)[] = [AWAITING_APPROVAL, AWAITING_MANUAL, APPROVED, 'LEAVE_AT_GATE']
   assertState(open.includes(row.visit.status), 'This visit can no longer be cancelled')
 
-  const [updated] = await db
-    .update(visits)
-    .set({
-      status: 'CANCELLED',
-      cancelledAt: new Date(),
-      cancelledBy: ctx.userId,
-      cancellationReason: body.reason ?? null,
-      updatedAt: new Date(),
+  const updated = await db.transaction(async (tx) => {
+    const [cancelled] = await tx
+      .update(visits)
+      .set({
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancelledBy: ctx.userId,
+        cancellationReason: body.reason ?? null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(visits.id, id), inArray(visits.status, open)))
+      .returning()
+    assertState(Boolean(cancelled), 'This visit can no longer be cancelled')
+    await audit(tx, ctx, 'VISIT_CANCELLED', {
+      visitId: id,
+      flat: label(row.flat),
+      name: row.visit.visitorName,
+      ...(body.reason ? { reason: body.reason } : {}),
     })
-    .where(and(eq(visits.id, id), inArray(visits.status, open)))
-    .returning()
-  assertState(Boolean(updated), 'This visit can no longer be cancelled')
-  await audit(db, ctx, 'VISIT_CANCELLED', {
-    visitId: id,
-    flat: label(row.flat),
-    name: row.visit.visitorName,
-    ...(body.reason ? { reason: body.reason } : {}),
+    await enqueueNotification(tx, {
+      societyId: row.visit.societyId,
+      eventType: 'VISITOR_DECIDED',
+      entityType: 'visit',
+      entityId: id,
+      recipientIds: await flatAudience(row.visit.flatId, row.visit.registeredBy, ctx.userId),
+      payload: { name: row.visit.visitorName, flat: label(row.flat), status: 'CANCELLED' },
+    })
+    return cancelled!
   })
-  await enqueueNotification(db, {
-    societyId: row.visit.societyId,
-    eventType: 'VISITOR_DECIDED',
-    entityType: 'visit',
-    entityId: id,
-    recipientIds: await flatAudience(row.visit.flatId, row.visit.registeredBy, ctx.userId),
-    payload: { name: row.visit.visitorName, flat: label(row.flat), status: 'CANCELLED' },
-  })
-  return serializeVisit({ ...row, visit: updated! })
+  return serializeVisit({ ...row, visit: updated })
 }
 
 /**
@@ -648,39 +659,42 @@ export async function rejectVisitAtGate(ctx: AuthContext, id: string, body: Reje
   const open: (typeof row.visit.status)[] = [AWAITING_APPROVAL, AWAITING_MANUAL, APPROVED, 'LEAVE_AT_GATE']
   assertState(open.includes(row.visit.status), 'This visit is past the gate')
 
-  const [updated] = await db
-    .update(visits)
-    .set({
-      status: 'REJECTED_AT_GATE',
-      rejectionReason: body.reason,
-      // The guard who turned them away, and when: the same two fields a resident's answer uses,
-      // told apart by the status rather than by a second pair of columns
-      decidedBy: ctx.userId,
-      decidedAt: new Date(),
-      decisionReason: body.note ?? null,
-      gateId: body.gateId ?? row.visit.gateId,
-      updatedAt: new Date(),
+  const updated = await db.transaction(async (tx) => {
+    const [rejected] = await tx
+      .update(visits)
+      .set({
+        status: 'REJECTED_AT_GATE',
+        rejectionReason: body.reason,
+        // The guard who turned them away, and when: the same two fields a resident's answer uses,
+        // told apart by the status rather than by a second pair of columns
+        decidedBy: ctx.userId,
+        decidedAt: new Date(),
+        decisionReason: body.note ?? null,
+        gateId: body.gateId ?? row.visit.gateId,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(visits.id, id), inArray(visits.status, open)))
+      .returning()
+    assertState(Boolean(rejected), 'This visit is past the gate')
+    await audit(tx, ctx, 'VISIT_REJECTED_AT_GATE', {
+      visitId: id,
+      flat: label(row.flat),
+      name: row.visit.visitorName,
+      reason: body.reason,
+      ...(body.note ? { note: body.note } : {}),
     })
-    .where(and(eq(visits.id, id), inArray(visits.status, open)))
-    .returning()
-  assertState(Boolean(updated), 'This visit is past the gate')
-  await audit(db, ctx, 'VISIT_REJECTED_AT_GATE', {
-    visitId: id,
-    flat: label(row.flat),
-    name: row.visit.visitorName,
-    reason: body.reason,
-    ...(body.note ? { note: body.note } : {}),
+    // Its own event, not a resident's decision: the flat is told their visitor was turned away
+    await enqueueNotification(tx, {
+      societyId: row.visit.societyId,
+      eventType: 'VISITOR_ENTRY_REJECTED',
+      entityType: 'visit',
+      entityId: id,
+      recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
+      payload: { name: row.visit.visitorName, flat: label(row.flat), reason: body.reason },
+    })
+    return rejected!
   })
-  // Its own event, not a resident's decision: the flat is told their visitor was turned away
-  await enqueueNotification(db, {
-    societyId: row.visit.societyId,
-    eventType: 'VISITOR_ENTRY_REJECTED',
-    entityType: 'visit',
-    entityId: id,
-    recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
-    payload: { name: row.visit.visitorName, flat: label(row.flat), reason: body.reason },
-  })
-  return serializeVisit({ ...row, visit: updated! })
+  return serializeVisit({ ...row, visit: updated })
 }
 
 // ---------------------------------------------------------------------------
@@ -735,37 +749,42 @@ export async function recordLeaveAtGate(ctx: AuthContext, visitId: string, body:
   )
   assertState(row.visit.status === 'LEAVE_AT_GATE', 'The resident has not asked for this to be left at the gate')
 
+  // Each attempt at a code is its own transaction: a collision rolls its own back, so the retry
+  // starts clean instead of continuing an aborted one.
   const handover = await insertWithCode((collectionCode) =>
-    unique(
-      db
-        .insert(deliveryHandovers)
-        .values({
-          visitId,
-          societyId: row.visit.societyId,
-          flatId: row.visit.flatId,
-          gateId: body.gateId ?? row.visit.gateId,
-          receivedBy: ctx.userId,
-          collectionCode,
-          note: body.note ?? null,
-        })
-        .returning(),
-      'This delivery is already recorded at the gate',
-    ).then((rows) => rows[0]!),
+    db.transaction(async (tx) => {
+      const [left] = await unique(
+        tx
+          .insert(deliveryHandovers)
+          .values({
+            visitId,
+            societyId: row.visit.societyId,
+            flatId: row.visit.flatId,
+            gateId: body.gateId ?? row.visit.gateId,
+            receivedBy: ctx.userId,
+            collectionCode,
+            note: body.note ?? null,
+          })
+          .returning(),
+        'This delivery is already recorded at the gate',
+      )
+      await audit(tx, ctx, 'DELIVERY_LEFT_AT_GATE', {
+        visitId,
+        deliveryId: left!.id,
+        flat: label(row.flat),
+        name: row.visit.visitorName,
+      })
+      await enqueueNotification(tx, {
+        societyId: row.visit.societyId,
+        eventType: 'DELIVERY_AT_GATE',
+        entityType: 'visit',
+        entityId: visitId,
+        recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
+        payload: { name: row.visit.visitorName, flat: label(row.flat) },
+      })
+      return left!
+    }),
   )
-  await audit(db, ctx, 'DELIVERY_LEFT_AT_GATE', {
-    visitId,
-    deliveryId: handover.id,
-    flat: label(row.flat),
-    name: row.visit.visitorName,
-  })
-  await enqueueNotification(db, {
-    societyId: row.visit.societyId,
-    eventType: 'DELIVERY_AT_GATE',
-    entityType: 'visit',
-    entityId: visitId,
-    recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
-    payload: { name: row.visit.visitorName, flat: label(row.flat) },
-  })
   return serializeDelivery({ handover, visit: row.visit, flat: row.flat })
 }
 
@@ -819,33 +838,36 @@ export async function recordCollection(ctx: AuthContext, id: string, body: Colle
     assertState(Boolean(body.collectedByName), 'Say who collected the delivery')
   }
 
-  const [updated] = await db
-    .update(deliveryHandovers)
-    .set({
-      collectedAt: new Date(),
-      collectedBy: ctx.userId,
-      collectedByName: resident ? resident.name : body.collectedByName!,
-      updatedAt: new Date(),
+  const updated = await db.transaction(async (tx) => {
+    const [collected] = await tx
+      .update(deliveryHandovers)
+      .set({
+        collectedAt: new Date(),
+        collectedBy: ctx.userId,
+        collectedByName: resident ? resident.name : body.collectedByName!,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(deliveryHandovers.id, id), isNull(deliveryHandovers.collectedAt)))
+      .returning()
+    assertState(Boolean(collected), 'This delivery has already been collected')
+    await audit(tx, ctx, 'DELIVERY_COLLECTED', {
+      deliveryId: id,
+      visitId: row.handover.visitId,
+      flat: label(row.flat),
+      collectedByName: collected!.collectedByName,
+      atGate: !resident,
     })
-    .where(and(eq(deliveryHandovers.id, id), isNull(deliveryHandovers.collectedAt)))
-    .returning()
-  assertState(Boolean(updated), 'This delivery has already been collected')
-  await audit(db, ctx, 'DELIVERY_COLLECTED', {
-    deliveryId: id,
-    visitId: row.handover.visitId,
-    flat: label(row.flat),
-    collectedByName: updated!.collectedByName,
-    atGate: !resident,
+    await enqueueNotification(tx, {
+      societyId: row.handover.societyId,
+      eventType: 'DELIVERY_COLLECTED',
+      entityType: 'visit',
+      entityId: row.handover.visitId,
+      recipientIds: await flatAudience(row.handover.flatId, row.handover.receivedBy, ctx.userId),
+      payload: { name: row.visit.visitorName, flat: label(row.flat) },
+    })
+    return collected!
   })
-  await enqueueNotification(db, {
-    societyId: row.handover.societyId,
-    eventType: 'DELIVERY_COLLECTED',
-    entityType: 'visit',
-    entityId: row.handover.visitId,
-    recipientIds: await flatAudience(row.handover.flatId, row.handover.receivedBy, ctx.userId),
-    payload: { name: row.visit.visitorName, flat: label(row.flat) },
-  })
-  return serializeDelivery({ ...row, handover: updated! })
+  return serializeDelivery({ ...row, handover: updated })
 }
 
 /**
@@ -922,22 +944,27 @@ export async function recordExit(ctx: AuthContext, id: string) {
   if (row.visit.exitedAt) throw alreadyMoved(row.visit, 'This visit has already been closed')
   assertState(row.visit.status === ENTERED, 'This visitor is not inside')
 
-  const [updated] = await db
-    .update(visits)
-    .set({ status: 'CLOSED', exitedAt: new Date(), exitBy: ctx.userId, updatedAt: new Date() })
-    .where(and(eq(visits.id, id), eq(visits.status, ENTERED)))
-    .returning()
-  if (!updated) throw alreadyMoved((await loadVisit(ctx, id)).visit, 'This visit has already been closed')
-  await audit(db, ctx, 'VISIT_EXIT_RECORDED', { visitId: id, flat: label(row.flat), name: row.visit.visitorName })
-  await enqueueNotification(db, {
-    societyId: row.visit.societyId,
-    eventType: 'VISITOR_EXITED',
-    entityType: 'visit',
-    entityId: id,
-    recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
-    payload: { name: row.visit.visitorName, flat: label(row.flat) },
+  const exited = await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(visits)
+      .set({ status: 'CLOSED', exitedAt: new Date(), exitBy: ctx.userId, updatedAt: new Date() })
+      .where(and(eq(visits.id, id), eq(visits.status, ENTERED)))
+      .returning()
+    if (!updated) return null
+    await audit(tx, ctx, 'VISIT_EXIT_RECORDED', { visitId: id, flat: label(row.flat), name: row.visit.visitorName })
+    await enqueueNotification(tx, {
+      societyId: row.visit.societyId,
+      eventType: 'VISITOR_EXITED',
+      entityType: 'visit',
+      entityId: id,
+      recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
+      payload: { name: row.visit.visitorName, flat: label(row.flat) },
+    })
+    return updated
   })
-  return serializeVisit({ ...row, visit: updated })
+  // Two guards tapping at once: the conditional update decides, and the loser is told the state
+  if (!exited) throw alreadyMoved((await loadVisit(ctx, id)).visit, 'This visit has already been closed')
+  return serializeVisit({ ...row, visit: exited })
 }
 
 // ---------------------------------------------------------------------------
@@ -1191,10 +1218,10 @@ export async function assertGateAssigned(ctx: AuthContext, gateId: string) {
  * hold that flat. Enqueuing is a row in the outbox, so a failing channel later never reaches the
  * movement that is already recorded. A staff member who serves no flat has nobody to tell.
  */
-async function announceStaffMovement(ctx: AuthContext, member: typeof staff.$inferSelect, eventType: 'STAFF_ENTERED' | 'STAFF_EXITED', attendanceId: string) {
+async function announceStaffMovement(executor: DbExecutor, ctx: AuthContext, member: typeof staff.$inferSelect, eventType: 'STAFF_ENTERED' | 'STAFF_EXITED', attendanceId: string) {
   const served = await flatsServedBy([member.id])
   for (const flat of served) {
-    await enqueueNotification(db, {
+    await enqueueNotification(executor, {
       societyId: member.societyId,
       eventType,
       entityType: 'staff',
@@ -1224,16 +1251,18 @@ export async function recordStaffEntry(ctx: AuthContext, id: string, body: Staff
   if (already) return already
 
   assertState(member.status === 'ACTIVE', 'This staff member is not active')
-  const [row] = await unique(
-    db
-      .insert(staffAttendance)
-      .values({ staffId: id, gateId: body.gateId ?? null, entryBy: ctx.userId, entryKey: body.idempotencyKey ?? null })
-      .returning(),
-    'This staff member is already inside',
-  )
-  await audit(db, ctx, 'STAFF_ENTRY_RECORDED', { staffId: id, name: member.name, gateId: body.gateId ?? null })
-  await announceStaffMovement(ctx, member, 'STAFF_ENTERED', row!.id)
-  return row!
+  return db.transaction(async (tx) => {
+    const [row] = await unique(
+      tx
+        .insert(staffAttendance)
+        .values({ staffId: id, gateId: body.gateId ?? null, entryBy: ctx.userId, entryKey: body.idempotencyKey ?? null })
+        .returning(),
+      'This staff member is already inside',
+    )
+    await audit(tx, ctx, 'STAFF_ENTRY_RECORDED', { staffId: id, name: member.name, gateId: body.gateId ?? null })
+    await announceStaffMovement(tx, ctx, member, 'STAFF_ENTERED', row!.id)
+    return row!
+  })
 }
 
 export async function recordStaffExit(ctx: AuthContext, id: string, body: StaffMovementBody = {}) {
@@ -1243,16 +1272,18 @@ export async function recordStaffExit(ctx: AuthContext, id: string, body: StaffM
   const already = await movementFor(id, body.idempotencyKey, staffAttendance.exitKey)
   if (already) return already
 
-  // The condition is part of the update, so the row only closes once however many requests arrive
-  const [row] = await db
-    .update(staffAttendance)
-    .set({ exitedAt: new Date(), exitBy: ctx.userId, exitKey: body.idempotencyKey ?? null, ...(body.gateId ? { gateId: body.gateId } : {}) })
-    .where(and(eq(staffAttendance.staffId, id), isNull(staffAttendance.exitedAt)))
-    .returning()
-  assertState(Boolean(row), 'This staff member is not inside')
-  await audit(db, ctx, 'STAFF_EXIT_RECORDED', { staffId: id, name: member.name, gateId: body.gateId ?? null })
-  await announceStaffMovement(ctx, member, 'STAFF_EXITED', row!.id)
-  return row!
+  return db.transaction(async (tx) => {
+    // The condition is part of the update, so the row only closes once however many requests arrive
+    const [row] = await tx
+      .update(staffAttendance)
+      .set({ exitedAt: new Date(), exitBy: ctx.userId, exitKey: body.idempotencyKey ?? null, ...(body.gateId ? { gateId: body.gateId } : {}) })
+      .where(and(eq(staffAttendance.staffId, id), isNull(staffAttendance.exitedAt)))
+      .returning()
+    assertState(Boolean(row), 'This staff member is not inside')
+    await audit(tx, ctx, 'STAFF_EXIT_RECORDED', { staffId: id, name: member.name, gateId: body.gateId ?? null })
+    await announceStaffMovement(tx, ctx, member, 'STAFF_EXITED', row!.id)
+    return row!
+  })
 }
 
 /**

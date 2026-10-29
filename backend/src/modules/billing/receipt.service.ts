@@ -118,21 +118,23 @@ export async function renderPendingReceipts() {
 
     try {
       const fileId = await storeBytes(row.societyId, 'application/pdf', onePagePdf(receiptLines(row)))
-      await db
-        .update(receipts)
-        .set({ status: 'READY', fileId, failureReason: null, updatedAt: new Date() })
-        .where(eq(receipts.id, row.id))
       const approver = await effectiveApprover(row.flatId)
-      if (approver) {
-        await enqueueNotification(db, {
-          societyId: row.societyId,
-          eventType: 'RECEIPT_READY',
-          entityType: 'receipt',
-          entityId: row.id,
-          recipientIds: [approver.userId],
-          payload: { number: row.number, flat: row.flat, amount: Number(row.amount) },
-        })
-      }
+      await db.transaction(async (tx) => {
+        await tx
+          .update(receipts)
+          .set({ status: 'READY', fileId, failureReason: null, updatedAt: new Date() })
+          .where(eq(receipts.id, row.id))
+        if (approver) {
+          await enqueueNotification(tx, {
+            societyId: row.societyId,
+            eventType: 'RECEIPT_READY',
+            entityType: 'receipt',
+            entityId: row.id,
+            recipientIds: [approver.userId],
+            payload: { number: row.number, flat: row.flat, amount: Number(row.amount) },
+          })
+        }
+      })
       rendered += 1
     } catch (error) {
       logger.error({ err: error, receiptId: row.id }, 'A receipt PDF could not be rendered')

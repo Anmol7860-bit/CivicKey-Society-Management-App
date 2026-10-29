@@ -25,39 +25,43 @@ const flatLabel = sql<string>`${blocks.name} || '-' || ${flats.number}`
  * already set is not picked up again, so two dispatchers cannot both send it.
  */
 async function sendApprovalReminders() {
-  const due = await db
-    .update(visits)
-    .set({ reminderSentAt: new Date() })
-    .where(
-      and(
-        eq(visits.status, 'AWAITING_APPROVAL'),
-        isNull(visits.reminderSentAt),
-        lte(visits.reminderAt, sql`now()`),
-      ),
-    )
-    .returning({
-      id: visits.id,
-      societyId: visits.societyId,
-      flatId: visits.flatId,
-      visitorName: visits.visitorName,
-      intendedResidentId: visits.intendedResidentId,
-    })
+  // The claim and the events it owes commit together: a reminder stamped but never enqueued
+  // would be a reminder nobody ever gets.
+  return db.transaction(async (tx) => {
+    const due = await tx
+      .update(visits)
+      .set({ reminderSentAt: new Date() })
+      .where(
+        and(
+          eq(visits.status, 'AWAITING_APPROVAL'),
+          isNull(visits.reminderSentAt),
+          lte(visits.reminderAt, sql`now()`),
+        ),
+      )
+      .returning({
+        id: visits.id,
+        societyId: visits.societyId,
+        flatId: visits.flatId,
+        visitorName: visits.visitorName,
+        intendedResidentId: visits.intendedResidentId,
+      })
 
-  for (const visit of due) {
-    // The reminder follows the first notice: the resident the visitor asked for, when there is one
-    const approver = await approverFor(visit.flatId, visit.intendedResidentId)
-    if (!approver) continue
-    const recipient = approver.userId
-    await enqueueNotification(db, {
-      societyId: visit.societyId,
-      eventType: 'VISITOR_APPROVAL_REMINDER',
-      entityType: 'visit',
-      entityId: visit.id,
-      recipientIds: [recipient],
-      payload: { name: visit.visitorName, flat: await labelFor(visit.flatId) },
-    })
-  }
-  return due.length
+    for (const visit of due) {
+      // The reminder follows the first notice: the resident the visitor asked for, when there is one
+      const approver = await approverFor(visit.flatId, visit.intendedResidentId)
+      if (!approver) continue
+      const recipient = approver.userId
+      await enqueueNotification(tx, {
+        societyId: visit.societyId,
+        eventType: 'VISITOR_APPROVAL_REMINDER',
+        entityType: 'visit',
+        entityId: visit.id,
+        recipientIds: [recipient],
+        payload: { name: visit.visitorName, flat: await labelFor(visit.flatId) },
+      })
+    }
+    return due.length
+  })
 }
 
 /**
@@ -67,24 +71,26 @@ async function sendApprovalReminders() {
  * moved the row out of AWAITING_APPROVAL returns it.
  */
 async function escalateUnanswered() {
-  const due = await db
-    .update(visits)
-    .set({ status: 'AWAITING_MANUAL', updatedAt: new Date() })
-    .where(and(eq(visits.status, 'AWAITING_APPROVAL'), lte(visits.escalateAt, sql`now()`)))
-    .returning({ id: visits.id, societyId: visits.societyId, flatId: visits.flatId, visitorName: visits.visitorName, registeredBy: visits.registeredBy })
+  return db.transaction(async (tx) => {
+    const due = await tx
+      .update(visits)
+      .set({ status: 'AWAITING_MANUAL', updatedAt: new Date() })
+      .where(and(eq(visits.status, 'AWAITING_APPROVAL'), lte(visits.escalateAt, sql`now()`)))
+      .returning({ id: visits.id, societyId: visits.societyId, flatId: visits.flatId, visitorName: visits.visitorName, registeredBy: visits.registeredBy })
 
-  for (const visit of due) {
-    // The guard at the gate is told, because the decision is now theirs to make
-    await enqueueNotification(db, {
-      societyId: visit.societyId,
-      eventType: 'VISITOR_ESCALATED_TO_GATE',
-      entityType: 'visit',
-      entityId: visit.id,
-      recipientIds: visit.registeredBy ? [visit.registeredBy] : [],
-      payload: { name: visit.visitorName, flat: await labelFor(visit.flatId) },
-    })
-  }
-  return due.length
+    for (const visit of due) {
+      // The guard at the gate is told, because the decision is now theirs to make
+      await enqueueNotification(tx, {
+        societyId: visit.societyId,
+        eventType: 'VISITOR_ESCALATED_TO_GATE',
+        entityType: 'visit',
+        entityId: visit.id,
+        recipientIds: visit.registeredBy ? [visit.registeredBy] : [],
+        payload: { name: visit.visitorName, flat: await labelFor(visit.flatId) },
+      })
+    }
+    return due.length
+  })
 }
 
 async function labelFor(flatId: string) {
@@ -98,47 +104,49 @@ async function labelFor(flatId: string) {
 
 /** A task's one reminder a day before it is due, and one notice once it is late. */
 async function taskDeadlines() {
-  const soon = await db
-    .update(communityTasks)
-    .set({ dueReminderSentAt: new Date() })
-    .where(
-      and(
-        isNull(communityTasks.dueReminderSentAt),
-        sql`${communityTasks.dueDate} is not null`,
-        lte(communityTasks.dueDate, sql`current_date + 1`),
-        sql`${communityTasks.status} not in ('DONE','CANCELLED')`,
-      ),
-    )
-    .returning({ id: communityTasks.id, societyId: communityTasks.societyId, title: communityTasks.title, raisedBy: communityTasks.raisedBy })
+  return db.transaction(async (tx) => {
+    const soon = await tx
+      .update(communityTasks)
+      .set({ dueReminderSentAt: new Date() })
+      .where(
+        and(
+          isNull(communityTasks.dueReminderSentAt),
+          sql`${communityTasks.dueDate} is not null`,
+          lte(communityTasks.dueDate, sql`current_date + 1`),
+          sql`${communityTasks.status} not in ('DONE','CANCELLED')`,
+        ),
+      )
+      .returning({ id: communityTasks.id, societyId: communityTasks.societyId, title: communityTasks.title, raisedBy: communityTasks.raisedBy })
 
-  const late = await db
-    .update(communityTasks)
-    .set({ overdueNoticeSentAt: new Date() })
-    .where(
-      and(
-        isNull(communityTasks.overdueNoticeSentAt),
-        sql`${communityTasks.dueDate} is not null`,
-        lte(communityTasks.dueDate, sql`current_date`),
-        sql`${communityTasks.status} not in ('DONE','CANCELLED')`,
-      ),
-    )
-    .returning({ id: communityTasks.id, societyId: communityTasks.societyId, title: communityTasks.title, raisedBy: communityTasks.raisedBy })
+    const late = await tx
+      .update(communityTasks)
+      .set({ overdueNoticeSentAt: new Date() })
+      .where(
+        and(
+          isNull(communityTasks.overdueNoticeSentAt),
+          sql`${communityTasks.dueDate} is not null`,
+          lte(communityTasks.dueDate, sql`current_date`),
+          sql`${communityTasks.status} not in ('DONE','CANCELLED')`,
+        ),
+      )
+      .returning({ id: communityTasks.id, societyId: communityTasks.societyId, title: communityTasks.title, raisedBy: communityTasks.raisedBy })
 
-  for (const [eventType, rows] of [['TASK_DUE_SOON', soon], ['TASK_OVERDUE', late]] as const) {
-    for (const task of rows) {
-      // The assignee is a staff record with no login, so the person who raised it is told
-      if (!task.raisedBy) continue
-      await enqueueNotification(db, {
-        societyId: task.societyId,
-        eventType,
-        entityType: 'task',
-        entityId: task.id,
-        recipientIds: [task.raisedBy],
-        payload: { title: task.title },
-      })
+    for (const [eventType, rows] of [['TASK_DUE_SOON', soon], ['TASK_OVERDUE', late]] as const) {
+      for (const task of rows) {
+        // The assignee is a staff record with no login, so the person who raised it is told
+        if (!task.raisedBy) continue
+        await enqueueNotification(tx, {
+          societyId: task.societyId,
+          eventType,
+          entityType: 'task',
+          entityId: task.id,
+          recipientIds: [task.raisedBy],
+          payload: { title: task.title },
+        })
+      }
     }
-  }
-  return soon.length + late.length
+    return soon.length + late.length
+  })
 }
 
 /**
@@ -201,6 +209,8 @@ async function billReminders() {
 
     const approver = await effectiveApprover(invoice.flatId)
     if (!approver) continue
+    // The bare handle on purpose: the notice is the only write, so there is no change to commit
+    // with. The same-day check above is what keeps a second run from repeating it.
     await enqueueNotification(db, {
       societyId: invoice.societyId,
       eventType,

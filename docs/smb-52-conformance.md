@@ -8,8 +8,7 @@ later sections arrive.
 
 The module "shall not independently approve visitors, record gate entry/exit, or perform staff
 verification". It does not: `enqueueNotification` only writes an outbox row, and it takes the
-caller's executor so the event can commit with the change it describes (see §6.1 for where that
-is actually done and where it is not).
+caller's executor, so the event commits with the change it describes.
 Nothing in `backend/src/modules/notification/` reads or writes `visits` state, attendance, or a
 staff verification. The dispatcher turns rows into messages and nothing else.
 
@@ -97,14 +96,30 @@ the entity and the recipients the *calling* service resolved. The notification m
 asked whether the approval should happen; it is told that it did.
 
 `enqueueNotification(executor, event)` takes the executor rather than reaching for `db` itself,
-so a caller can hand it the transaction that made the change and have both commit together.
-Two callers do — `gate.service.ts:904` and `billing.service.ts:481`. The other fifteen pass the
-bare `db` handle, which writes the outbox row immediately after the change has already
-committed. The ordering §6.1 asks for holds either way (the event follows the success), but for
-those fifteen the two writes are not atomic: a process killed in the gap leaves a visit nobody
-was told about. Listed as open below rather than changed here — moving fifteen enqueues inside
-their callers' transactions is a change to how each of those services is structured, not a
-notification-module fix.
+so the caller hands it the transaction that made the change and both commit together. Every
+call site now does: `registerVisit`, `decideVisit`, `cancelVisit`, `rejectVisitAtGate`,
+`recordLeaveAtGate`, `recordCollection`, `recordEntry`, `recordExit`, the two staff movements,
+`billing.service.ts`, `receipt.service.ts`, and the reminder, escalation and task-deadline jobs.
+The audit row for each of those actions was moved inside the same transaction, for the same
+reason: a killed process no longer leaves a visit nobody was told about, or a notification about
+a visit that was never written.
+
+Three details that shaped how it was done:
+
+- **The claim is the transaction.** The jobs claim their work with the update that stamps
+  `reminder_sent_at` or moves the status, and that claim is now inside the transaction that
+  enqueues. A second runner blocks on the claimed rows and then matches none, which is what it
+  did before; the difference is that a crash now un-claims the work instead of losing the notice.
+- **A conditional update that matches nothing returns `null`,** and the `409` is thrown outside
+  the transaction (`recordEntry`, `recordExit`), so the losing request still reads the current
+  state to report it.
+- **`recordLeaveAtGate` puts the transaction inside the code retry,** not around it. A collection
+  code collision aborts its own transaction and the next attempt opens a fresh one; a retry
+  inside a poisoned transaction would fail on every statement.
+
+One call site keeps the bare `db` handle on purpose: `billReminders` in `jobs.ts` makes no other
+write — the notice *is* the change — so there is no transaction to join. A second run on the same
+day is stopped by the same-day outbox check above it, not by a transaction.
 
 ### §6.2 Notification processing
 
@@ -195,5 +210,3 @@ in step.
   stated that a given event type may only reach a given role, and the calling services already
   choose recipients by role.
 - History is capped at the newest 50 with no paging.
-- **Fifteen of seventeen `enqueueNotification` calls pass `db` rather than their transaction**
-  (§6.1). The fix is per-service, not per-module, and belongs with whoever owns each service.
