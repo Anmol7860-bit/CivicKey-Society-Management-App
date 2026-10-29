@@ -1,13 +1,15 @@
 # SMB-52 — Real-time notifications
 
-Covers §1–5 as given (objective, scope, events, recipient rules, solution design). An audit of
-what already stands, plus the gaps it turned up. It will grow as the later sections arrive.
+Covers §1–7 as given (objective, scope, events, recipient rules, solution design, backend logic,
+idempotency). An audit of what already stands, plus the gaps it turned up. It will grow as the
+later sections arrive.
 
 ## §1 Objective — the boundary holds
 
 The module "shall not independently approve visitors, record gate entry/exit, or perform staff
-verification". It does not: `enqueueNotification` only writes an outbox row, and it is called
-*with the caller's own transaction* so the event and the change it describes commit together.
+verification". It does not: `enqueueNotification` only writes an outbox row, and it takes the
+caller's executor so the event can commit with the change it describes (see §6.1 for where that
+is actually done and where it is not).
 Nothing in `backend/src/modules/notification/` reads or writes `visits` state, attendance, or a
 staff verification. The dispatcher turns rows into messages and nothing else.
 
@@ -84,6 +86,76 @@ who is connected and a person who is not end up with the same durable record, an
 drops mid-delivery cannot lose the notification. The `SOCKET` channel is marked sent without
 retry, because a reconnecting client reads the persisted list instead.
 
+## §6 Backend logic
+
+### §6.1 Event creation
+
+The chain in the example is the chain in the code. A resident approving a visitor runs
+`decideVisit` in `gate.service.ts`: the visit moves to `APPROVED`, and only then
+`enqueueNotification` writes one `notification_outbox` row naming the society, the event type,
+the entity and the recipients the *calling* service resolved. The notification module is never
+asked whether the approval should happen; it is told that it did.
+
+`enqueueNotification(executor, event)` takes the executor rather than reaching for `db` itself,
+so a caller can hand it the transaction that made the change and have both commit together.
+Two callers do — `gate.service.ts:904` and `billing.service.ts:481`. The other fifteen pass the
+bare `db` handle, which writes the outbox row immediately after the change has already
+committed. The ordering §6.1 asks for holds either way (the event follows the success), but for
+those fifteen the two writes are not atomic: a process killed in the gap leaves a visit nobody
+was told about. Listed as open below rather than changed here — moving fifteen enqueues inside
+their callers' transactions is a change to how each of those services is structured, not a
+notification-module fix.
+
+### §6.2 Notification processing
+
+Every numbered step exists, in this order, in `dispatcher.ts`.
+
+| §6.2 step | Where |
+| --- | --- |
+| 1. Receive validated application event | `claimOutbox()` — `FOR UPDATE SKIP LOCKED`, oldest first, `BATCH` of 50 |
+| 2. Check event type | `describe(eventType, payload)`, an exhaustive switch over the enum |
+| 3. Identify society | `event.societyId`, carried on the outbox row |
+| 4. Resolve eligible recipients | resolved by the raising service (§4); the row carries the list |
+| 5. Validate recipient access | `fanOut` re-queries `users` for `is_active` **and** `society_id = event.society_id` |
+| 6. Create notification record | one `notifications` row per surviving recipient, in one transaction |
+| 7. Generate delivery ID | one `notification_deliveries` row per channel, each with its own `uuid` primary key |
+| 8. Attempt real-time delivery | `SOCKET` channel → `emitToUser` |
+| 9. Optionally trigger Web Push | `PUSH` channel, `PENDING` only when the person has a live subscription, else `SKIPPED` |
+| 10. Record delivery status | `status`, `attempts`, `last_error`, `sent_at`, `next_attempt_at` per channel |
+| 11. Keep available for later retrieval | `GET /notifications`, unread count, `markRead` |
+
+Step 5 is read narrowly, on purpose. The dispatcher checks what it can know without knowing the
+business: the account is live and belongs to the society the event is about. It does not
+re-derive whether that person is entitled to hear about *this flat's* visitor — doing so would
+put the flat/household rule in the delivery layer, which §1 forbids. That rule lives in
+`flatAudience` and `approverFor`, where the event is raised.
+
+## §7 Idempotency — already enforced at the database
+
+`notifications` carries `unique('notifications_outbox_user_unique').on(outbox_id, user_id)`, and
+`fanOut` inserts with `onConflictDoNothing()`. The recommended key maps one-for-one:
+
+| §7 key part | Column |
+| --- | --- |
+| `event_id` | `notifications.outbox_id` — the outbox row *is* the application event |
+| `recipient_user_id` | `notifications.user_id` |
+| `notification_type` | implied: `event_type` is a column of the outbox row, so one row has exactly one type |
+
+Reprocessing is therefore a no-op rather than a duplicate: the retried insert conflicts, the
+loop skips that recipient, and no second set of delivery rows is written. Covered by "does not
+tell the same person twice when a row is fanned out again", which puts a fanned-out row back to
+`PENDING` and runs the dispatcher again.
+
+Duplicate *business* events — the same real action raising two outbox rows — are stopped one
+level up, by each producer rather than by a shared key. A second registration of the same visit
+hits the visit's own uniqueness guard; a second entry or exit hits the `409` from SMB-47; the
+reminder, escalation and task-deadline jobs claim their rows by the same update that stamps
+`reminder_sent_at` or moves the status, so a row cannot be picked twice. No producer-supplied
+`event_id` column was added, because no producer has one to supply.
+
+`notification_deliveries` is unique on `(notification_id, channel)` as well, so a notification
+cannot grow a second copy of a channel.
+
 ## Fixed in this pass
 
 `fanOut` took the recipient list from the calling service and checked only that each account was
@@ -123,3 +195,5 @@ in step.
   stated that a given event type may only reach a given role, and the calling services already
   choose recipients by role.
 - History is capped at the newest 50 with no paging.
+- **Fifteen of seventeen `enqueueNotification` calls pass `db` rather than their transaction**
+  (§6.1). The fix is per-service, not per-module, and belongs with whoever owns each service.
