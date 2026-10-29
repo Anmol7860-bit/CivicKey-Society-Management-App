@@ -942,6 +942,8 @@ export const notificationEvent = pgEnum('notification_event', [
   'VISITOR_APPROVAL_REMINDER',
   'VISITOR_ESCALATED_TO_GATE',
   'VISITOR_DECIDED',
+  /** Turned away at the gate, which is not a resident's denial and reads differently */
+  'VISITOR_ENTRY_REJECTED',
   'VISITOR_ENTERED',
   'VISITOR_EXITED',
   'DELIVERY_AT_GATE',

@@ -108,6 +108,18 @@ describe('the dispatcher', () => {
     expect(event).toMatchObject({ status: 'DONE' })
   })
 
+  it('tells the flat a visitor was turned away, in its own words and not as a decision', async () => {
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    await api.post(`/visits/${visit.body.data.id}/gate-rejection`, { reason: 'SECURITY_CONCERN' })
+    await runDispatcherOnce()
+
+    const mine = await api.get('/notifications', resident)
+    const turned = mine.body.data.items.find((item: { eventType: string }) => item.eventType === 'VISITOR_ENTRY_REJECTED')
+    expect(turned).toMatchObject({ title: 'Visitor turned away', body: 'Dev Courier was not let in for A-101-101.' })
+    // The guard who turned them away is not told about their own action
+    expect(await db.$count(notifications, eq(notifications.userId, guardUserId))).toBe(0)
+  })
+
   it('does not tell the same person twice when a row is fanned out again', async () => {
     await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
     await runDispatcherOnce()

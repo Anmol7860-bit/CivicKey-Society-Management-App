@@ -52,6 +52,8 @@ function describe(eventType: NotificationEvent, payload: Record<string, unknown>
       return { title: 'Nobody answered', body: `${name} at ${flat} was not answered. The guard decides.` }
     case 'VISITOR_DECIDED':
       return { title: 'Visitor decided', body: `${name} for ${flat}: ${String(payload.status ?? 'decided').toLowerCase()}.` }
+    case 'VISITOR_ENTRY_REJECTED':
+      return { title: 'Visitor turned away', body: `${name} was not let in for ${flat}.` }
     case 'VISITOR_ENTERED':
       return { title: 'Visitor let in', body: `${name} has entered for ${flat}.` }
     case 'VISITOR_EXITED':

@@ -671,13 +671,14 @@ export async function rejectVisitAtGate(ctx: AuthContext, id: string, body: Reje
     reason: body.reason,
     ...(body.note ? { note: body.note } : {}),
   })
+  // Its own event, not a resident's decision: the flat is told their visitor was turned away
   await enqueueNotification(db, {
     societyId: row.visit.societyId,
-    eventType: 'VISITOR_DECIDED',
+    eventType: 'VISITOR_ENTRY_REJECTED',
     entityType: 'visit',
     entityId: id,
     recipientIds: await flatAudience(row.visit.flatId, ctx.userId),
-    payload: { name: row.visit.visitorName, flat: label(row.flat), status: 'REJECTED_AT_GATE' },
+    payload: { name: row.visit.visitorName, flat: label(row.flat), reason: body.reason },
   })
   return serializeVisit({ ...row, visit: updated! })
 }

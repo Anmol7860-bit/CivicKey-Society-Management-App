@@ -1,12 +1,19 @@
 import { call } from '../society/api'
 
+/**
+ * Kept in step with the backend enum. Nothing in the UI switches on it - the server sends the
+ * title and body already written - so a value missing here costs a type, never a blank row.
+ */
 export type NotificationEvent =
   | 'VISITOR_WAITING_APPROVAL'
   | 'VISITOR_APPROVAL_REMINDER'
   | 'VISITOR_ESCALATED_TO_GATE'
   | 'VISITOR_DECIDED'
+  | 'VISITOR_ENTRY_REJECTED'
   | 'VISITOR_ENTERED'
   | 'VISITOR_EXITED'
+  | 'DELIVERY_AT_GATE'
+  | 'DELIVERY_COLLECTED'
   | 'STAFF_ENTERED'
   | 'STAFF_EXITED'
   | 'OFFLINE_EVENT_NEEDS_REVIEW'
