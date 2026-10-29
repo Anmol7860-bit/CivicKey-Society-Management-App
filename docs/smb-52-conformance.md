@@ -214,6 +214,14 @@ still push; a shared adapter is the upgrade, and only worth it once there is a s
 There is no automated test for the skip, because the suite has no socket client and the one-line
 guard did not justify adding one — the condition is a single `isConnected` call.
 
+**The same limit applies to the socket itself, and the e2e found it.** A notification is emitted
+by whichever process dispatched it, to that process's own connections. Two API processes on one
+database — a dev server left running beside the e2e server — share the queue, so the one that
+claims the row emits to clients the other one holds, and the notification arrives nowhere live.
+The record is untouched and the next page load shows it, which is the design working as intended,
+but the live channel silently does nothing. Today that is a development-machine problem; the day
+there are two instances in production it is a real one, and the fix is the shared adapter above.
+
 ## §10 Lifecycle
 
 The recommended states are derived from the delivery rows rather than stored, so a status can
@@ -451,7 +459,7 @@ SMB-71 is the test index below.
 | 3 | an unrelated resident is not | "never shows one person another person's notifications"; `flatAudience` selects that flat only |
 | 4 | the guard is told | "tells the gate, not a resident, when the flat has nobody who can answer" |
 | 5 | staff notification | gate tests for staff entry and exit raise `STAFF_ENTERED` / `STAFF_EXITED` to the flats served |
-| 6 | Socket.IO delivery | the `SOCKET` channel is attempted and marked in "fans one event out…"; **no browser-level test** — the suite has no socket client |
+| 6 | Socket.IO delivery | **`e2e/notifications.e2e.ts`**: a real browser, signed in as the resident, shows a visitor the guard registered through the API, with no refresh; plus the `SOCKET` channel assertions in "fans one event out…" |
 | 7 | persistence | the same test: the record and its delivery rows outlive the pass |
 | 8 | disconnected user reads it later | "shows a person their own, and marks them read" reads what was written while nobody was connected |
 | 9 | unread count | the same test |
@@ -466,7 +474,7 @@ SMB-71 is the test index below.
 | 18 | multiple devices | "keeps one subscription per device, and only its owner may remove it" |
 | 19 | push permission denied | the page shows the blocked line and never re-asks; `pushState` returns `DENIED` |
 | 20 | push delivery failure | "backs a failed channel off along the fixed ladder, then gives up" |
-| 21 | real-time reconnect | "says so when live updates are not arriving, instead of implying they are", plus the reload on arrival |
+| 21 | real-time reconnect | "says so when live updates are not arriving, instead of implying they are"; the e2e tolerates the browser's first socket attempt failing and reconnecting |
 | 22 | society isolation | "drops a recipient who belongs to another society…" |
 | 23 | API authentication | "needs a signed-in person" |
 | 24 | sensitive data | §11: audited across every payload in the codebase |

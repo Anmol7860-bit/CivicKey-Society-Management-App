@@ -33,7 +33,13 @@ export default defineConfig({
       cwd: '../backend',
       url: `http://localhost:${API_PORT}/api/v1/health`,
       // 54 tests sign in from one address, so both caps are raised well past what a run needs
-      env: { PORT: String(API_PORT), LOGIN_RATE_LIMIT_MAX: '50', LOGIN_RATE_LIMIT_IP_MAX: '1000' },
+      env: {
+        PORT: String(API_PORT),
+        LOGIN_RATE_LIMIT_MAX: '50',
+        LOGIN_RATE_LIMIT_IP_MAX: '1000',
+        // A live notification is waited for in real time, so the queue is drained every second
+        DISPATCHER_INTERVAL_SECONDS: '1',
+      },
       reuseExistingServer: false,
     },
     {
