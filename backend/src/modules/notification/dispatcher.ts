@@ -130,10 +130,13 @@ async function fanOut(event: ClaimedEvent) {
     return
   }
 
+  // The caller names the recipients, so the society is checked here rather than trusted: a
+  // notification about one society never reaches an account that belongs to another, whatever
+  // list a service hands in. An inactive account is dropped the same way.
   const people = await db
     .select({ id: users.id, email: users.email })
     .from(users)
-    .where(and(inArray(users.id, recipientIds), eq(users.isActive, true)))
+    .where(and(inArray(users.id, recipientIds), eq(users.isActive, true), eq(users.societyId, event.societyId)))
 
   const wantsEmail = EMAIL_EVENTS.includes(event.eventType)
   const pushable = await db

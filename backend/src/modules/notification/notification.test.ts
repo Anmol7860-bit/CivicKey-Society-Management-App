@@ -9,6 +9,7 @@ import {
   notificationOutbox,
   notifications,
   pushSubscriptions,
+  societies,
   storedFiles,
   visits,
 } from '../../db/schema.js'
@@ -171,6 +172,25 @@ describe('the dispatcher', () => {
     expect(await db.$count(notifications)).toBe(0)
     const [event] = await db.select().from(notificationOutbox)
     expect(event!.status).toBe('DONE')
+  })
+
+  it('drops a recipient who belongs to another society, and one whose account is off', async () => {
+    const OTHER_SOCIETY_ID = '44444444-4444-4444-8444-444444444444'
+    await db.insert(societies).values({ id: OTHER_SOCIETY_ID, name: 'Other Society' }).onConflictDoNothing()
+    const outsider = await createUser({ phone: '9811111122', email: null, societyId: OTHER_SOCIETY_ID })
+    const switchedOff = await createUser({ phone: '9811111123', email: null, isActive: false })
+
+    // The caller names the recipients; the dispatcher is what checks they belong here
+    await enqueueNotification(db, {
+      societyId: TEST_SOCIETY_ID,
+      eventType: 'VISITOR_WAITING_APPROVAL',
+      entityType: 'visit',
+      recipientIds: [residentUserId, outsider.id, switchedOff.id],
+    })
+    await runDispatcherOnce()
+
+    const told = await db.select({ userId: notifications.userId }).from(notifications)
+    expect(told).toEqual([{ userId: residentUserId }])
   })
 
   it('backs a failed channel off along the fixed ladder, then gives up', async () => {
