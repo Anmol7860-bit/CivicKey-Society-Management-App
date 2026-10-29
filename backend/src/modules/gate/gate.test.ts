@@ -2,7 +2,7 @@ import request from 'supertest'
 import { eq } from 'drizzle-orm'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { blocks, gates, guardGateAssignments, notificationOutbox, societies, staff, staffFlats, visitorPasses, visits } from '../../db/schema.js'
+import { blocks, gates, guardGateAssignments, notificationOutbox, societies, staff, staffFlats, users, visitorPasses, visits } from '../../db/schema.js'
 import { addResident, createFlat, createPhoto, createUser, grantPermissions, TEST_SOCIETY_ID, signTestToken } from '../../test/helpers.js'
 
 const app = createApp()
@@ -556,6 +556,122 @@ describe('visits', () => {
     const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
     const stranger = await createUser({ phone: '9811111118', email: null, role: 'RESIDENT' })
     expect((await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'APPROVED' }, await tokenFor(stranger))).status).toBe(403)
+  })
+})
+
+/**
+ * The subtask's own test matrix for visitor entry and exit, where the cases above do not already
+ * cover it: refusals before entry, duplicates, concurrency, server time, and the filtered history.
+ */
+describe('visitor movement at the gate', () => {
+  /** A visit the resident has approved and nobody has moved yet. */
+  async function approvedVisit(overrides: object = {}) {
+    const visit = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody(overrides))
+    await api.post(`/visits/${visit.body.data.id}/decision`, { decision: 'APPROVED' }, resident)
+    return visit.body.data.id as string
+  }
+
+  // Scenario 2, 4: approval pending, and a visit the resident called off
+  it('refuses entry while the resident has not answered, and once they have called it off', async () => {
+    const waiting = await api.post(`/societies/${TEST_SOCIETY_ID}/visits`, visitBody())
+    expect(waiting.body.data.status).toBe('AWAITING_APPROVAL')
+    expect((await api.post(`/visits/${waiting.body.data.id}/entry`, { gateId })).status).toBe(400)
+
+    const called = await approvedVisit({ visitorPhone: '9866666661' })
+    await api.post(`/visits/${called}/cancel`, { reason: 'Meeting moved' }, resident)
+    expect((await api.post(`/visits/${called}/entry`, { gateId })).status).toBe(400)
+    // Neither ever appears as having moved
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-movements`, admin)).body.data.total).toBe(0)
+  })
+
+  // Scenario 8, 9: no exit without an entry, and no second entry while inside
+  it('refuses an exit before any entry, and a second entry while the visitor is inside', async () => {
+    const id = await approvedVisit()
+    expect((await api.post(`/visits/${id}/exit`, {})).status).toBe(400)
+
+    await api.post(`/visits/${id}/entry`, { gateId })
+    const again = await api.post(`/visits/${id}/entry`, { gateId })
+    expect(again.status).toBe(409)
+    expect(again.body.error.details).toMatchObject({ visitId: id, movementState: 'INSIDE' })
+    // One entry period, not two
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-movements?eventType=ENTRY`, admin)).body.data.total).toBe(1)
+  })
+
+  // Scenario 11, 33: the clock is the server's, and the request body cannot carry one
+  it('timestamps a movement on the server and refuses a timestamp sent by the device', async () => {
+    const id = await approvedVisit()
+    const before = Date.now()
+    const entered = await api.post(`/visits/${id}/entry`, { gateId })
+    const after = Date.now()
+    const at = new Date(entered.body.data.enteredAt).getTime()
+    expect(at).toBeGreaterThanOrEqual(before - 1000)
+    expect(at).toBeLessThanOrEqual(after + 1000)
+
+    const spoofed = await api.post(`/visits/${id}/exit`, { exitedAt: '2020-01-01T00:00:00.000Z' })
+    expect(spoofed.status).toBe(422)
+    expect(spoofed.body.error.code).toBe('VALIDATION_ERROR')
+  })
+
+  // Scenario 19, 20: every configured reason is accepted, and none of them is an entry
+  it('records a refusal under each configured reason and never as an entry', async () => {
+    const reasons = ['APPROVAL_NOT_RECEIVED', 'DETAILS_MISMATCH', 'VERIFICATION_FAILED', 'INVALID_PASS', 'SECURITY_CONCERN', 'OTHER'] as const
+    for (const [index, reason] of reasons.entries()) {
+      const id = await approvedVisit({ visitorPhone: `98677777${String(index).padStart(2, '0')}` })
+      const body = reason === 'OTHER' ? { reason, note: 'Refused to show an ID' } : { reason }
+      const refused = await api.post(`/visits/${id}/gate-rejection`, body)
+      expect(refused.status).toBe(200)
+      expect(refused.body.data).toMatchObject({ status: 'REJECTED_AT_GATE', rejectionReason: reason, enteredAt: null })
+    }
+    // OTHER without an explanation is not a reason
+    const bare = await approvedVisit({ visitorPhone: '9867777799' })
+    expect((await api.post(`/visits/${bare}/gate-rejection`, { reason: 'OTHER' })).status).toBe(422)
+
+    const history = await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-movements`, admin)
+    expect(history.body.data.total).toBe(reasons.length)
+    expect(history.body.data.movements.every((row: { eventType: string }) => row.eventType === 'ENTRY_REJECTED')).toBe(true)
+  })
+
+  // Scenario 23, 24: two guards at once, on the same visit
+  it('lets only one of two simultaneous entries through, and will not exit a visit still being let in', async () => {
+    const id = await approvedVisit()
+    const otherGuard = await tokenFor(await createUser({ phone: '9000000008', email: null, role: 'GUARD' }))
+
+    const entries = await Promise.all([api.post(`/visits/${id}/entry`, { gateId }), api.post(`/visits/${id}/entry`, { gateId }, otherGuard)])
+    expect(entries.filter((result) => result.status === 200)).toHaveLength(1)
+    expect(entries.filter((result) => result.status === 409)).toHaveLength(1)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/inside`, guard)).body.data).toHaveLength(1)
+
+    const both = await Promise.all([api.post(`/visits/${id}/exit`, {}), api.post(`/visits/${id}/exit`, {}, otherGuard)])
+    expect(both.filter((result) => result.status === 200)).toHaveLength(1)
+    expect((await api.get(`/societies/${TEST_SOCIETY_ID}/inside`, guard)).body.data).toHaveLength(0)
+  })
+
+  // Scenario 27, 34: a deactivated guard records nothing, and what they recorded stays
+  it('denies a deactivated guard, and keeps the movement they already recorded', async () => {
+    const id = await approvedVisit()
+    await api.post(`/visits/${id}/entry`, { gateId })
+
+    await db.update(users).set({ isActive: false }).where(eq(users.id, guardUserId))
+    expect((await api.post(`/visits/${id}/exit`, {})).status).toBe(403)
+
+    const history = await api.get(`/societies/${TEST_SOCIETY_ID}/visitor-movements`, admin)
+    expect(history.body.data.movements).toEqual([expect.objectContaining({ eventType: 'ENTRY', performedBy: 'Riya Sharma' })])
+  })
+
+  // Scenario 28: the filters the office actually searches by
+  it('filters the history by date, flat, guard and visit', async () => {
+    const id = await approvedVisit()
+    await api.post(`/visits/${id}/entry`, { gateId })
+    await api.post(`/visits/${id}/exit`, {})
+    const url = `/societies/${TEST_SOCIETY_ID}/visitor-movements`
+
+    expect((await api.get(`${url}?flatId=${flatId}`, admin)).body.data.total).toBe(2)
+    expect((await api.get(`${url}?guardId=${guardUserId}`, admin)).body.data.total).toBe(2)
+    expect((await api.get(`${url}?visitId=${id}`, admin)).body.data.total).toBe(2)
+    expect((await api.get(`${url}?guardId=${residentUserId}`, admin)).body.data.total).toBe(0)
+    expect((await api.get(`${url}?dateFrom=2020-01-01&dateTo=2020-01-02`, admin)).body.data.total).toBe(0)
+    const todayOnly = `${url}?dateFrom=${today()}&dateTo=${today()}`
+    expect((await api.get(todayOnly, admin)).body.data.total).toBe(2)
   })
 })
 

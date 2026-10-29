@@ -54,19 +54,19 @@ and Leave at Gate as a handover that writes no movement.
 | AC6 exit without entry | Done | `assertState(status === ENTERED)` |
 | AC7 duplicate entry | Done | 409 with the current state; "never lets a closed one back in" |
 | AC8 duplicate exit | Done | 409 with the current state |
-| AC9 server timestamps | Done | no timestamp is read from the request body on either route |
+| AC9 server timestamps | Done | both routes take a strict body that has no timestamp field; "timestamps a movement on the server and refuses a timestamp sent by the device" |
 | AC10 visitors inside | Done | `listInside` selects status `ENTERED` only |
 | AC11 exited visitor | Done | same; asserted in the expiry test |
 | AC12 expiry creates no exit | Done | expiry is checked only in `recordEntry`; no job touches movement |
 | AC13 Leave at Gate | Done | `recordLeaveAtGate` writes a handover row and no `entered_at` |
 | AC14 multiple visits | Done | every route takes the visit id; "gives every visit of the same person its own id" |
 | AC15 society and gate scope | Done | `assertSameSociety` + `assertGate` on entry; cross-society read is 403 |
-| AC16 entry rejection | Done | `rejectVisitAtGate`, reason mandatory, note required for `OTHER` |
+| AC16 entry rejection | Done | `rejectVisitAtGate`, every configured reason exercised, note required for `OTHER` |
 | AC17 movement history | Partly | entry, exit and refusal are shown with timestamps and actors; correction events do not exist (AC18) |
 | AC18 correction audit | Not built | see below |
-| AC19 concurrent actions | Done | both writes are conditional `UPDATE … WHERE status = …`; the loser is handed the current state |
+| AC19 concurrent actions | Done | both writes are conditional `UPDATE … WHERE status = …`; the loser is handed the current state; "lets only one of two simultaneous entries through…" |
 | AC20 network failure and retry | Partly | the sync queue is keyed per request id, so a replay cannot double-record; the queue itself is SMB-4's, see §17 below |
-| AC21 deactivated guard | Done | `requirePermission` loads no permissions for an inactive user |
+| AC21 deactivated guard | Done | `requirePermission` loads no permissions for an inactive user; "denies a deactivated guard, and keeps the movement they already recorded" |
 | AC22 history search and pagination | Done | `visitorMovementHistory`, `limit`/`offset`, "searches the society's movement history…" |
 | AC23 responsive interface | Done | the same panel/table components as every other gate screen |
 | AC24 no false success | Done | the UI renders the server's returned visit; a refusal throws |
@@ -82,15 +82,44 @@ and Leave at Gate as a handover that writes no movement.
 
 ## Tests
 
-Backend `backend/src/modules/gate/gate.test.ts`:
+Backend `backend/src/modules/gate/gate.test.ts`, with the subtask's §21 scenario numbers:
 
-- "waits on the resident, then records entry and exit" — AC1, AC5, AC9
-- "gives every visit of the same person its own id, and never lets a closed one back in" — AC7, AC14
-- "expires a registration after the society's own window, and only for a new entry" — AC4, AC8, AC11, AC12
-- "will not let in a visit the resident denied or left at the gate" — AC2, AC13
-- "reads one visit's movement back as entry, exit and the actor behind each" — AC10, AC17
-- "keeps a refusal at the gate in the history without ever showing it as an entry" — AC16
-- "searches the society's movement history, filters it and hands it back in pages" — AC15, AC22
+| Test | §21 scenarios |
+| --- | --- |
+| "waits on the resident, then records entry and exit" | 1, 7, 10 |
+| "refuses entry while the resident has not answered, and once they have called it off" | 2, 4, 32 |
+| "will not let in a visit the resident denied or left at the gate" | 3, 15 |
+| "issues a six-digit code the guard can check, and closes it on entry" | 5 |
+| "refuses a pass window that ends before it starts, and a pass for someone else's flat" | 6 |
+| "refuses an exit before any entry, and a second entry while the visitor is inside" | 8, 9 |
+| "timestamps a movement on the server and refuses a timestamp sent by the device" | 11, 33 |
+| "expires a registration after the society's own window, and only for a new entry" | 12, 13, 14 |
+| "keeps a delivery at the gate without ever letting the courier in" | 15 |
+| "gives every visit of the same person its own id, and never lets a closed one back in" | 16 |
+| "keeps every gate route inside the guard's own society and behind its permission" | 17 |
+| "searches the society's movement history, filters it and hands it back in pages" | 18, 29 |
+| "records a refusal under each configured reason and never as an entry" | 19, 20 |
+| "reads one visit's movement back as entry, exit and the actor behind each" | 21, 32 |
+| "keeps a refusal at the gate in the history without ever showing it as an entry" | 20, 21 |
+| "lets only one of two simultaneous entries through, and will not exit a visit still being let in" | 23, 24 |
+| "refuses the same form twice, so a retry cannot register two visits" | 26, for registration |
+| "denies a deactivated guard, and keeps the movement they already recorded" | 27, 34 |
+| "filters the history by date, flat, guard and visit" | 28 |
 
 Frontend `frontend/src/features/gate/VisitorMovementPage.test.tsx` — the office screen, its
-filters, its paging and its empty state (AC22, AC23).
+filters, its paging and its empty state (scenarios 29, 30; AC22, AC23). Scenario 31, the run on a
+real low-cost Android device, is hardware the suite cannot stand in for; the Playwright projects
+cover a Pixel 7 and an iPhone 14 viewport instead.
+
+Scenario 22 (an authorized correction preserving the original history) has no test because the
+correction path is not built — see "Not built, and why". Scenario 25, a movement request retried
+after a network failure, is covered where that retry actually lives: the offline queue's own
+tests in `backend/src/modules/sync/sync.test.ts`, which replay an entry and an exit by request id.
+
+## Fixed while writing those tests
+
+- `POST /visits/:id/exit` took no body schema, so a device could send anything and have it
+  ignored silently. It now takes a strict empty body, which is what makes AC9 provable rather
+  than merely true.
+- The movement history's `guardId` filter matched `decided_by`, which on an *approval* is the
+  resident, not a guard. It now matches `decided_by` only on a refusal at the gate.

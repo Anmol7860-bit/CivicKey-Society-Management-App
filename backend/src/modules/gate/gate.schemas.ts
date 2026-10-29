@@ -207,6 +207,8 @@ export const gateLogSchema = z.strictObject({ on: isoDate.optional() })
 export const visitorLookupSchema = z.strictObject({ phone })
 
 export const recordEntrySchema = z.strictObject({ gateId: uuid.optional() })
+/** An exit takes nothing: the moment and the actor are the server's. A stray field is refused. */
+export const recordExitSchema = z.strictObject({})
 
 export const addVehicleSchema = z.strictObject({
   number: vehicleNumber,

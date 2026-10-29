@@ -18,6 +18,7 @@ import {
   listVisitsSchema,
   markLeaveSchema,
   recordEntrySchema,
+  recordExitSchema,
   registerVisitAtGateSchema,
   rejectVisitSchema,
   staffMovementHistorySchema,
@@ -108,7 +109,7 @@ export function createGateRouter() {
   router.post('/visits/:id/gate-rejection', requireAuth, requirePermission('VISIT_ENTRY_RECORD'), validateBody(rejectVisitSchema), async (req, res) => {
     res.json({ data: await service.rejectVisitAtGate(req.ctx!, req.params.id as string, req.body) })
   })
-  router.post('/visits/:id/exit', requireAuth, requirePermission('VISIT_EXIT'), async (req, res) => {
+  router.post('/visits/:id/exit', requireAuth, requirePermission('VISIT_EXIT'), validateBody(recordExitSchema), async (req, res) => {
     res.json({ data: await service.recordExit(req.ctx!, req.params.id as string) })
   })
   // --- Visitor movement history -------------------------------------------

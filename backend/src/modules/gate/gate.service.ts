@@ -1061,8 +1061,15 @@ export async function visitorMovementHistory(ctx: AuthContext, societyId: string
   if (query.visitId) filters.push(eq(visits.id, query.visitId))
   if (query.flatId) filters.push(eq(visits.flatId, query.flatId))
   if (query.gateId) filters.push(eq(visits.gateId, query.gateId))
+  // decidedBy is the guard only on a refusal; on an approval it is the resident, who moved nobody
   if (query.guardId)
-    filters.push(or(eq(visits.entryBy, query.guardId), eq(visits.exitBy, query.guardId), eq(visits.decidedBy, query.guardId))!)
+    filters.push(
+      or(
+        eq(visits.entryBy, query.guardId),
+        eq(visits.exitBy, query.guardId),
+        and(eq(visits.decidedBy, query.guardId), eq(visits.status, 'REJECTED_AT_GATE')),
+      )!,
+    )
   if (query.search)
     filters.push(or(ilike(visits.visitorName, `%${query.search}%`), ilike(visits.visitorPhone, `%${query.search}%`))!)
 
