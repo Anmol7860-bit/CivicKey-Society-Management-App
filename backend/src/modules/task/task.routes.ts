@@ -23,6 +23,13 @@ export function createTaskRouter() {
   router.post('/societies/:societyId/tasks', ...manage, validateBody(createTaskSchema), async (req, res) => {
     res.status(201).json({ data: await service.createTask(req.ctx!, req.params.societyId as string, req.body) })
   })
+  router.get('/tasks/:id', ...manage, async (req, res) => {
+    res.json({ data: await service.getTask(req.ctx!, req.params.id as string) })
+  })
+  /** What has happened to the task, read from the audit rows written with each change */
+  router.get('/tasks/:id/history', ...manage, async (req, res) => {
+    res.json({ data: await service.taskHistory(req.ctx!, req.params.id as string) })
+  })
   router.put('/tasks/:id', ...manage, validateBody(updateTaskSchema), async (req, res) => {
     res.json({ data: await service.updateTask(req.ctx!, req.params.id as string, req.body) })
   })

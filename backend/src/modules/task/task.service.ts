@@ -1,8 +1,9 @@
-import { and, desc, eq, ilike, isNotNull, lt, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, lt, lte, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
-import { communityTasks, societies, staff, users } from '../../db/schema.js'
+import { auditLogs, communityTasks, societies, staff, users } from '../../db/schema.js'
+import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
-import { assertState, requireRecord, UUID } from '../access/scope.js'
+import { requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import type { CreateTaskBody, ListTasksQuery, TaskStatusBody, UpdateTaskBody } from './task.schemas.js'
 
@@ -33,7 +34,7 @@ async function assertStaffInSociety(tx: DbExecutor, societyId: string, staffId: 
     .select({ id: staff.id })
     .from(staff)
     .where(and(eq(staff.id, staffId), eq(staff.societyId, societyId), eq(staff.status, 'ACTIVE')))
-  assertState(Boolean(row), 'That person is not active staff in this society')
+  if (!row) throw new AppError(409, 'ASSIGNEE_NOT_ELIGIBLE', 'That person is not active staff in this society')
 }
 
 const assignee = { id: staff.id, name: staff.name, kind: staff.kind, phone: staff.phone, workType: staff.workType }
@@ -68,6 +69,8 @@ export async function listTasks(ctx: AuthContext, societyId: string, query: List
   if (query.overdue) {
     filters.push(isNotNull(communityTasks.dueDate), lt(communityTasks.dueDate, sql`current_date`), sql`${communityTasks.status} not in ('DONE', 'CANCELLED')`)
   }
+  if (query.from) filters.push(gte(communityTasks.createdAt, new Date(`${query.from}T00:00:00.000Z`)))
+  if (query.to) filters.push(lte(communityTasks.createdAt, new Date(`${query.to}T23:59:59.999Z`)))
   if (query.search) {
     const pattern = `%${query.search}%`
     filters.push(
@@ -83,8 +86,51 @@ export async function listTasks(ctx: AuthContext, societyId: string, query: List
       sql`${communityTasks.dueDate} asc nulls last`,
       desc(communityTasks.createdAt),
     )
-    .limit(200)
+    .limit(query.limit)
+    .offset((query.page - 1) * query.limit)
   return rows.map((row) => shape(row as Row))
+}
+
+/** One task, with everything the detail panel shows. */
+export async function getTask(ctx: AuthContext, id: string) {
+  await loadTask(db, ctx, id)
+  const [row] = await withAssignee(db).where(eq(communityTasks.id, id))
+  return shape(row as Row)
+}
+
+/**
+ * What has happened to a task, oldest first: raised, edited, reassigned, moved and closed.
+ *
+ * The audit log is the history. It is written in the same transaction as every change, is never
+ * updated or deleted, and already carries the actor and the server's own timestamp, so a second
+ * history table would only be a copy that could disagree with it.
+ */
+export async function taskHistory(ctx: AuthContext, id: string) {
+  const task = await loadTask(db, ctx, id)
+  const rows = await db
+    .select({ event: auditLogs, actorName: users.name })
+    .from(auditLogs)
+    .leftJoin(users, eq(users.id, auditLogs.actorUserId))
+    // ponytail: filtered on the metadata, which has no index; add one if a society's audit log
+    // ever grows big enough for this to be slow.
+    .where(
+      and(
+        inArray(auditLogs.eventType, ['TASK_CREATED', 'TASK_UPDATED', 'TASK_STATUS_CHANGED']),
+        sql`${auditLogs.metadata} ->> 'taskId' = ${task.id}`,
+      ),
+    )
+    .orderBy(asc(auditLogs.createdAt))
+
+  return rows.map(({ event, actorName }) => {
+    const { taskId: _taskId, societyId: _societyId, ...detail } = event.metadata
+    return {
+      id: event.id,
+      eventType: event.eventType,
+      actorName,
+      at: event.createdAt,
+      detail,
+    }
+  })
 }
 
 /** Counts for the summary tiles, so the page does not add up a truncated list. */
@@ -130,13 +176,22 @@ export function createTask(ctx: AuthContext, societyId: string, body: CreateTask
 export function updateTask(ctx: AuthContext, id: string, body: UpdateTaskBody) {
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, ctx, id, 'update')
-    assertState(!CLOSED.includes(task.status as (typeof CLOSED)[number]), 'This task is closed, so it cannot be edited')
+    if (CLOSED.includes(task.status as (typeof CLOSED)[number])) {
+      throw new AppError(409, 'INVALID_STATE', 'This task is closed, so it cannot be edited')
+    }
     await assertStaffInSociety(tx, task.societyId, body.assignedStaffId)
     await tx
       .update(communityTasks)
       .set({ ...body, updatedAt: new Date() })
       .where(eq(communityTasks.id, id))
-    await audit(tx, ctx, 'TASK_UPDATED', { societyId: task.societyId, taskId: id, fields: Object.keys(body) })
+    // Who the work moved from and to, not just that it moved: the history is read from these rows
+    const reassigned = 'assignedStaffId' in body && (body.assignedStaffId ?? null) !== task.assignedStaffId
+    await audit(tx, ctx, 'TASK_UPDATED', {
+      societyId: task.societyId,
+      taskId: id,
+      fields: Object.keys(body),
+      ...(reassigned ? { assignedFrom: task.assignedStaffId, assignedTo: body.assignedStaffId ?? null } : {}),
+    })
     const [row] = await withAssignee(tx).where(eq(communityTasks.id, id))
     return shape(row as Row)
   })
@@ -149,8 +204,12 @@ export function updateTask(ctx: AuthContext, id: string, body: UpdateTaskBody) {
 export function setTaskStatus(ctx: AuthContext, id: string, body: TaskStatusBody) {
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, ctx, id, 'update')
-    assertState(task.status !== body.status, `This task is already ${body.status.toLowerCase().replace('_', ' ')}`)
-    assertState(task.status !== 'CANCELLED', 'A cancelled task cannot be moved again')
+    if (task.status === body.status) {
+      throw new AppError(409, 'INVALID_STATE', `This task is already ${body.status.toLowerCase().replace('_', ' ')}`)
+    }
+    if (task.status === 'CANCELLED') {
+      throw new AppError(409, 'INVALID_STATE', 'A cancelled task cannot be moved again')
+    }
     const closing = CLOSED.includes(body.status as (typeof CLOSED)[number])
     await tx
       .update(communityTasks)

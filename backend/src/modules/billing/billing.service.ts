@@ -651,8 +651,10 @@ export async function listMyInvoices(ctx: AuthContext) {
  */
 export async function runReport(ctx: AuthContext, societyId: string, query: ReportQuery) {
   await loadSociety(db, ctx, societyId)
-  if (query.report === 'COLLECTIONS') return collections(societyId, query.period)
-  return occupancyReport(societyId)
+  const report = query.report === 'COLLECTIONS' ? await collections(societyId, query.period) : await occupancyReport(societyId)
+  // The totals stay over the whole report; only the rows are a page, so a page never changes a sum
+  const rows = query.limit ? report.rows.slice((query.page - 1) * query.limit, query.page * query.limit) : report.rows
+  return { ...report, rows, rowCount: report.rows.length, page: query.page, limit: query.limit ?? null }
 }
 
 async function collections(societyId: string, period?: string) {

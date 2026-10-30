@@ -71,11 +71,17 @@ export const reversePaymentSchema = z.strictObject({
   reason: z.string().trim().min(3, 'Give a reason').max(200),
 })
 
+/** The only reports there are. A request for anything else is answered 422, not 400. */
+export const REPORT_TYPES = ['COLLECTIONS', 'OCCUPANCY'] as const
+
 /** The reports panel: what to report on, and over which period */
 export const reportSchema = z.strictObject({
-  report: z.enum(['COLLECTIONS', 'OCCUPANCY']),
+  report: z.enum(REPORT_TYPES),
   period: period.optional(),
   format: z.enum(['json', 'csv']).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  /** Left out, the whole report comes back; the CSV download always takes every row */
+  limit: z.coerce.number().int().min(1).max(500).optional(),
 })
 
 export type SetRatesBody = z.infer<typeof setRatesSchema>

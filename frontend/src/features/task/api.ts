@@ -51,10 +51,28 @@ export interface TaskFilters {
   assignedStaffId?: string
   search?: string
   overdue?: 'true'
+  /** When the task was raised */
+  from?: string
+  to?: string
+  page?: number
+  limit?: number
+}
+
+/** One thing that happened to a task, read from the audit rows written with each change. */
+export interface TaskEvent {
+  id: string
+  eventType: 'TASK_CREATED' | 'TASK_UPDATED' | 'TASK_STATUS_CHANGED'
+  actorName: string | null
+  at: string
+  detail: { from?: TaskStatus; to?: TaskStatus; note?: string; fields?: string[]; assignedFrom?: string | null; assignedTo?: string | null }
 }
 
 export function listTasks(token: string, societyId: string, filters: TaskFilters = {}) {
-  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString()
+  const query = new URLSearchParams(
+    Object.entries(filters)
+      .filter(([, value]) => value)
+      .map(([key, value]) => [key, String(value)]),
+  ).toString()
   return call<Task[]>(token, 'GET', `/societies/${societyId}/tasks${query ? `?${query}` : ''}`)
 }
 export const taskSummary = (token: string, societyId: string) => call<TaskSummary>(token, 'GET', `/societies/${societyId}/task-summary`)
@@ -63,3 +81,5 @@ export const createTask = (token: string, societyId: string, body: TaskBody) =>
 export const updateTask = (token: string, id: string, body: Partial<TaskBody>) => call<Task>(token, 'PUT', `/tasks/${id}`, body)
 export const setTaskStatus = (token: string, id: string, body: { status: TaskStatus; note?: string }) =>
   call<Task>(token, 'POST', `/tasks/${id}/status`, body)
+export const getTask = (token: string, id: string) => call<Task>(token, 'GET', `/tasks/${id}`)
+export const taskHistory = (token: string, id: string) => call<TaskEvent[]>(token, 'GET', `/tasks/${id}/history`)

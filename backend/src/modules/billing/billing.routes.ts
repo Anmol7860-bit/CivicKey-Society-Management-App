@@ -2,11 +2,13 @@ import { Router } from 'express'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
 import { parseOrThrow, validateBody } from '../../middleware/validateBody.js'
+import { AppError } from '../../lib/errors.js'
 import {
   generateInvoicesSchema,
   listInvoicesSchema,
   recordPaymentSchema,
   reportSchema,
+  REPORT_TYPES,
   reversePaymentSchema,
   setRatesSchema,
 } from './billing.schemas.js'
@@ -136,6 +138,11 @@ export function createBillingRouter() {
 
   /** ?format=csv is the Download CSV button; the rows are identical either way */
   router.get('/societies/:societyId/reports', requireAuth, requirePermission('REPORT_VIEW'), async (req, res) => {
+    // A report nobody has written is not a bad request, it is a report that does not exist
+    const asked = req.query.report
+    if (typeof asked === 'string' && !REPORT_TYPES.includes(asked as (typeof REPORT_TYPES)[number])) {
+      throw new AppError(422, 'REPORT_TYPE_UNSUPPORTED', `There is no ${asked} report`)
+    }
     const query = parseOrThrow(reportSchema, req.query)
     const report = await service.runReport(req.ctx!, req.params.societyId as string, query)
     if (query.format !== 'csv') return res.json({ data: report })

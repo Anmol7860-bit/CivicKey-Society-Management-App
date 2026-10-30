@@ -355,3 +355,25 @@ describe('one invoice', () => {
     expect(refused.body.error.code).toBe('NOT_YOUR_FLAT')
   })
 })
+
+describe('reports', () => {
+  it('runs only the reports there are, and pages the rows without changing the totals', async () => {
+    await setRates()
+    await occupiedFlat('105')
+    await generate({ period: '2026-01' })
+
+    const all = await api.get(`/societies/${TEST_SOCIETY_ID}/reports?report=COLLECTIONS`)
+    expect(all.body.data.rows).toHaveLength(2)
+    expect(all.body.data.totals.billed).toBe(all.body.data.rows[0].billed + all.body.data.rows[1].billed)
+
+    const page = await api.get(`/societies/${TEST_SOCIETY_ID}/reports?report=COLLECTIONS&page=2&limit=1`)
+    expect(page.body.data.rows).toHaveLength(1)
+    expect(page.body.data.rowCount).toBe(2)
+    // The page is a window on the rows, never on the sums
+    expect(page.body.data.totals).toEqual(all.body.data.totals)
+
+    const unknown = await api.get(`/societies/${TEST_SOCIETY_ID}/reports?report=SECURITY_INCIDENTS`)
+    expect(unknown.status).toBe(422)
+    expect(unknown.body.error.code).toBe('REPORT_TYPE_UNSUPPORTED')
+  })
+})

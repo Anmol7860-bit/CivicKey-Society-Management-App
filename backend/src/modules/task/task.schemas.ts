@@ -34,15 +34,26 @@ export const taskStatusSchema = z
     path: ['note'],
   })
 
-export const listTasksSchema = z.strictObject({
-  status: z.enum(taskStatus.enumValues).optional(),
-  category: z.enum(taskCategory.enumValues).optional(),
-  assignedStaffId: z.uuid().optional(),
-  /** Matches the title, details or location */
-  search: z.string().trim().min(1).max(60).optional(),
-  /** Open tasks whose due date has passed */
-  overdue: z.enum(['true']).optional(),
-})
+export const listTasksSchema = z
+  .strictObject({
+    status: z.enum(taskStatus.enumValues).optional(),
+    category: z.enum(taskCategory.enumValues).optional(),
+    assignedStaffId: z.uuid().optional(),
+    /** Matches the title, details or location */
+    search: z.string().trim().min(1).max(60).optional(),
+    /** Open tasks whose due date has passed */
+    overdue: z.enum(['true']).optional(),
+    /** When the task was raised, not when it is due: the work list is read by the day it arrived */
+    from: isoDate.optional(),
+    to: isoDate.optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    // The work list has no pager yet, so the default stays the bound the list already had
+    limit: z.coerce.number().int().min(1).max(200).default(200),
+  })
+  .refine((query) => !query.from || !query.to || query.from <= query.to, {
+    message: 'The end of the range comes before its start',
+    path: ['to'],
+  })
 
 export type CreateTaskBody = z.infer<typeof createTaskSchema>
 export type UpdateTaskBody = z.infer<typeof updateTaskSchema>

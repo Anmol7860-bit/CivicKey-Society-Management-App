@@ -154,3 +154,33 @@ it('marks an overdue task on the row', async () => {
   expect(within(row).getByText('High')).toBeInTheDocument()
   expect(screen.getByText(/Due 2020-01-01/)).toBeInTheDocument()
 })
+
+it('shows what has happened to a task, read from the server', async () => {
+  mocked.taskHistory.mockResolvedValue([
+    { id: 'e1', eventType: 'TASK_CREATED', actorName: 'Anita Rao', at: '2026-10-23T09:00:00.000Z', detail: {} },
+    {
+      id: 'e2',
+      eventType: 'TASK_UPDATED',
+      actorName: 'Anita Rao',
+      at: '2026-10-23T10:00:00.000Z',
+      detail: { fields: ['assignedStaffId'], assignedFrom: null, assignedTo: 'st1' },
+    },
+    {
+      id: 'e3',
+      eventType: 'TASK_STATUS_CHANGED',
+      actorName: 'Anita Rao',
+      at: '2026-10-23T11:00:00.000Z',
+      detail: { from: 'OPEN', to: 'IN_PROGRESS' },
+    },
+  ])
+  render(<TasksPage accessToken="token" />)
+
+  const summary = await screen.findByText('What has happened')
+  await userEvent.click(summary)
+
+  const history = within(summary.closest('details')!)
+  expect(await history.findByText(/Raised by Anita Rao/)).toBeInTheDocument()
+  expect(history.getByText(/Handed to Mahesh/)).toBeInTheDocument()
+  expect(history.getByText(/Open → In progress/)).toBeInTheDocument()
+  expect(mocked.taskHistory).toHaveBeenCalledWith('token', 't1')
+})

@@ -1496,6 +1496,17 @@
         "empty": {
           "title": "Nothing on the list",
           "description": "Raise a task when something in the common areas needs doing."
+        },
+        "history": {
+          "title": "What has happened",
+          "empty": "Nothing recorded yet.",
+          "failed": "That history could not be read. Try again.",
+          "created": "Raised by {{actor}}",
+          "moved": "{{from}} → {{to}}, by {{actor}}",
+          "assigned": "Handed to {{assignee}}, by {{actor}}",
+          "unassigned": "Taken off {{assignee}}, by {{actor}}",
+          "edited": "Edited ({{fields}}) by {{actor}}",
+          "someone": "someone"
         }
       },
       "activityTitle": "Security & community activity",

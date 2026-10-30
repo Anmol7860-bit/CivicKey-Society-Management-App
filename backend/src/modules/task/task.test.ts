@@ -80,8 +80,8 @@ describe('raising a task', () => {
       .values({ societyId: OTHER_SOCIETY_ID, kind: 'VENDOR', name: 'Someone else', phone: '9870000002', passCode: 'CK-TESTVEND2' })
       .returning()
     const res = await api.post(tasks, { ...aTask, assignedStaffId: outsider!.id })
-    expect(res.status).toBe(400)
-    expect(res.body.error.code).toBe('INVALID_STATE')
+    expect(res.status).toBe(409)
+    expect(res.body.error.code).toBe('ASSIGNEE_NOT_ELIGIBLE')
   })
 
   it('insists on a title and refuses unknown fields', async () => {
@@ -102,7 +102,7 @@ describe('moving a task along', () => {
     expect(done.body.data).toMatchObject({ status: 'DONE', closingNote: 'New tube fitted' })
     expect(done.body.data.closedAt).not.toBeNull()
 
-    expect((await api.post(`/tasks/${task.id}/status`, { status: 'DONE' })).status).toBe(400)
+    expect((await api.post(`/tasks/${task.id}/status`, { status: 'DONE' })).status).toBe(409)
   })
 
   it('clears the closing note when a finished task is reopened', async () => {
@@ -119,14 +119,14 @@ describe('moving a task along', () => {
     expect((await api.post(`/tasks/${task.id}/status`, { status: 'CANCELLED' })).status).toBe(422)
     const cancelled = await api.post(`/tasks/${task.id}/status`, { status: 'CANCELLED', note: 'Raised twice' })
     expect(cancelled.body.data.status).toBe('CANCELLED')
-    expect((await api.post(`/tasks/${task.id}/status`, { status: 'OPEN' })).status).toBe(400)
+    expect((await api.post(`/tasks/${task.id}/status`, { status: 'OPEN' })).status).toBe(409)
   })
 
   it('refuses to edit a closed task', async () => {
     const task = await create()
     await api.post(`/tasks/${task.id}/status`, { status: 'DONE', note: 'Done' })
 
-    expect((await api.put(`/tasks/${task.id}`, { priority: 'HIGH' })).status).toBe(400)
+    expect((await api.put(`/tasks/${task.id}`, { priority: 'HIGH' })).status).toBe(409)
   })
 })
 
@@ -183,4 +183,62 @@ it('leaves an audit trail for every change', async () => {
   const events = await db.select().from(auditLogs)
   expect(events.map((event) => event.eventType)).toEqual(['TASK_CREATED', 'TASK_UPDATED', 'TASK_STATUS_CHANGED'])
   expect(events[2]!.metadata).toMatchObject({ from: 'OPEN', to: 'DONE', note: 'Fixed' })
+})
+
+describe('one task', () => {
+  it('reads a task on its own, and not from another society', async () => {
+    const task = await create()
+
+    const res = await api.get(`/tasks/${task.id}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data).toMatchObject({ id: task.id, title: 'Lobby light is out', status: 'OPEN' })
+    expect((await api.get(`/tasks/${MISSING_ID}`)).status).toBe(404)
+  })
+
+  it('keeps what happened to it, in the order it happened', async () => {
+    const task = await create()
+    await api.put(`/tasks/${task.id}`, { assignedStaffId: staffId })
+    await api.post(`/tasks/${task.id}/status`, { status: 'IN_PROGRESS' })
+    await api.post(`/tasks/${task.id}/status`, { status: 'DONE', note: 'New tube fitted' })
+
+    const res = await api.get(`/tasks/${task.id}/history`)
+
+    expect(res.body.data.map((row: { eventType: string }) => row.eventType)).toEqual([
+      'TASK_CREATED',
+      'TASK_UPDATED',
+      'TASK_STATUS_CHANGED',
+      'TASK_STATUS_CHANGED',
+    ])
+    // Who it moved from and to, not only that it moved
+    expect(res.body.data[1].detail).toMatchObject({ assignedFrom: null, assignedTo: staffId })
+    expect(res.body.data[3].detail).toMatchObject({ from: 'IN_PROGRESS', to: 'DONE', note: 'New tube fitted' })
+    expect(res.body.data[0].actorName).toBe('Riya Sharma')
+    // A later edit never rewrites what is already there
+    expect(res.body.data).toHaveLength(4)
+  })
+})
+
+describe('the work list', () => {
+  it('hands out one page at a time and bounds the page size', async () => {
+    await create()
+    await create({ ...aTask, title: 'Tank is leaking' })
+    await create({ ...aTask, title: 'Lift is noisy' })
+
+    const first = await api.get(`${tasks}?page=1&limit=2`)
+    const second = await api.get(`${tasks}?page=2&limit=2`)
+
+    expect(first.body.data).toHaveLength(2)
+    expect(second.body.data).toHaveLength(1)
+    expect((await api.get(`${tasks}?limit=500`)).status).toBe(422)
+  })
+
+  it('reads a date range, and refuses one that runs backwards', async () => {
+    await create()
+    const today = new Date().toISOString().slice(0, 10)
+
+    expect((await api.get(`${tasks}?from=${today}&to=${today}`)).body.data).toHaveLength(1)
+    expect((await api.get(`${tasks}?from=2020-01-01&to=2020-12-31`)).body.data).toHaveLength(0)
+    expect((await api.get(`${tasks}?from=2026-05-01&to=2026-01-01`)).status).toBe(422)
+  })
 })

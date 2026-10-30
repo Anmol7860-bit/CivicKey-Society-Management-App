@@ -13,11 +13,13 @@ import { listStaff } from '../staff/api'
 import {
   createTask,
   listTasks,
+  taskHistory,
   setTaskStatus,
   taskSummary,
   updateTask,
   type Task,
   type TaskBody,
+  type TaskEvent,
   type TaskCategory,
   type TaskPriority,
   type TaskStatus,
@@ -60,6 +62,66 @@ function Stat({ label, value, tone = 'neutral' }: { label: string; value: number
   )
 }
 
+/**
+ * What has happened to a task, fetched the first time it is opened.
+ *
+ * The rows come from the audit log, which is written with each change, so this is the record
+ * itself rather than a second copy of it.
+ */
+function TaskHistory({ task, token, staff }: { task: Task; token: string; staff: { value: string; label: string }[] }) {
+  const { t } = useTranslation()
+  const [events, setEvents] = useState<TaskEvent[]>()
+  const [failed, setFailed] = useState(false)
+
+  function load() {
+    if (events || failed) return
+    void taskHistory(token, task.id).then(setEvents, () => setFailed(true))
+  }
+
+  const who = (id: string | null | undefined) =>
+    staff.find((option) => option.value === id)?.label ?? t('area.admin.tasks.unassigned')
+
+  function describe(event: TaskEvent) {
+    const actor = event.actorName ?? t('area.admin.tasks.history.someone')
+    if (event.eventType === 'TASK_CREATED') return t('area.admin.tasks.history.created', { actor })
+    if (event.eventType === 'TASK_STATUS_CHANGED') {
+      const moved = t('area.admin.tasks.history.moved', {
+        from: t(`area.admin.tasks.status.${event.detail.from}`),
+        to: t(`area.admin.tasks.status.${event.detail.to}`),
+        actor,
+      })
+      return event.detail.note ? `${moved} — ${event.detail.note}` : moved
+    }
+    if (event.detail.assignedTo) return t('area.admin.tasks.history.assigned', { assignee: who(event.detail.assignedTo), actor })
+    if (event.detail.assignedFrom) return t('area.admin.tasks.history.unassigned', { assignee: who(event.detail.assignedFrom), actor })
+    return t('area.admin.tasks.history.edited', { fields: (event.detail.fields ?? []).join(', '), actor })
+  }
+
+  return (
+    <details className="text-[12px] text-muted">
+      <summary className="cursor-pointer font-semibold text-ink-soft" onClick={load}>
+        {t('area.admin.tasks.history.title')}
+      </summary>
+      {failed && (
+        <p className="m-0 pt-1 font-semibold text-red-700" role="alert">
+          {t('area.admin.tasks.history.failed')}
+        </p>
+      )}
+      {!failed && !events && <p className="m-0 pt-1">{t('shell.loading')}</p>}
+      {events?.length === 0 && <p className="m-0 pt-1">{t('area.admin.tasks.history.empty')}</p>}
+      {events && events.length > 0 && (
+        <ul className="m-0 flex list-none flex-col gap-1 p-0 pt-1">
+          {events.map((event) => (
+            <li key={event.id}>
+              {describe(event)} · {new Date(event.at).toLocaleString()}
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
+  )
+}
+
 function TaskRow({ task, token, staff, onChanged, onCancel }: {
   task: Task
   token: string
@@ -97,6 +159,8 @@ function TaskRow({ task, token, staff, onChanged, onCancel }: {
       {task.details && <p className="text-[13px] text-ink-soft">{task.details}</p>}
       {facts.length > 0 && <p className="text-[12px] text-muted">{facts.join(' · ')}</p>}
       {task.closingNote && <p className="text-[12px] text-muted">{t('area.admin.tasks.closedWith', { note: task.closingNote })}</p>}
+
+      <TaskHistory task={task} token={token} staff={staff} />
 
       {action.error && <p className="text-[12px] font-semibold text-red-700" role="alert">{action.error}</p>}
 
