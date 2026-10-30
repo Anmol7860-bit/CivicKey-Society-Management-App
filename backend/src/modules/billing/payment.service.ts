@@ -1,7 +1,7 @@
 import { and, desc, eq, isNull, sql, sum } from 'drizzle-orm'
 import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
-import { gatewayEvents, invoices, paymentAttempts, payments, receipts } from '../../db/schema.js'
+import { gatewayEvents, invoices, paymentAttempts, payments, receipts, societies } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import { logger } from '../../lib/logger.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
@@ -32,14 +32,43 @@ export async function startCheckout(ctx: AuthContext, invoiceId: string) {
   await requireRecord(ctx, invoice, 'Invoice')
   // A resident pays their own flat's bill; the billing panel may pay for any flat it bills
   await assertFlatAccess(ctx, invoice!.flatId, { write: true, scopePermission: 'INVOICE_GENERATE' })
-  assertState(invoice!.status !== 'CANCELLED', 'This invoice has been cancelled')
-  assertState(invoice!.status !== 'PAID', 'This invoice is already paid in full')
+  if (invoice!.status === 'CANCELLED') {
+    throw new AppError(409, 'INVOICE_NOT_PAYABLE', 'This invoice has been cancelled')
+  }
+  if (invoice!.status === 'PAID') {
+    throw new AppError(409, 'PAYMENT_ALREADY_SUCCESSFUL', 'This invoice is already paid in full')
+  }
   if (!checkoutConfigured()) {
     throw new AppError(503, 'PAYMENT_NOT_CONFIGURED', 'Online payment is not set up for this society yet.')
   }
 
   const amountPaise = await outstandingPaise(invoice!.id, toPaise(Number(invoice!.total ?? 0)))
-  assertState(amountPaise > 0, 'This invoice is already paid in full')
+  if (amountPaise <= 0) {
+    throw new AppError(409, 'PAYMENT_ALREADY_SUCCESSFUL', 'This invoice is already paid in full')
+  }
+
+  // A second click, or a resident who closed the window and came back, reopens the order that is
+  // already waiting rather than leaving an orphan behind at the gateway.
+  const [open] = await db
+    .select()
+    .from(paymentAttempts)
+    .where(
+      and(
+        eq(paymentAttempts.invoiceId, invoice!.id),
+        eq(paymentAttempts.status, 'CREATED'),
+        eq(paymentAttempts.amountPaise, amountPaise),
+      ),
+    )
+    .orderBy(desc(paymentAttempts.createdAt))
+  if (open?.providerOrderId) {
+    return {
+      attemptId: open.id,
+      orderId: open.providerOrderId,
+      amount: amountPaise / 100,
+      currency: 'INR',
+      keyId: env.RAZORPAY_KEY_ID!,
+    }
+  }
 
   const [attempt] = await db
     .insert(paymentAttempts)
@@ -84,6 +113,23 @@ interface RazorpayWebhook {
   payload?: { payment?: { entity?: RazorpayEntity }; order?: { entity?: RazorpayEntity } }
 }
 
+/**
+ * What is kept from a webhook: the few fields the settlement is checked against.
+ *
+ * The gateway's payload also carries the payer's email, phone, card network and last four
+ * digits. None of that is needed to settle an invoice, so none of it is written down.
+ */
+function verifiedFacts(body: RazorpayWebhook) {
+  const entity = body.payload?.payment?.entity ?? body.payload?.order?.entity
+  return {
+    event: body.event,
+    paymentId: entity?.id ?? null,
+    orderId: body.payload?.payment?.entity?.order_id ?? body.payload?.order?.entity?.id ?? null,
+    amount: entity?.amount ?? null,
+    currency: entity?.currency ?? null,
+  }
+}
+
 /** The gateway's own delivery id, which is what makes handling it exactly once possible. */
 const eventIdOf = (headerId: string | undefined, body: RazorpayWebhook) =>
   headerId ?? body.payload?.payment?.entity?.id ?? body.payload?.order?.entity?.id ?? null
@@ -98,7 +144,7 @@ const eventIdOf = (headerId: string | undefined, body: RazorpayWebhook) =>
 export async function handleWebhook(rawBody: Buffer, headers: Record<string, string | string[] | undefined>) {
   const signature = headers['x-razorpay-signature']
   if (!signatureMatches(rawBody, typeof signature === 'string' ? signature : undefined)) {
-    throw new AppError(401, 'TOKEN_INVALID', 'That webhook is not signed by the payment gateway.')
+    throw new AppError(400, 'WEBHOOK_SIGNATURE_INVALID', 'That webhook is not signed by the payment gateway.')
   }
 
   let body: RazorpayWebhook
@@ -115,7 +161,7 @@ export async function handleWebhook(rawBody: Buffer, headers: Record<string, str
 
   const [stored] = await db
     .insert(gatewayEvents)
-    .values({ providerEventId: deliveryId, eventType: body.event, payload: body })
+    .values({ providerEventId: deliveryId, eventType: body.event, payload: verifiedFacts(body) })
     .onConflictDoNothing()
     .returning({ id: gatewayEvents.id })
   // A retry of something already handled is a success, not an error: the gateway must stop asking
@@ -206,6 +252,74 @@ async function apply(body: RazorpayWebhook): Promise<Applied> {
   return 'SETTLED'
 }
 
+/**
+ * What the server actually knows about one checkout attempt.
+ *
+ * The browser coming back from the gateway proves nothing, so this is what the bills page asks
+ * before it says anything about the payment. It carries no gateway credentials, only the order
+ * reference the resident could already see.
+ */
+export async function paymentStatus(ctx: AuthContext, attemptId: string) {
+  const [row] = UUID.test(attemptId)
+    ? await db
+        .select({ attempt: paymentAttempts, flatId: invoices.flatId, invoiceStatus: invoices.status })
+        .from(paymentAttempts)
+        .innerJoin(invoices, eq(invoices.id, paymentAttempts.invoiceId))
+        .where(eq(paymentAttempts.id, attemptId))
+    : []
+  await requireRecord(ctx, row && { societyId: row.attempt.societyId }, 'Payment')
+  if (ctx.role === 'RESIDENT') await assertFlatAccess(ctx, row!.flatId)
+
+  const { attempt } = row!
+  return {
+    id: attempt.id,
+    invoiceId: attempt.invoiceId,
+    status: attempt.status,
+    amount: attempt.amountPaise / 100,
+    currency: 'INR',
+    orderId: attempt.providerOrderId,
+    providerPaymentId: attempt.providerPaymentId,
+    failureReason: attempt.failureReason,
+    invoiceStatus: row!.invoiceStatus,
+    startedAt: attempt.createdAt,
+    updatedAt: attempt.updatedAt,
+  }
+}
+
+/** One receipt, for whoever may see the invoice behind it. */
+async function loadReceipt(ctx: AuthContext, receiptId: string) {
+  const [row] = UUID.test(receiptId)
+    ? await db
+        .select({ receipt: receipts, payment: payments, invoice: invoices })
+        .from(receipts)
+        .innerJoin(payments, eq(payments.id, receipts.paymentId))
+        .innerJoin(invoices, eq(invoices.id, payments.invoiceId))
+        .where(eq(receipts.id, receiptId))
+    : []
+  await requireRecord(ctx, row && { societyId: row.receipt.societyId }, 'Receipt')
+  await assertFlatAccess(ctx, row!.invoice.flatId, { scopePermission: 'INVOICE_GENERATE' })
+  return row!
+}
+
+export async function receiptDetail(ctx: AuthContext, receiptId: string) {
+  const { receipt, payment, invoice } = await loadReceipt(ctx, receiptId)
+  const [society] = await db.select({ name: societies.name }).from(societies).where(eq(societies.id, receipt.societyId))
+  return {
+    id: receipt.id,
+    number: receipt.number,
+    status: receipt.status,
+    amount: Number(payment.amount),
+    currency: 'INR',
+    receivedOn: payment.receivedOn,
+    paidBy: payment.paidBy,
+    paymentId: payment.id,
+    invoiceId: invoice.id,
+    period: invoice.period,
+    issuedBy: society?.name ?? null,
+    issuedAt: receipt.createdAt,
+  }
+}
+
 /** The receipts for one of the resident's own invoices, newest first. */
 export async function listReceipts(ctx: AuthContext, invoiceId: string) {
   const [invoice] = UUID.test(invoiceId) ? await db.select().from(invoices).where(eq(invoices.id, invoiceId)) : []
@@ -228,16 +342,7 @@ export async function listReceipts(ctx: AuthContext, invoiceId: string) {
 
 /** The stored PDF of a receipt, once it has been rendered. */
 export async function receiptFile(ctx: AuthContext, receiptId: string) {
-  const [row] = UUID.test(receiptId)
-    ? await db
-        .select({ receipt: receipts, flatId: invoices.flatId })
-        .from(receipts)
-        .innerJoin(payments, eq(payments.id, receipts.paymentId))
-        .innerJoin(invoices, eq(invoices.id, payments.invoiceId))
-        .where(eq(receipts.id, receiptId))
-    : []
-  await requireRecord(ctx, row && { societyId: row.receipt.societyId }, 'Receipt')
-  await assertFlatAccess(ctx, row!.flatId, { scopePermission: 'INVOICE_GENERATE' })
-  assertState(row!.receipt.status === 'READY' && row!.receipt.fileId !== null, 'This receipt is still being prepared')
-  return { fileId: row!.receipt.fileId!, number: row!.receipt.number }
+  const { receipt } = await loadReceipt(ctx, receiptId)
+  assertState(receipt.status === 'READY' && receipt.fileId !== null, 'This receipt is still being prepared')
+  return { fileId: receipt.fileId!, number: receipt.number }
 }

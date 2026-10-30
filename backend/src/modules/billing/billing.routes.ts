@@ -11,7 +11,7 @@ import {
   setRatesSchema,
 } from './billing.schemas.js'
 import * as service from './billing.service.js'
-import { handleWebhook, listReceipts, receiptFile, startCheckout } from './payment.service.js'
+import { handleWebhook, listReceipts, paymentStatus, receiptDetail, receiptFile, startCheckout } from './payment.service.js'
 import { readStoredFile } from '../file/file.service.js'
 
 /** Maintenance rates, invoices, cash receipts and the reports built from them. Mounted at /api/v1. */
@@ -92,6 +92,19 @@ export function createBillingRouter() {
   })
 
   /**
+   * What the server knows about a checkout attempt. The page asks this after the gateway window
+   * closes, because the window closing is not a payment.
+   */
+  router.get(
+    '/payments/:paymentId',
+    requireAuth,
+    requirePermission('BILL_PAY', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK', 'REPORT_VIEW'),
+    async (req, res) => {
+      res.json({ data: await paymentStatus(req.ctx!, req.params.paymentId as string) })
+    },
+  )
+
+  /**
    * The gateway's webhook: unauthenticated by nature and trusted only because of its signature,
    * which is checked against the raw body. The raw parser for this one path is registered in
    * app.ts, before the JSON parser that would otherwise consume the bytes.
@@ -105,6 +118,10 @@ export function createBillingRouter() {
 
   router.get('/invoices/:invoiceId/receipts', ...seeReceipts, async (req, res) => {
     res.json({ data: await listReceipts(req.ctx!, req.params.invoiceId as string) })
+  })
+
+  router.get('/receipts/:receiptId', ...seeReceipts, async (req, res) => {
+    res.json({ data: await receiptDetail(req.ctx!, req.params.receiptId as string) })
   })
 
   /** The receipt PDF itself, read out of private storage for whoever may see the invoice */

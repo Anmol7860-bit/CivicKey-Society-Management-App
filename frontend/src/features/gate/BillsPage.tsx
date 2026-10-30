@@ -1,11 +1,12 @@
 import { Download, Receipt } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Badge, type Tone } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States'
 import type { AuthUser } from '../auth/api'
 import { listMyInvoices, receiptPdfUrl, startCheckout, type InvoiceStatus, type MyInvoice } from '../billing/api'
-import { openCheckout } from '../billing/checkout'
+import { confirmedState, openCheckout } from '../billing/checkout'
 import { Panel, useAction } from '../society/parts'
 import { useResource } from '../society/useResource'
 
@@ -42,14 +43,21 @@ function CurrentBill({
 }) {
   const { t } = useTranslation()
   const pay = useAction()
+  const [verified, setVerified] = useState<'CHECKING' | 'SUCCESS' | 'FAILED' | 'PENDING'>()
 
   async function handlePay() {
+    let attemptId: string | undefined
     const started = await pay.run(async () => {
       const checkout = await startCheckout(accessToken, invoice.id)
+      attemptId = checkout.attemptId
       await openCheckout(checkout, user)
     })
-    // The window closing proves nothing either way: the bill is re-read, and the webhook decides
-    if (started) onPaid()
+    // The window closing proves nothing either way. Only the server's verified state is told to
+    // the resident, and the bill is re-read whatever it turns out to be.
+    if (!started || !attemptId) return
+    setVerified('CHECKING')
+    setVerified(await confirmedState(accessToken, attemptId))
+    onPaid()
   }
 
   return (
@@ -79,6 +87,9 @@ function CurrentBill({
           {pay.pending ? t('area.resident.bills.payOpening') : t('area.resident.bills.payNow', { amount: rupees(invoice.outstanding || invoice.total) })}
         </Button>
         {pay.error && <p className="m-0 text-[12px] font-medium text-red-700">{pay.error}</p>}
+        {verified === 'CHECKING' && <p className="m-0 text-[12px] font-medium text-ink">{t('area.resident.bills.payChecking')}</p>}
+        {verified === 'SUCCESS' && <p className="m-0 text-[12px] font-semibold text-green-700">{t('area.resident.bills.paySuccess')}</p>}
+        {verified === 'FAILED' && <p className="m-0 text-[12px] font-medium text-red-700">{t('area.resident.bills.payFailed')}</p>}
         <p className="m-0 text-[12px] text-muted">{t('area.resident.bills.payPending')}</p>
         <p className="m-0 text-[12px] text-muted">{t('area.resident.bills.payOffline')}</p>
       </div>

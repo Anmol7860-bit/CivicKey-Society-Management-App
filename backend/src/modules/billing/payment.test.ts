@@ -94,6 +94,29 @@ describe('checkout', () => {
     expect((await db.select().from(invoices).where(eq(invoices.id, invoiceId)))[0]!.status).toBe('UNPAID')
   })
 
+  it('reopens the order already waiting instead of starting a second one', async () => {
+    const first = await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
+    const again = await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
+
+    expect(again.body.data.attemptId).toBe(first.body.data.attemptId)
+    expect(gateway.createOrder).toHaveBeenCalledTimes(1)
+    expect(await db.select().from(paymentAttempts)).toHaveLength(1)
+  })
+
+  it('refuses to start a payment for a bill that is settled or cancelled', async () => {
+    await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
+    await webhook(captured(400000))
+
+    const paid = await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
+    expect(paid.status).toBe(409)
+    expect(paid.body.error.code).toBe('PAYMENT_ALREADY_SUCCESSFUL')
+
+    await db.update(invoices).set({ status: 'CANCELLED' }).where(eq(invoices.id, invoiceId))
+    const cancelled = await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
+    expect(cancelled.status).toBe(409)
+    expect(cancelled.body.error.code).toBe('INVOICE_NOT_PAYABLE')
+  })
+
   it('says so plainly when the society has no gateway credentials', async () => {
     gateway.checkoutConfigured.mockReturnValue(false)
 
@@ -127,7 +150,8 @@ describe('webhook', () => {
   it('refuses a body that is not signed by the gateway', async () => {
     const res = await webhook(captured(400000), { signature: 'not-a-signature' })
 
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe('WEBHOOK_SIGNATURE_INVALID')
     expect(await db.select().from(payments)).toHaveLength(0)
     expect(await db.select().from(gatewayEvents)).toHaveLength(0)
   })
@@ -163,6 +187,62 @@ describe('webhook', () => {
   })
 })
 
+describe('payment status', () => {
+  it('tells the resident what the server knows, not what the browser saw', async () => {
+    const started = await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
+    const id = started.body.data.attemptId as string
+
+    const waiting = await api.get(`/payments/${id}`, resident)
+    expect(waiting.body.data).toMatchObject({ status: 'CREATED', amount: 4000, currency: 'INR', invoiceStatus: 'UNPAID' })
+
+    await webhook(captured(400000))
+    const settled = await api.get(`/payments/${id}`, resident)
+    expect(settled.body.data).toMatchObject({ status: 'SUCCESS', invoiceStatus: 'PAID', providerPaymentId: 'pay_test_1' })
+  })
+
+  it("keeps another flat's payment out of reach", async () => {
+    const started = await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
+    const stranger = await createUser({ phone: '9000000007', email: null })
+    const other = await createFlat(TEST_SOCIETY_ID, '202')
+    await addResident(other.id, stranger.id)
+
+    const res = await api.get(`/payments/${started.body.data.attemptId}`, await tokenFor(stranger))
+
+    expect(res.status).toBe(403)
+    expect(res.body.error.code).toBe('NOT_YOUR_FLAT')
+  })
+
+  it('writes down only what it checked the payment against', async () => {
+    await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
+    await webhook({
+      event: 'payment.captured',
+      payload: {
+        payment: {
+          entity: {
+            id: 'pay_test_1',
+            order_id: 'order_test_1',
+            amount: 400000,
+            currency: 'INR',
+            email: 'riya@example.com',
+            contact: '+919876543210',
+            card: { last4: '1111', network: 'Visa' },
+          },
+        },
+      },
+    })
+
+    const [event] = await db.select().from(gatewayEvents)
+    expect(event!.payload).toEqual({
+      event: 'payment.captured',
+      paymentId: 'pay_test_1',
+      orderId: 'order_test_1',
+      amount: 400000,
+      currency: 'INR',
+    })
+    expect(JSON.stringify(event!.payload)).not.toMatch(/riya@example.com|9876543210|1111/)
+  })
+})
+
 describe('receipts', () => {
   it('renders the PDF after settlement and serves it to the resident', async () => {
     await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
@@ -180,5 +260,37 @@ describe('receipts', () => {
     expect(pdf.status).toBe(200)
     expect(pdf.headers['content-type']).toContain('application/pdf')
     expect(pdf.body.subarray(0, 5).toString()).toBe('%PDF-')
+  })
+
+  it('reads one receipt without the gateway details behind it', async () => {
+    await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
+    await webhook(captured(400000))
+    const [receipt] = await db.select().from(receipts)
+
+    const res = await api.get(`/receipts/${receipt!.id}`, resident)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data).toMatchObject({
+      number: receipt!.number,
+      amount: 4000,
+      currency: 'INR',
+      period: '2026-01-01',
+      invoiceId,
+    })
+    expect(JSON.stringify(res.body.data)).not.toMatch(/order_test_1|test-webhook-secret/)
+  })
+
+  it('keeps a receipt away from a resident of another flat', async () => {
+    await api.post(`/invoices/${invoiceId}/checkout`, {}, resident)
+    await webhook(captured(400000))
+    const [receipt] = await db.select().from(receipts)
+    const stranger = await createUser({ phone: '9000000008', email: null })
+    const other = await createFlat(TEST_SOCIETY_ID, '203')
+    await addResident(other.id, stranger.id)
+
+    const res = await api.get(`/receipts/${receipt!.id}`, await tokenFor(stranger))
+
+    expect(res.status).toBe(403)
+    expect(res.body.error.code).toBe('NOT_YOUR_FLAT')
   })
 })

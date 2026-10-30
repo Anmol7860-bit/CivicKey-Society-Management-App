@@ -179,6 +179,23 @@ export interface ReceiptRow {
 export const startCheckout = (token: string, invoiceId: string) =>
   call<Checkout>(token, 'POST', `/invoices/${invoiceId}/checkout`, {})
 
+export type PaymentState = 'INITIATING' | 'CREATED' | 'PENDING' | 'SUCCESS' | 'FAILED' | 'REVIEW_REQUIRED'
+
+/** What the server has verified about a checkout attempt. The browser's own return proves nothing. */
+export interface PaymentStatus {
+  id: string
+  invoiceId: string
+  status: PaymentState
+  amount: number
+  currency: string
+  orderId: string | null
+  providerPaymentId: string | null
+  failureReason: string | null
+  invoiceStatus: InvoiceStatus
+}
+
+export const paymentStatus = (token: string, paymentId: string) => call<PaymentStatus>(token, 'GET', `/payments/${paymentId}`)
+
 export const listReceipts = (token: string, invoiceId: string) =>
   call<ReceiptRow[]>(token, 'GET', `/invoices/${invoiceId}/receipts`)
 

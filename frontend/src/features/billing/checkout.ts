@@ -1,4 +1,4 @@
-import type { Checkout } from './api'
+import { paymentStatus, type Checkout } from './api'
 
 const SCRIPT_URL = 'https://checkout.razorpay.com/v1/checkout.js'
 
@@ -57,4 +57,19 @@ export async function openCheckout(checkout: Checkout, person: { name: string; p
       handler: () => resolve(),
     }).open()
   })
+}
+
+/**
+ * What the server says became of the payment, asked for until it knows or the wait runs out.
+ *
+ * The gateway window closing, and the browser coming back, are not a payment: only a signed
+ * webhook settles the invoice, so this is the only thing the resident is told a result from.
+ */
+export async function confirmedState(token: string, paymentId: string, tries = 6, gap = 2000) {
+  for (let asked = 0; asked < tries; asked += 1) {
+    const payment = await paymentStatus(token, paymentId).catch(() => null)
+    if (payment?.status === 'SUCCESS' || payment?.status === 'FAILED') return payment.status
+    if (asked < tries - 1) await new Promise((resolve) => setTimeout(resolve, gap))
+  }
+  return 'PENDING' as const
 }

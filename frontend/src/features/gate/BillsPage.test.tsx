@@ -97,7 +97,46 @@ it('opens the gateway for the whole outstanding amount, and claims nothing about
   await waitFor(() => expect(mocked.startCheckout).toHaveBeenCalledWith('token', 'i1'))
   expect(gateway.openCheckout).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'order_1' }), resident)
   // The bill is re-read rather than marked paid: only the webhook settles it
-  expect(mocked.listMyInvoices).toHaveBeenCalledTimes(2)
+  await waitFor(() => expect(mocked.listMyInvoices).toHaveBeenCalledTimes(2))
+})
+
+it('tells the resident only what the server has verified', async () => {
+  mocked.listMyInvoices.mockResolvedValue([invoice()])
+  mocked.startCheckout.mockResolvedValue({
+    attemptId: 'a1',
+    orderId: 'order_1',
+    amount: 4125,
+    currency: 'INR',
+    keyId: 'rzp_test_1',
+  })
+  gateway.openCheckout.mockResolvedValue()
+  gateway.confirmedState.mockResolvedValue('SUCCESS')
+  show()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Pay ₹4,125.00 now' }))
+
+  expect(await screen.findByText('Payment confirmed. Your receipt appears below.')).toBeInTheDocument()
+  expect(gateway.confirmedState).toHaveBeenCalledWith('token', 'a1')
+})
+
+it('does not claim success when the bank has not confirmed', async () => {
+  mocked.listMyInvoices.mockResolvedValue([invoice()])
+  mocked.startCheckout.mockResolvedValue({
+    attemptId: 'a1',
+    orderId: 'order_1',
+    amount: 4125,
+    currency: 'INR',
+    keyId: 'rzp_test_1',
+  })
+  gateway.openCheckout.mockResolvedValue()
+  gateway.confirmedState.mockResolvedValue('PENDING')
+  show()
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Pay ₹4,125.00 now' }))
+
+  await waitFor(() => expect(mocked.listMyInvoices).toHaveBeenCalledTimes(2))
+  expect(screen.queryByText('Payment confirmed. Your receipt appears below.')).not.toBeInTheDocument()
+  expect(screen.getByText(/receipt appears here once your bank confirms/)).toBeInTheDocument()
 })
 
 it('says what went wrong when the gateway cannot be reached', async () => {

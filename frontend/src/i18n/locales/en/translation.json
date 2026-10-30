@@ -387,7 +387,10 @@
         "payOpening": "Opening payment…",
         "payPending": "The receipt appears here once your bank confirms the payment, usually within a minute.",
         "receiptOpen": "Open the receipt",
-        "receiptPending": "That receipt is still being prepared. Try again in a minute."
+        "receiptPending": "That receipt is still being prepared. Try again in a minute.",
+        "payChecking": "Checking with the bank…",
+        "paySuccess": "Payment confirmed. Your receipt appears below.",
+        "payFailed": "The bank did not confirm that payment. Nothing has been charged against this bill."
       },
       "notifications": {
         "title": "Notifications",
