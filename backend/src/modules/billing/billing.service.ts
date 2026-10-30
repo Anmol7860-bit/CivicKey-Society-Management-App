@@ -3,7 +3,7 @@ import { db } from '../../db/client.js'
 import { billingRates, blocks, flatResidents, flats, floors, invoices, payments, societies } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
-import { assertState, requireRecord, UUID } from '../access/scope.js'
+import { assertFlatAccess, assertState, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
 import { effectiveApprover } from '../gate/gate.service.js'
 import { enqueueNotification } from '../notification/outbox.service.js'
@@ -104,7 +104,7 @@ export function setRates(ctx: AuthContext, societyId: string, body: SetRatesBody
     } catch (error) {
       const code =
         (error as { code?: string; cause?: { code?: string } }).code ?? (error as { cause?: { code?: string } }).cause?.code
-      if (code === '23505') throw new AppError(409, 'ALREADY_EXISTS', 'Rates are already set from this date')
+      if (code === '23505') throw new AppError(409, 'RATE_PERIOD_CONFLICT', 'Rates are already set from this date')
       throw error
     }
   })
@@ -133,6 +133,8 @@ function dueDate(period: string) {
   start.setUTCDate(start.getUTCDate() + 15)
   return start.toISOString().slice(0, 10)
 }
+
+const ALREADY_INVOICED = 'Already invoiced for this quarter'
 
 interface BillableFlat {
   id: string
@@ -198,7 +200,7 @@ async function priceInvoices(tx: DbExecutor, societyId: string, body: GenerateIn
   assertState(isQuarterStart(body.period), 'Maintenance is billed by the quarter: choose January, April, July or October')
   const period = firstOfMonth(body.period)
   const rate = await rateOn(tx, societyId, period)
-  assertState(rate !== undefined, 'Set the maintenance rates before generating invoices')
+  if (!rate) throw new AppError(409, 'RATE_NOT_CONFIGURED', 'Set the maintenance rates before generating invoices')
 
   const all = await billableFlats(tx, societyId)
   const wanted = body.flats === 'ALL' ? all : all.filter((flat) => flat.occupants > 0)
@@ -225,7 +227,7 @@ async function priceInvoices(tx: DbExecutor, societyId: string, body: GenerateIn
   for (const flat of wanted) {
     const name = `${flat.blockName}-${flat.number}`
     if (invoiced.has(flat.id)) {
-      skipped.push({ flat: name, reason: 'Already invoiced for this quarter' })
+      skipped.push({ flat: name, reason: ALREADY_INVOICED })
       continue
     }
     if (rate!.chargeBasis === 'PER_SQFT' && !flat.carpetAreaSqft) {
@@ -270,7 +272,14 @@ export function generateInvoices(ctx: AuthContext, societyId: string, body: Gene
   return db.transaction(async (tx) => {
     await loadSociety(tx, ctx, societyId)
     const priced = await priceInvoices(tx, societyId, body)
-    assertState(priced.lines.length > 0, 'There is nothing to invoice for this quarter')
+    if (priced.lines.length === 0) {
+      // Every candidate flat was skipped. A run that is simply being repeated is not a failure of
+      // eligibility, so it gets its own code and the frontend can say so.
+      const allInvoiced = priced.skipped.length > 0 && priced.skipped.every((row) => row.reason === ALREADY_INVOICED)
+      throw allInvoiced
+        ? new AppError(409, 'BILL_ALREADY_EXISTS', 'Every flat already has an invoice for this quarter')
+        : new AppError(422, 'NO_ELIGIBLE_FLATS', 'No flat qualifies for an invoice this quarter')
+    }
 
     const created = await tx
       .insert(invoices)
@@ -350,8 +359,49 @@ export async function listInvoices(ctx: AuthContext, societyId: string, query: L
       ),
     )
     .orderBy(desc(invoices.period), asc(blocks.name), asc(flats.number))
+    .limit(query.limit ?? Number.MAX_SAFE_INTEGER)
+    .offset(query.limit ? (query.page - 1) * query.limit : 0)
 
   return rows.map((row) => serializeInvoice(row.invoice, row, amount(row.paid)))
+}
+
+/**
+ * One invoice with what it is made of and what has been paid against it. An Admin or committee
+ * member may read any invoice in their own society; a Resident only one of their own flat's.
+ */
+export async function getInvoice(ctx: AuthContext, invoiceId: string) {
+  const invoice = await loadInvoice(db, ctx, invoiceId)
+  if (ctx.role === 'RESIDENT') await assertFlatAccess(ctx, invoice.flatId)
+
+  const [place] = await db
+    .select({ flatNumber: flats.number, blockName: blocks.name, floorLabel: floors.floorLabel })
+    .from(flats)
+    .innerJoin(blocks, eq(blocks.id, flats.blockId))
+    .innerJoin(floors, eq(floors.id, flats.floorId))
+    .where(eq(flats.id, invoice.flatId))
+
+  const received = await db
+    .select()
+    .from(payments)
+    .where(eq(payments.invoiceId, invoice.id))
+    .orderBy(desc(payments.receivedOn))
+  const settled = received.filter((payment) => payment.reversedAt === null)
+  const paid = settled.reduce((total, payment) => total + toPaise(amount(payment.amount)), 0)
+
+  const row = serializeInvoice(invoice, place!, fromPaise(paid))
+  return {
+    ...row,
+    // The charge components as the invoice was issued, so the detail view never re-prices anything
+    lines: [
+      { chargeType: 'MAINTENANCE', description: 'Maintenance', amount: row.maintenance },
+      { chargeType: 'SINKING_FUND', description: 'Sinking fund', amount: row.sinkingFund },
+      { chargeType: 'PARKING', description: 'Parking', amount: row.parkingCharge },
+      ...(row.oneTimeAmount
+        ? [{ chargeType: 'ONE_TIME', description: invoice.oneTimeDescription ?? 'One-time charge', amount: row.oneTimeAmount }]
+        : []),
+    ].filter((line) => line.amount > 0),
+    payments: received.map((payment) => ({ ...payment, amount: amount(payment.amount) })),
+  }
 }
 
 function serializeInvoice(

@@ -52,6 +52,10 @@ export const listInvoicesSchema = z.strictObject({
   period: period.optional(),
   flatId: z.uuid().optional(),
   status: z.enum(['UNPAID', 'OVERDUE', 'PARTIALLY_PAID', 'PAID', 'CANCELLED']).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  // ponytail: no default cap, so the existing panel keeps listing a whole society; give it a
+  // pager and a default limit when one society's invoices outgrow a single screen.
+  limit: z.coerce.number().int().min(1).max(200).optional(),
 })
 
 export const recordPaymentSchema = z.strictObject({

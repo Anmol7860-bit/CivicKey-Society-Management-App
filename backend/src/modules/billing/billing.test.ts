@@ -90,7 +90,7 @@ describe('rates', () => {
   it('refuses a second rate from the same date, and a rate of nothing', async () => {
     await setRates()
 
-    expect((await setRates()).status).toBe(409)
+    expect((await setRates()).body.error.code).toBe('RATE_PERIOD_CONFLICT')
     expect((await setRates({ ...RATES, rate: 0, effectiveFrom: '2026-02-01' })).status).toBe(422)
   })
 })
@@ -141,8 +141,8 @@ describe('invoices', () => {
 
     const res = await generate({ period: '2026-01' })
 
-    expect(res.status).toBe(400)
-    expect(res.body.error.code).toBe('INVALID_STATE')
+    expect(res.status).toBe(422)
+    expect(res.body.error.code).toBe('NO_ELIGIBLE_FLATS')
     const priced = await preview({ period: '2026-01' })
     expect(priced.body.data.skipped[0]).toMatchObject({
       reason: 'No carpet area on the flat',
@@ -152,8 +152,32 @@ describe('invoices', () => {
   it('needs rates before it can bill anything', async () => {
     const res = await generate({ period: '2026-01' })
 
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(409)
+    expect(res.body.error.code).toBe('RATE_NOT_CONFIGURED')
     expect(res.body.error.message).toMatch(/Set the maintenance rates/)
+  })
+
+  it('calls a repeat run a duplicate, not an empty quarter', async () => {
+    await setRates()
+    await generate({ period: '2026-01' })
+
+    const again = await generate({ period: '2026-01' })
+
+    expect(again.status).toBe(409)
+    expect(again.body.error.code).toBe('BILL_ALREADY_EXISTS')
+  })
+
+  it('hands out one page of invoices at a time when asked', async () => {
+    await setRates()
+    await occupiedFlat('102')
+    await generate({ period: '2026-01' })
+
+    const all = await api.get(`/societies/${TEST_SOCIETY_ID}/invoices`)
+    const page = await api.get(`/societies/${TEST_SOCIETY_ID}/invoices?page=2&limit=1`)
+
+    expect(all.body.data).toHaveLength(2)
+    expect(page.body.data).toHaveLength(1)
+    expect(page.body.data[0].id).toBe(all.body.data[1].id)
   })
 
   it('bills from the rate in force on the quarter start, not the newest one', async () => {
@@ -290,5 +314,44 @@ describe('quarters', () => {
       const quarter = await preview({ period: period! })
       expect(quarter.body.data.dueDate).toBe(due)
     }
+  })
+})
+
+describe('one invoice', () => {
+  async function invoiceFor(flat: string) {
+    await setRates()
+    await generate({ period: '2026-01' })
+    const [row] = await db.select().from(invoices).where(eq(invoices.flatId, flat))
+    return row!
+  }
+
+  it('shows what the invoice is made of and what has been paid against it', async () => {
+    const row = await invoiceFor(flatId)
+    await api.post(`/invoices/${row.id}/payments`, { amount: 4600, receivedOn: '2026-02-05' })
+
+    const res = await api.get(`/invoices/${row.id}`)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data).toMatchObject({ total: 4600, paid: 4600, outstanding: 0, status: 'PAID' })
+    expect(res.body.data.lines).toEqual([
+      { chargeType: 'MAINTENANCE', description: 'Maintenance', amount: 3500 },
+      { chargeType: 'SINKING_FUND', description: 'Sinking fund', amount: 500 },
+      { chargeType: 'PARKING', description: 'Parking', amount: 600 },
+    ])
+    expect(res.body.data.payments).toHaveLength(1)
+  })
+
+  it("lets the flat's own resident read it, and nobody else's", async () => {
+    const other = await occupiedFlat('104')
+    const row = await invoiceFor(flatId)
+    const otherInvoice = await db.select().from(invoices).where(eq(invoices.flatId, other.id))
+    const resident = await createUser({ phone: '9000000009', email: null, role: 'RESIDENT' })
+    await addResident(flatId, resident.id)
+    const token = await tokenFor(resident)
+
+    expect((await api.get(`/invoices/${row.id}`, token)).status).toBe(200)
+    const refused = await api.get(`/invoices/${otherInvoice[0]!.id}`, token)
+    expect(refused.status).toBe(403)
+    expect(refused.body.error.code).toBe('NOT_YOUR_FLAT')
   })
 })

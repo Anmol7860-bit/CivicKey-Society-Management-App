@@ -57,6 +57,16 @@ export function createBillingRouter() {
     })
   })
 
+  /** One invoice in full. A Resident reaches their own flat's; anyone else needs a billing permission. */
+  router.get(
+    '/invoices/:invoiceId',
+    requireAuth,
+    requirePermission('BILL_VIEW_OWN', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK', 'REPORT_VIEW'),
+    async (req, res) => {
+      res.json({ data: await service.getInvoice(req.ctx!, req.params.invoiceId as string) })
+    },
+  )
+
   router.get('/invoices/:invoiceId/payments', ...read, async (req, res) => {
     res.json({
       data: await service.listPayments(req.ctx!, req.params.invoiceId as string),
