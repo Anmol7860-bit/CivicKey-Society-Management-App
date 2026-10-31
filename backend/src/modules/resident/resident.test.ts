@@ -33,8 +33,11 @@ function ctxFor(userId: string): AuthContext {
 }
 const canAccess = (userId: string, id = flatId, write = false) => assertFlatAccess(ctxFor(userId), id, { write })
 
+/** The office has to have seen an ID, so every registration carries one unless it is the point */
+const ID = { idDocumentType: 'AADHAAR' as const, idNumber: '123456789012' }
+
 function register(body: object, id = flatId) {
-  return api.post(`/flats/${id}/residents`, body)
+  return api.post(`/flats/${id}/residents`, { ...ID, ...body })
 }
 
 beforeEach(async () => {
@@ -67,7 +70,7 @@ describe('authorization', () => {
 
 describe('owner registration', () => {
   it('creates the account, grants nothing until verified, then grants access', async () => {
-    const res = await register({ ...owner, email: 'Riya@Example.com', idDocumentType: 'AADHAAR', idDocumentLast4: '4321', proofReference: 'Deed/2024/88' })
+    const res = await register({ ...owner, email: 'Riya@Example.com', idNumber: '123456784321', proofReference: 'Deed/2024/88' })
 
     expect(res.status).toBe(201)
     expect(res.body.data).toMatchObject({
@@ -330,7 +333,16 @@ describe('government ID', () => {
   it('refuses a mismatched last 4 and an ID number with no document type', async () => {
     const mismatch = await register({ ...owner, idDocumentType: 'PAN', idNumber: 'ABCDE1234F', idDocumentLast4: '9999' })
     expect(mismatch.status).toBe(422)
-    expect((await register({ ...owner, idNumber: 'ABCDE1234F' })).status).toBe(422)
+    // Without the default identity: a number on its own does not say what document it is from
+    expect((await api.post(`/flats/${flatId}/residents`, { ...owner, idNumber: 'ABCDE1234F' })).status).toBe(422)
+  })
+
+  it('will not register anyone whose ID has not been seen', async () => {
+    const res = await api.post(`/flats/${flatId}/residents`, owner)
+
+    expect(res.status).toBe(422)
+    expect(res.body.error.details.fields.map((issue: { field: string }) => issue.field).sort()).toEqual(['idDocumentType', 'idNumber'])
+    expect(await db.select().from(flatResidents)).toHaveLength(0)
   })
 })
 

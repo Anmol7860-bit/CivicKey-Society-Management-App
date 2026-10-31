@@ -74,6 +74,9 @@ async function currentFlatOf(request: APIRequestContext, resident: SignedIn, gua
       residentType: 'OWNER',
       accessLevel: 'FULL',
       startDate: new Date().toISOString().slice(0, 10),
+      // The office records the ID it saw; registration is refused without one
+      idDocumentType: 'AADHAAR',
+      idNumber: '123456789012',
     },
   })
   expect(registered.ok(), await registered.text()).toBeTruthy()

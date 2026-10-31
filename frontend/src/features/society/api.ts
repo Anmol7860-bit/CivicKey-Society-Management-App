@@ -171,8 +171,10 @@ export interface RegisterResidentBody {
   accessLevel?: AccessLevel
   startDate?: string
   endDate?: string
-  idDocumentType?: IdDocumentType
-  idDocumentLast4?: string
+  /** Required: the office records the document it saw before anyone is registered */
+  idDocumentType: IdDocumentType
+  /** The whole number. The server encrypts it and keeps only its last 4 for display. */
+  idNumber: string
   proofReference?: string
 }
 

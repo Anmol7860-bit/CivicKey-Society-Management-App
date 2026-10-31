@@ -1,4 +1,6 @@
 import { today } from '../../lib/day'
+import eyeIcon from '../../assets/icons/eye.svg'
+import eyeOffIcon from '../../assets/icons/eye-off.svg'
 import { BadgeCheck, Building2, ShieldCheck, UserRound } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -85,6 +87,7 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
   const societyId = societies.data?.[0]?.id
   const occupancy = useResource(societyId ? () => getOccupancy(accessToken, societyId) : null, [accessToken, societyId])
 
+  const [showId, setShowId] = useState(false)
   const [form, setForm] = useState({
     name: '',
     dateOfBirth: '',
@@ -104,7 +107,7 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
     startDate: today(),
     endDate: '',
     idDocumentType: '',
-    idDocumentLast4: '',
+    idNumber: '',
     proofReference: '',
     consent: false,
   })
@@ -126,7 +129,10 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
 
   const isTenant = form.residentType === 'TENANT'
   // A tenancy's end date is optional: it is recorded on move-out, not promised on arrival
-  const ready = Boolean(form.name.trim() && form.phone.trim() && chosenFlat && form.startDate && form.consent)
+  // The office does not register anyone without seeing their ID, so it is part of being ready
+  const ready = Boolean(
+    form.name.trim() && form.phone.trim() && chosenFlat && form.startDate && form.idDocumentType && form.idNumber.trim() && form.consent,
+  )
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -148,15 +154,15 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
         : {}),
       ...(form.emergencyContactPhone.trim() ? { emergencyContactPhone: form.emergencyContactPhone.trim() } : {}),
       ...(isTenant && form.endDate ? { endDate: form.endDate } : {}),
-      ...(form.idDocumentType ? { idDocumentType: form.idDocumentType as RegisterResidentBody['idDocumentType'] } : {}),
-      ...(form.idDocumentLast4.trim() ? { idDocumentLast4: form.idDocumentLast4.trim().toUpperCase() } : {}),
+      idDocumentType: form.idDocumentType as RegisterResidentBody['idDocumentType'],
+      idNumber: form.idNumber.trim().toUpperCase(),
       ...(form.proofReference.trim() ? { proofReference: form.proofReference.trim() } : {}),
     }
     let code: LoginCode | null = null
     if (await action.run(async () => { code = (await registerResident(accessToken, chosenFlat, body)).loginCode })) {
       setRegistered(form.name.trim())
       setLoginCode(code)
-      setForm({ ...form, name: '', phone: '', email: '', idDocumentLast4: '', proofReference: '', consent: false })
+      setForm({ ...form, name: '', phone: '', email: '', idNumber: '', proofReference: '', consent: false })
     }
   }
 
@@ -364,20 +370,35 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
                     id="add-id-type"
                     label={t('area.admin.society.register.idType')}
                     options={ID_TYPES.map((type) => ({ value: type, label: t(`area.admin.society.residents.idType.${type}`) }))}
-                    placeholder={t('area.admin.society.register.noId')}
+                    placeholder={t('area.admin.society.register.chooseId')}
                     value={form.idDocumentType}
                     onChange={(event) => set('idDocumentType', event.target.value)}
                     error={action.fieldError('idDocumentType')}
+                    required
                   />
                   <TextField
-                    id="add-id-last4"
-                    label={t('area.admin.society.register.idLast4')}
-                    value={form.idDocumentLast4}
-                    onChange={(event) => set('idDocumentLast4', event.target.value)}
-                    error={action.fieldError('idDocumentLast4')}
-                    hint={t('area.admin.society.register.idLast4Hint')}
-                    maxLength={4}
+                    id="add-id-number"
+                    label={t('area.admin.society.register.idNumber')}
+                    type={showId ? 'text' : 'password'}
+                    autoComplete="off"
+                    value={form.idNumber}
+                    onChange={(event) => set('idNumber', event.target.value)}
+                    error={action.fieldError('idNumber')}
+                    hint={t('area.admin.society.register.idNumberHint')}
+                    maxLength={20}
+                    required
                     disabled={!form.idDocumentType}
+                    trailing={
+                      <button
+                        type="button"
+                        className="-m-1 flex cursor-pointer rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                        aria-label={showId ? t('area.admin.society.register.hideId') : t('area.admin.society.register.showId')}
+                        aria-pressed={showId}
+                        onClick={() => setShowId((visible) => !visible)}
+                      >
+                        <img src={showId ? eyeOffIcon : eyeIcon} alt="" width={17} height={17} />
+                      </button>
+                    }
                   />
                   <TextField
                     id="add-proof"
@@ -438,7 +459,7 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
               <div className="flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, name: '', phone: '', email: '', idDocumentLast4: '', proofReference: '', consent: false })}
+                  onClick={() => setForm({ ...form, name: '', phone: '', email: '', idNumber: '', proofReference: '', consent: false })}
                   className="h-[46px] cursor-pointer rounded-lg border border-line-strong bg-white px-4 text-[15px] font-semibold text-ink-soft hover:bg-canvas"
                 >
                   {t('shell.cancel')}

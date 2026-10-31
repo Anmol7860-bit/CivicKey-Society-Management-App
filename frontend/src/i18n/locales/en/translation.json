@@ -958,7 +958,12 @@
           "idLast4Hint": "Never the full number; only the last 4 characters are stored.",
           "proof": "Proof reference",
           "proofHint": "Sale deed or rent agreement reference.",
-          "done": "{{name}} registered and waiting for verification."
+          "done": "{{name}} registered and waiting for verification.",
+          "chooseId": "Choose the document",
+          "idNumber": "ID number",
+          "idNumberHint": "The whole number. It is hidden as you type, stored encrypted, and only its last 4 characters are shown again.",
+          "showId": "Show the ID number",
+          "hideId": "Hide the ID number"
         },
         "gates": {
           "title": "Gates",
@@ -1093,8 +1098,8 @@
         },
         "identity": {
           "title": "Identity verification",
-          "description": "Used by the society to verify who lives at the premises.",
-          "aadhaar": "Never type the full Aadhaar number. Only the document type and its last 4 characters are kept, and the number itself never reaches the database.",
+          "description": "Required. The society must see a government ID before anyone is registered to a flat.",
+          "aadhaar": "Type the number from the document itself. It is hidden as you type and stored encrypted; afterwards only the document type and its last 4 characters are ever shown.",
           "consent": "The person agreed to share this ID for society verification, and was told why it is collected and who can see it."
         },
         "emergency": {

@@ -26,6 +26,8 @@ async function fillRequired() {
   await userEvent.selectOptions(screen.getByLabelText(/^Block/), 'b1')
   await waitFor(() => expect(screen.getByLabelText(/^Flat \*/)).toBeEnabled())
   await userEvent.selectOptions(screen.getByLabelText(/^Flat \*/), 'fl1')
+  await userEvent.selectOptions(screen.getByLabelText(/ID type/), 'AADHAAR')
+  await userEvent.type(screen.getByLabelText(/^ID number/), '123456789012')
   await userEvent.click(screen.getByRole('checkbox'))
 }
 
@@ -69,10 +71,37 @@ it('keeps the submit disabled until the required fields and the consent are ther
   await waitFor(() => expect(screen.getByLabelText(/^Flat \*/)).toBeEnabled())
   await userEvent.selectOptions(screen.getByLabelText(/^Flat \*/), 'fl1')
 
-  // Everything the API needs is set, but the ID consent has not been ticked
+  // The flat is chosen, but the office has not recorded the ID it saw
   expect(submit).toBeDisabled()
+  await userEvent.selectOptions(screen.getByLabelText(/ID type/), 'AADHAAR')
+  await userEvent.type(screen.getByLabelText(/^ID number/), '123456789012')
+  expect(submit).toBeDisabled()
+
   await userEvent.click(screen.getByRole('checkbox'))
   expect(submit).toBeEnabled()
+})
+
+it('takes the whole ID number, hidden as it is typed, and sends it for storing', async () => {
+  mocked.registerResident.mockResolvedValue({} as never)
+  show()
+  await fillRequired()
+
+  const field = screen.getByLabelText(/^ID number/)
+  expect(field).toHaveAttribute('type', 'password')
+  await userEvent.click(screen.getByRole('button', { name: 'Show the ID number' }))
+  expect(screen.getByLabelText(/^ID number/)).toHaveAttribute('type', 'text')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Register resident' }))
+
+  await waitFor(() =>
+    expect(mocked.registerResident).toHaveBeenCalledWith(
+      'token',
+      'fl1',
+      expect.objectContaining({ idDocumentType: 'AADHAAR', idNumber: '123456789012' }),
+    ),
+  )
+  // The last 4 are never sent on their own any more
+  expect(mocked.registerResident.mock.calls[0]![2]).not.toHaveProperty('idDocumentLast4')
 })
 
 it('sends the profile details along with the registration', async () => {

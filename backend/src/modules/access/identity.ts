@@ -25,6 +25,15 @@ export const identitySchema = {
     .optional(),
 }
 
+/**
+ * The same two fields, required. A record that must carry proof of who someone is asks for the
+ * whole number: it is stored encrypted, and only its last 4 characters are ever shown again.
+ */
+export const identityRequired = {
+  idDocumentType: identitySchema.idDocumentType.unwrap(),
+  idNumber: identitySchema.idNumber.unwrap(),
+}
+
 export interface IdentityInput {
   idDocumentType?: (typeof idDocumentType.enumValues)[number] | undefined
   idNumber?: string | undefined

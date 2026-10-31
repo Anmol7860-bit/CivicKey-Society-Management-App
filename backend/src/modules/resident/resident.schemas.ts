@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { flatAccess, gender, residentType, verificationStatus } from '../../db/schema.js'
-import { identityRefinements, identitySchema } from '../access/identity.js'
+import { identityRefinements, identityRequired, identitySchema } from '../access/identity.js'
 
 const isoDate = z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD')
 const accessLevel = z.enum(flatAccess.enumValues)
@@ -31,6 +31,8 @@ export const registerResidentSchema = identityRefinements(
       /** Left out while the relationship runs; set on move-out */
       endDate: isoDate.optional(),
       ...identitySchema,
+      // The office does not register anyone without seeing their ID, so these two are required
+      ...identityRequired,
       /** Sale deed, rent agreement or other proof reference */
       proofReference: z.string().trim().min(1).max(200).optional(),
       /** Whether the gate may ask this person to approve a visitor. Defaults to their access level. */
