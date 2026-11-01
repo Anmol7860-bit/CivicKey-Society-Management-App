@@ -114,9 +114,9 @@ export function AppShell({ user, accessToken, onLogout, children }: ShellProps) 
             </NavLink>
           )}
           <RoleBadge user={user} />
-          <a href="/help" className="hidden rounded text-[13px] text-muted hover:text-ink sm:inline">
+          <NavLink to="/help" className="hidden rounded text-[13px] text-muted hover:text-ink sm:inline">
             {t('shell.help')}
-          </a>
+          </NavLink>
           {/* Only roles with a notifications destination get the bell */}
           {notifications && allowed(user, notifications) && (
             <NavLink

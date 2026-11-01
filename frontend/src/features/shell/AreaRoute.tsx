@@ -5,6 +5,7 @@ import { ActivityPage } from '../activity/ActivityPage'
 import { NotificationsPage } from '../activity/NotificationsPage'
 import type { AuthUser } from '../auth/api'
 import { Dashboard } from '../dashboard/Dashboard'
+import { HelpPage } from '../help/HelpPage'
 import { BillingPage } from '../billing/BillingPage'
 import { BillsPage } from '../gate/BillsPage'
 import { DailyHelpPage } from '../gate/DailyHelpPage'
@@ -91,7 +92,10 @@ export function AreaRoute({ user, accessToken, onLogout }: AreaRouteProps) {
   const item = area === config.area ? config.nav.find((entry) => entry.path === page) : undefined
 
   let content
-  if (area === config.area) {
+  if (area === 'help') {
+    // Every role reaches the help centre, so it sits outside the role areas
+    content = <HelpPage user={user} />
+  } else if (area === config.area) {
     if (!item) return <Navigate to={homePath(user.role)} replace />
     content = !allowed(user, item) ? (
       <AccessDenied user={user} path={pathname} />

@@ -1721,5 +1721,61 @@
     "hint": "JPEG, PNG or WebP, up to 5 MB. The photo is kept privately and shown only inside CivicKey.",
     "preview": "Photo",
     "uploading": "Uploading…"
+  },
+  "help": {
+    "title": "Help centre",
+    "intro": "Answers to the usual questions, and a way to tell the office when something is wrong.",
+    "report": {
+      "title": "Report a problem",
+      "description": "Describe what happened. The report below is filled in for you with the details support always asks for.",
+      "kind": "What kind of problem",
+      "kinds": {
+        "BUG": "Something in the app is broken",
+        "WRONG_DATA": "My details or records are wrong",
+        "ACCESS": "I cannot get into something I should see",
+        "SUGGESTION": "A suggestion",
+        "QUESTION": "A question"
+      },
+      "detail": "What happened",
+      "detailHint": "What you were doing, what you expected, and what happened instead.",
+      "preview": "Your report",
+      "privacy": "Only what you see here is sent. No password, token or ID number is included.",
+      "copy": "Copy report",
+      "copied": "Copied",
+      "email": "Email the office",
+      "subject": "CivicKey: {{kind}}",
+      "needDetail": "Write a sentence or two about what happened first.",
+      "fields": {
+        "kind": "Kind",
+        "detail": "What happened",
+        "role": "Role",
+        "reportedBy": "Reported by",
+        "at": "Reported at",
+        "browser": "Browser"
+      }
+    },
+    "questions": {
+      "title": "Common questions",
+      "password": {
+        "q": "I forgot my password. What now?",
+        "a": "Ask the society office for a login code. They issue a four-digit code that is good for 72 hours; enter it with your mobile number on the Set password screen and choose a new password."
+      },
+      "code": {
+        "q": "My login code does not work.",
+        "a": "A code works only for the number it was issued to, expires after 72 hours, and is retired after five wrong tries. Ask the office to issue a fresh one."
+      },
+      "approval": {
+        "q": "Why can I not approve a visitor?",
+        "a": "Only the resident with full access to the flat is asked. While a tenant is living there, the owner can see visits but cannot decide them. After three minutes with no answer, the decision passes to the guard at the gate."
+      },
+      "offline": {
+        "q": "The guard app says an entry is waiting to sync.",
+        "a": "The entry is saved on that device and will upload by itself once there is a connection. Sync now on the guard home screen asks it to try straight away. Nothing is lost while it waits."
+      },
+      "bill": {
+        "q": "My bill or payment looks wrong.",
+        "a": "Issued bills are never recalculated, so a correction is added as a separate charge. Report it here with the invoice number and the office will look at it."
+      }
+    }
   }
 }
