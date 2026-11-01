@@ -262,7 +262,7 @@ describe('the account a guard signs in with', () => {
     const res = await api.post(`/staff/${member.id}/account`)
     expect(res.status).toBe(201)
     expect(res.body.data.account).toMatchObject({ name: 'Mahesh Patil', isActive: true })
-    expect(res.body.data.loginCode.code).toMatch(/^[A-Z0-9-]{12,}$/)
+    expect(res.body.data.loginCode.code).toMatch(/^[0-9]{4}$/)
 
     const [row] = await db.select().from(staff).where(eq(staff.id, member.id))
     const [account] = await db.select().from(users).where(eq(users.id, row!.userId!))

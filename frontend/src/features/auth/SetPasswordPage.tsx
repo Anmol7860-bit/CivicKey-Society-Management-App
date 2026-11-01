@@ -8,6 +8,9 @@ import { ApiError, forgotPassword, setPassword } from './api'
 import { AuthLayout } from './components/AuthLayout'
 import { isValidPhone, normalizePhone, formatPhone, COUNTRY_CODE } from './phone'
 
+/** The office hands over four digits. */
+const CODE_LENGTH = 4
+
 /** Mirrors the backend rule, so the obvious mistakes are caught before a round trip. */
 const isStrong = (value: string) => value.length >= 10 && /[A-Za-z]/.test(value) && /\d/.test(value)
 
@@ -31,6 +34,7 @@ function Card({ title, description, children }: { title: string; description: st
 export function SetPasswordPage() {
   const { t } = useTranslation()
   const [code, setCode] = useState('')
+  const [codePhone, setCodePhone] = useState('')
   const [password, setPassword_] = useState('')
   const [confirm, setConfirm] = useState('')
   const [phone, setPhone] = useState('')
@@ -38,7 +42,7 @@ export function SetPasswordPage() {
   const [pending, setPending] = useState<'code' | 'ask' | null>(null)
   const [done, setDone] = useState<'set' | 'asked' | null>(null)
 
-  const ready = code.trim().length > 0 && isStrong(password) && password === confirm
+  const ready = code.length === CODE_LENGTH && isValidPhone(codePhone) && isStrong(password) && password === confirm
 
   async function handleSet(event: FormEvent) {
     event.preventDefault()
@@ -46,7 +50,7 @@ export function SetPasswordPage() {
     setPending('code')
     setError(null)
     try {
-      await setPassword(code.trim(), password)
+      await setPassword(codePhone, code, password)
       setDone('set')
       setCode('')
       setPassword_('')
@@ -105,14 +109,31 @@ export function SetPasswordPage() {
           <Card title={t('auth.setPassword.have.title')} description={t('auth.setPassword.have.description')}>
             <form className="flex flex-col gap-4" onSubmit={handleSet} noValidate>
               <TextField
+                id="setup-phone"
+                label={t('auth.login.phoneLabel')}
+                placeholder={t('auth.login.phonePlaceholder')}
+                inputMode="numeric"
+                autoComplete="tel-national"
+                value={formatPhone(codePhone)}
+                onChange={(event) => setCodePhone(normalizePhone(event.target.value))}
+                hint={t('auth.setPassword.have.phoneHint')}
+                leading={
+                  <>
+                    <img src={smartphoneIcon} alt="" width={17} height={17} />
+                    <span className="text-[15px] font-semibold text-ink-soft">{COUNTRY_CODE}</span>
+                  </>
+                }
+              />
+              <TextField
                 id="setup-code"
                 label={t('auth.setPassword.have.codeLabel')}
-                placeholder="XXXX-XXXX-XXXX"
+                placeholder="1234"
+                inputMode="numeric"
                 value={code}
-                onChange={(event) => setCode(event.target.value.toUpperCase())}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, CODE_LENGTH))}
                 hint={t('auth.setPassword.have.codeHint')}
                 autoComplete="one-time-code"
-                maxLength={20}
+                maxLength={CODE_LENGTH}
                 leading={<img src={keyRoundIcon} alt="" width={17} height={17} />}
               />
               <TextField

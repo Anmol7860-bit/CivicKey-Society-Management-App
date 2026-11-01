@@ -56,14 +56,15 @@
       "intro": "The society office issues a one-time code. Use it here to choose your own password.",
       "have": {
         "title": "I have a code",
-        "description": "Enter the code the office gave you and choose a password. The code works once.",
+        "description": "Enter your mobile number and the four-digit code the office gave you, then choose a password. The code works once.",
         "codeLabel": "One-time code",
-        "codeHint": "Twelve letters and numbers. Spaces and dashes are fine.",
+        "codeHint": "The four digits the office gave you.",
         "passwordLabel": "New password",
         "passwordHint": "At least 10 characters, with a letter and a number.",
         "confirmLabel": "Repeat the password",
         "mismatch": "Both passwords must match.",
-        "submit": "Set password"
+        "submit": "Set password",
+        "phoneHint": "The number the office registered you with."
       },
       "ask": {
         "title": "I need a code",
@@ -991,10 +992,10 @@
         "loginCode": {
           "title": "One-time login code for {{name}}",
           "expires": "Works once, until {{date}}.",
-          "hint": "Hand it over in person or send it yourself: CivicKey does not send messages yet. They set their own password with it.",
+          "hint": "Hand it over in person or send it yourself: CivicKey does not send messages yet. They enter their mobile number and these four digits to set their own password.",
           "copy": "Copy",
           "share": "Share on WhatsApp",
-          "shareText": "Your CivicKey one-time code is {{code}}. Open the app, tap \"Forgot password?\" and use it to set your password. It works once."
+          "shareText": "Your CivicKey one-time code is {{code}}. Open the app, tap \"Forgot password?\", enter your mobile number and this code to set your password. It works once."
         },
         "settings": {
           "title": "Society settings",

@@ -90,10 +90,11 @@ export function forgotPassword(phone: string) {
 }
 
 /** POST /auth/set-password. Spends the one-time code the society office handed over. */
-export function setPassword(code: string, password: string) {
+/** The code is four digits, so it only counts together with the number it was issued for. */
+export function setPassword(phone: string, code: string, password: string) {
   return send<{ passwordSet: true }>('/api/v1/auth/set-password', {
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, password }),
+    body: JSON.stringify({ phone, code, password }),
   })
 }
 

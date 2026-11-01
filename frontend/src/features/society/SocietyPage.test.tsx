@@ -303,7 +303,7 @@ describe('registration review', () => {
   it('issues a login code for a resident who cannot sign in', async () => {
     mocked.listResidents.mockResolvedValue([pending])
     mocked.issueLoginCode.mockResolvedValue({
-      code: 'MWRT-4K9P-2BHD',
+      code: '4821',
       expiresAt: '2026-10-26T10:00:00.000Z',
       user: { id: 'u9', name: 'Arjun Nair' },
     })
@@ -313,7 +313,7 @@ describe('registration review', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Login code' }))
 
     await waitFor(() => expect(mocked.issueLoginCode).toHaveBeenCalledWith('token', 'u9'))
-    expect(await screen.findByText('MWRT-4K9P-2BHD')).toBeInTheDocument()
+    expect(await screen.findByText('4821')).toBeInTheDocument()
   })
 
   it('takes a reason when rejecting', async () => {

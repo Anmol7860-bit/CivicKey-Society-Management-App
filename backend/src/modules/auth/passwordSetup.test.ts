@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import request from 'supertest'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { auditLogs, authSessions, passwordSetupCodes, users } from '../../db/schema.js'
+import { auditLogs, authRateLimitBuckets, authSessions, passwordSetupCodes, users } from '../../db/schema.js'
 import { createFlat, createUser, grantPermissions, PASSWORD, postLogin, TEST_SOCIETY_ID, type App, signTestToken } from '../../test/helpers.js'
 
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
@@ -35,8 +35,11 @@ const PERSON = {
   idNumber: '123456789012',
 }
 
+/** The resident every test here registers */
+const PHONE = '9811111111'
+
 /** Registers a resident and returns the code the Admin is handed. */
-async function registerResident(phone = '9811111111') {
+async function registerResident(phone = PHONE) {
   const res = await api.post(`/flats/${flatId}/residents`, { name: 'Riya Sharma', phone, residentType: 'OWNER', ...PERSON }, auth)
   expect(res.status).toBe(201)
   return res.body.data
@@ -52,12 +55,13 @@ describe('a resident the office registered', () => {
   it('comes with a one-time code, and sets a password with it', async () => {
     const { loginCode, user } = await registerResident()
 
-    expect(loginCode.code).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/)
+    // Four digits, as the office hands over on the phone
+    expect(loginCode.code).toMatch(/^[0-9]{4}$/)
     expect(new Date(loginCode.expiresAt).getTime()).toBeGreaterThan(Date.now())
     // Until the code is spent, nothing the Admin typed is a password for that account
     expect((await postLogin(app, { phone: '9811111111', password: PASSWORD })).status).toBe(401)
 
-    const set = await api.post('/auth/set-password', { code: loginCode.code, password: NEW_PASSWORD })
+    const set = await api.post('/auth/set-password', { phone: PHONE, code: loginCode.code, password: NEW_PASSWORD })
     expect(set.status).toBe(200)
     expect(set.body.data).toEqual({ passwordSet: true })
 
@@ -73,17 +77,56 @@ describe('a resident the office registered', () => {
     expect(stored!.codeHash).toMatch(/^[0-9a-f]{64}$/)
     expect(JSON.stringify(stored)).not.toContain(loginCode.code.replace(/-/g, ''))
 
-    expect((await api.post('/auth/set-password', { code: loginCode.code, password: NEW_PASSWORD })).status).toBe(200)
-    const again = await api.post('/auth/set-password', { code: loginCode.code, password: 'Another2026one' })
+    expect((await api.post('/auth/set-password', { phone: PHONE, code: loginCode.code, password: NEW_PASSWORD })).status).toBe(200)
+    const again = await api.post('/auth/set-password', { phone: PHONE, code: loginCode.code, password: 'Another2026one' })
     expect(again.status).toBe(400)
     expect(again.body.error.code).toBe('INVALID_CODE')
   })
 
-  it('accepts the code with spaces, dashes or lower case', async () => {
+  it('accepts the code however it was typed', async () => {
     const { loginCode } = await registerResident()
-    const typed = ` ${loginCode.code.replace(/-/g, ' ').toLowerCase()} `
+    const typed = ` ${loginCode.code.split('').join(' ')} `
 
-    expect((await api.post('/auth/set-password', { code: typed, password: NEW_PASSWORD })).status).toBe(200)
+    expect((await api.post('/auth/set-password', { phone: PHONE, code: typed, password: NEW_PASSWORD })).status).toBe(200)
+  })
+
+  it('counts only for its own account', async () => {
+    const { loginCode } = await registerResident()
+    const other = await createUser({ phone: '9877777777', email: null })
+
+    // The same four digits against another account are just four digits
+    const wrong = await api.post('/auth/set-password', { phone: other.phone, code: loginCode.code, password: NEW_PASSWORD })
+    expect(wrong.status).toBe(400)
+    expect((await postLogin(app, { phone: other.phone!, password: NEW_PASSWORD })).status).toBe(401)
+
+    expect((await api.post('/auth/set-password', { phone: PHONE, code: loginCode.code, password: NEW_PASSWORD })).status).toBe(200)
+  })
+
+  it('retires the code after five wrong tries, which is what makes four digits enough', async () => {
+    const { loginCode } = await registerResident()
+    const wrong = String((Number(loginCode.code) + 1) % 10_000).padStart(4, '0')
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect((await api.post('/auth/set-password', { phone: PHONE, code: wrong, password: NEW_PASSWORD })).status).toBe(400)
+    }
+
+    const [spent] = await db.select().from(passwordSetupCodes)
+    expect(spent!.attempts).toBe(5)
+    expect(spent!.usedAt).not.toBeNull()
+    // Even with the number's own throttle out of the way, the code itself is gone
+    await db.delete(authRateLimitBuckets)
+    expect((await api.post('/auth/set-password', { phone: PHONE, code: loginCode.code, password: NEW_PASSWORD })).status).toBe(400)
+  })
+
+  it('locks the number after too many wrong tries', async () => {
+    await registerResident()
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await api.post('/auth/set-password', { phone: PHONE, code: '0000', password: NEW_PASSWORD })
+    }
+
+    const res = await api.post('/auth/set-password', { phone: PHONE, code: '0000', password: NEW_PASSWORD })
+    expect(res.status).toBe(429)
   })
 
   it('leaves an existing account its own password', async () => {
@@ -105,8 +148,8 @@ describe('POST /api/v1/users/:userId/login-code', () => {
     expect(res.body.data.user).toEqual({ id: user.id, name: 'Riya Sharma' })
     expect(res.headers['cache-control']).toBe('no-store')
 
-    expect((await api.post('/auth/set-password', { code: loginCode.code, password: NEW_PASSWORD })).status).toBe(400)
-    expect((await api.post('/auth/set-password', { code: res.body.data.code, password: NEW_PASSWORD })).status).toBe(200)
+    expect((await api.post('/auth/set-password', { phone: PHONE, code: loginCode.code, password: NEW_PASSWORD })).status).toBe(400)
+    expect((await api.post('/auth/set-password', { phone: PHONE, code: res.body.data.code, password: NEW_PASSWORD })).status).toBe(200)
   })
 
   it('needs USER_MANAGE, the same society, and a real account', async () => {
@@ -138,7 +181,7 @@ describe('setting a password', () => {
     const { loginCode } = await registerResident()
 
     for (const password of ['short1', 'allletterspassword', '1234567890123']) {
-      const res = await api.post('/auth/set-password', { code: loginCode.code, password })
+      const res = await api.post('/auth/set-password', { phone: PHONE, code: loginCode.code, password })
       expect(res.status).toBe(422)
       expect(res.body.error.code).toBe('VALIDATION_ERROR')
     }
@@ -150,7 +193,7 @@ describe('setting a password', () => {
     const [target] = await db.select().from(users).where(eq(users.phone, '9844444444'))
     const code = (await api.post(`/users/${target!.id}/login-code`, {}, auth)).body.data.code
 
-    expect((await api.post('/auth/set-password', { code, password: NEW_PASSWORD })).status).toBe(200)
+    expect((await api.post('/auth/set-password', { phone: '9844444444', code, password: NEW_PASSWORD })).status).toBe(200)
 
     const [session] = await db.select().from(authSessions).where(eq(authSessions.userId, target!.id))
     expect(session!.revokedAt).not.toBeNull()
@@ -163,7 +206,7 @@ describe('setting a password', () => {
     const { loginCode } = await registerResident()
     await db.update(passwordSetupCodes).set({ expiresAt: new Date(Date.now() - 1000) })
 
-    expect((await api.post('/auth/set-password', { code: loginCode.code, password: NEW_PASSWORD })).status).toBe(400)
+    expect((await api.post('/auth/set-password', { phone: PHONE, code: loginCode.code, password: NEW_PASSWORD })).status).toBe(400)
   })
 })
 

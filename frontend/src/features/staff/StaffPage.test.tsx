@@ -223,14 +223,14 @@ it('creates the login a guard signs in with and shows the code to hand over', as
   mocked.linkAccount.mockResolvedValue({
     ...guard({ account }),
     account,
-    loginCode: { code: 'MWRT-4K9P-2BHD', expiresAt: '2026-10-30T10:00:00.000Z', user: { id: 'u9', name: 'Mahesh Patil' } },
+    loginCode: { code: '4821', expiresAt: '2026-10-30T10:00:00.000Z', user: { id: 'u9', name: 'Mahesh Patil' } },
   })
   show()
 
   expect(await screen.findByText('No login yet')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Create login' }))
 
-  expect(await screen.findByText('MWRT-4K9P-2BHD')).toBeInTheDocument()
+  expect(await screen.findByText('4821')).toBeInTheDocument()
   expect(mocked.linkAccount).toHaveBeenCalledWith('token', 'st1')
 })
 

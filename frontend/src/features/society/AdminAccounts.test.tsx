@@ -53,7 +53,7 @@ it('creates the account with the permissions that were ticked, and hands over th
   mocked.createAdmin.mockResolvedValue({
     user: { id: 'u3', name: 'Nisha Kulkarni', phone: '9700000001', email: null, idDocumentType: 'AADHAAR', idDocumentLast4: '9012', idDocumentOnFile: true },
     permissions: ['SOCIETY_MANAGE'],
-    loginCode: { code: 'MWRT-4K9P-2BHD', expiresAt: '2026-11-02T10:00:00.000Z', user: { id: 'u3', name: 'Nisha Kulkarni' } },
+    loginCode: { code: '4821', expiresAt: '2026-11-02T10:00:00.000Z', user: { id: 'u3', name: 'Nisha Kulkarni' } },
   })
   show()
 
@@ -86,7 +86,7 @@ it('creates the account with the permissions that were ticked, and hands over th
       idNumber: '123456789012',
     }),
   )
-  expect(await screen.findByText('MWRT-4K9P-2BHD')).toBeInTheDocument()
+  expect(await screen.findByText('4821')).toBeInTheDocument()
 })
 
 it('never offers a gate or resident permission', async () => {

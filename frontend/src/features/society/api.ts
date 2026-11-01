@@ -140,7 +140,7 @@ export interface MyAssignment extends Resident {
 }
 
 export interface LoginCode {
-  /** Grouped in fours, e.g. MWRT-4K9P-2BHD */
+  /** The four digits the office hands over, e.g. 4821 */
   code: string
   expiresAt: string
   user: { id: string; name: string }

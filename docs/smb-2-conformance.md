@@ -14,6 +14,7 @@ for Jira to settle.
 | Refresh rotation | Every refresh issues a new token and marks the old one used | Done |
 | Reuse / replay | An already-rotated token revokes the whole session and its token family | Done |
 | Logout | Revokes the session and every refresh token in its family, and clears the cookie | Done |
+| One-time login code | **Four digits**, as the office asked. A code counts only with the account's own mobile number, its hash is keyed and bound to that account, and five wrong tries retire it; the number's login throttle counts the failures too | Done |
 | Page reload | Restores the session from the HttpOnly cookie through one rotation; never revokes | Done |
 
 ### Where it lives
@@ -34,6 +35,8 @@ for Jira to settle.
 | Two concurrent refreshes with one token: only one succeeds | `backend/src/modules/auth/refresh.test.ts` |
 | Logout revokes the session and all its refresh tokens, and is idempotent | `backend/src/modules/auth/logout.test.ts` |
 | A revoked session's unexpired access token is refused | `backend/src/middleware/requireAuth.test.ts` |
+| A four-digit code sets a password, once, for its own account only | `backend/src/modules/auth/passwordSetup.test.ts` |
+| Five wrong tries retire the code, and the number is locked | `passwordSetup.test.ts` |
 | Reload keeps the user signed in | `frontend/e2e/auth.e2e.ts` AUTH-UI-024 |
 | The token is swapped shortly before the 6 hours are up | `frontend/e2e/auth.e2e.ts` AUTH-UI-020 |
 | A replayed refresh token returns the browser to login with a message | `frontend/e2e/auth.e2e.ts` AUTH-UI-021 |

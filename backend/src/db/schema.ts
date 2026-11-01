@@ -464,10 +464,16 @@ export const passwordSetupCodes = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    /** SHA-256 of the code; the code itself is never stored or logged */
-    codeHash: varchar('code_hash', { length: 64 }).notNull().unique(),
+    /**
+     * Keyed HMAC-SHA256 of `setup:<user id>:<code>`; the code itself is never stored or logged.
+     * Not unique: a 4-digit code is short enough that two accounts can hold the same one, and the
+     * hash is bound to the account so one account's code never matches another's.
+     */
+    codeHash: varchar('code_hash', { length: 64 }).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     usedAt: timestamp('used_at', { withTimezone: true }),
+    /** Wrong tries against this code. The code is retired once they run out, so 4 digits hold. */
+    attempts: integer('attempts').notNull().default(0),
     /** The Admin who issued it; null once that account is deleted */
     issuedBy: uuid('issued_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

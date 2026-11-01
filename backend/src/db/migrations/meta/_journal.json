@@ -274,6 +274,13 @@
       "when": 1793544430207,
       "tag": "0038_admin_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1793544944834,
+      "tag": "0039_four_digit_setup_codes",
+      "breakpoints": true
     }
   ]
 }

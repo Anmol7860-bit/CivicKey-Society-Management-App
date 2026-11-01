@@ -58,7 +58,7 @@ describe('POST /api/v1/societies/:societyId/admins', () => {
       user: { name: 'Nisha Kulkarni', phone: '9700000001' },
       permissions: ['SOCIETY_MANAGE', 'USER_MANAGE'],
     })
-    expect(res.body.data.loginCode.code).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/)
+    expect(res.body.data.loginCode.code).toMatch(/^[0-9]{4}$/)
     expect(res.headers['cache-control']).toBe('no-store')
     const created = res.body.data.user.id
     expect(await loadRole(db, created)).toBe('ADMIN')
