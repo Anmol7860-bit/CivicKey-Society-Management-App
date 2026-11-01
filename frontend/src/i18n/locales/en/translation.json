@@ -1200,6 +1200,15 @@
           },
           "identity": {
             "title": "Identity verification"
+          },
+          "missing": {
+            "still": "Still needed: {{fields}}",
+            "name": "full name",
+            "phone": "mobile number",
+            "idType": "ID type",
+            "idNumber": "ID number",
+            "consent": "the consent tick",
+            "permissions": "at least one permission"
           }
         }
       },

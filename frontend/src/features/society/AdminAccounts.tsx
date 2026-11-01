@@ -98,14 +98,19 @@ export function AdminAccounts({ accessToken, societyId }: { accessToken: string;
 
   // The office records the document it saw for an Admin too; only the committee path skips it,
   // because a committee member's ID is already on file with their flat registration
-  const ready = Boolean(
-    form.name.trim() &&
-      form.phone.trim() &&
-      form.idDocumentType &&
-      form.idNumber.trim() &&
-      form.consent &&
-      form.permissions.length > 0,
+  const missing = (
+    [
+      [!form.name.trim(), 'name'],
+      [!form.phone.trim(), 'phone'],
+      [!form.idDocumentType, 'idType'],
+      [!form.idNumber.trim(), 'idNumber'],
+      [!form.consent, 'consent'],
+      [form.permissions.length === 0, 'permissions'],
+    ] as const
   )
+    .filter(([absent]) => absent)
+    .map(([, key]) => t(`area.admin.addUser.admin.missing.${key}`))
+  const ready = missing.length === 0
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -242,7 +247,13 @@ export function AdminAccounts({ accessToken, societyId }: { accessToken: string;
           {create.error && <ErrorState message={create.error} />}
           {create.fieldError('permissions') && <p className="text-[13px] text-red-700">{create.fieldError('permissions')}</p>}
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {/* A disabled button that says nothing reads as a broken button */}
+            {!ready && (
+              <p className="text-[12px] text-muted">
+                {t('area.admin.addUser.admin.missing.still', { fields: missing.join(', ') })}
+              </p>
+            )}
             <div className="w-[240px]">
               <Button type="submit" disabled={create.pending || !ready}>
                 {create.pending ? t('shell.saving') : t('area.admin.addUser.admin.create')}

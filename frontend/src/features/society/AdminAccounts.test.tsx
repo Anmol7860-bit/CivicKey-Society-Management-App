@@ -89,6 +89,15 @@ it('creates the account with the permissions that were ticked, and hands over th
   expect(await screen.findByText('4821')).toBeInTheDocument()
 })
 
+it('says what the disabled create button is still waiting for', async () => {
+  show()
+  await screen.findByRole('button', { name: 'Create the Admin account' })
+
+  expect(screen.getByText(/Still needed: full name, mobile number, ID type, ID number, the consent tick, at least one permission/)).toBeInTheDocument()
+  await userEvent.type(screen.getByLabelText(/Full name/), 'Nisha Kulkarni')
+  expect(screen.getByText(/Still needed: mobile number/)).toBeInTheDocument()
+})
+
 it('never offers a gate or resident permission', async () => {
   show()
   await screen.findByRole('button', { name: 'Create the Admin account' })
