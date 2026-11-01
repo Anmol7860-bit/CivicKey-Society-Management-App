@@ -22,6 +22,9 @@ const anAdmin = (overrides: Partial<AdminAccount> = {}): AdminAccount => ({
   email: null,
   isActive: true,
   resident: false,
+  idDocumentType: 'AADHAAR',
+  idDocumentLast4: '9012',
+  idDocumentOnFile: true,
   permissions: ['USER_MANAGE'],
   ...overrides,
 })
@@ -48,7 +51,7 @@ const show = () => render(<AdminAccounts accessToken="token" societyId="s1" />)
 
 it('creates the account with the permissions that were ticked, and hands over the code', async () => {
   mocked.createAdmin.mockResolvedValue({
-    user: { id: 'u3', name: 'Nisha Kulkarni', phone: '9700000001', email: null },
+    user: { id: 'u3', name: 'Nisha Kulkarni', phone: '9700000001', email: null, idDocumentType: 'AADHAAR', idDocumentLast4: '9012', idDocumentOnFile: true },
     permissions: ['SOCIETY_MANAGE'],
     loginCode: { code: 'MWRT-4K9P-2BHD', expiresAt: '2026-11-02T10:00:00.000Z', user: { id: 'u3', name: 'Nisha Kulkarni' } },
   })
@@ -59,6 +62,13 @@ it('creates the account with the permissions that were ticked, and hands over th
   await userEvent.type(screen.getByLabelText(/Full name/), 'Nisha Kulkarni')
   await userEvent.type(screen.getByLabelText(/Mobile number/), '9700000001')
   // Nothing ticked yet, so there is nothing this Admin could do
+  expect(submit).toBeDisabled()
+
+  await userEvent.selectOptions(screen.getByLabelText(/ID type/), 'AADHAAR')
+  await userEvent.type(screen.getByLabelText(/^ID number/), '123456789012')
+  expect(screen.getByLabelText(/^ID number/)).toHaveAttribute('type', 'password')
+  await userEvent.click(screen.getByRole('checkbox', { name: /agreed to share this ID/ }))
+  // The document is recorded, but the account still may not do anything
   expect(submit).toBeDisabled()
 
   await userEvent.click(screen.getByRole('checkbox', { name: /Society, blocks and flats/ }))
@@ -72,6 +82,8 @@ it('creates the account with the permissions that were ticked, and hands over th
       name: 'Nisha Kulkarni',
       phone: '9700000001',
       permissions: ['SOCIETY_MANAGE', 'REPORT_VIEW'],
+      idDocumentType: 'AADHAAR',
+      idNumber: '123456789012',
     }),
   )
   expect(await screen.findByText('MWRT-4K9P-2BHD')).toBeInTheDocument()
@@ -82,7 +94,8 @@ it('never offers a gate or resident permission', async () => {
   await screen.findByRole('button', { name: 'Create the Admin account' })
 
   expect(screen.queryByRole('checkbox', { name: /visitor/i })).not.toBeInTheDocument()
-  expect(screen.getAllByRole('checkbox')).toHaveLength(14)
+  // 10 assignable permissions, the consent tick, and the four committee boxes again below
+  expect(screen.getAllByRole('checkbox')).toHaveLength(15)
 })
 
 it('gives a resident committee access from the list of residents', async () => {
@@ -116,5 +129,5 @@ it('lists who is an Admin today and what they hold', async () => {
 
   await screen.findByText('Anita Rao')
 
-  expect(screen.getByRole('listitem')).toHaveTextContent('Anita Rao9876543212OfficeResidents and accounts')
+  expect(screen.getByRole('listitem')).toHaveTextContent('Anita Rao9876543212OfficeAadhaar ····9012 on fileResidents and accounts')
 })

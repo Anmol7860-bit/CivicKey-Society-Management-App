@@ -70,7 +70,7 @@ it('opens the Admin account forms on the Admin role', async () => {
   expect(await screen.findByRole('button', { name: 'Create the Admin account' })).toBeInTheDocument()
   expect(screen.getByText('Committee member')).toBeInTheDocument()
   // The resident form is not on screen, so nothing of it can be submitted by mistake
-  expect(screen.queryByLabelText(/^ID number/)).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Register resident' })).not.toBeInTheDocument()
 })
 
 it('keeps the submit disabled until the required fields and the consent are there', async () => {

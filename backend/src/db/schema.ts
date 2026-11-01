@@ -132,6 +132,16 @@ export const users = pgTable(
     emergencyContactName: varchar('emergency_contact_name', { length: 120 }),
     emergencyContactRelationship: varchar('emergency_contact_relationship', { length: 60 }),
     emergencyContactPhone: varchar('emergency_contact_phone', { length: 15 }),
+    /**
+     * The document the office saw when it created this account. Residents and staff carry the
+     * same four columns on their own record; an Admin has no such record, so they live here.
+     */
+    idDocumentType: idDocumentType('id_document_type'),
+    /** Keyed HMAC-SHA256 of the ID number. The number itself is never stored or returned. */
+    idDocumentHash: varchar('id_document_hash', { length: 64 }),
+    /** The number itself, as base64(nonce || AES-256-GCM tag || ciphertext); never served as is */
+    idDocumentEncrypted: text('id_document_encrypted'),
+    idDocumentLast4: varchar('id_document_last4', { length: 4 }),
     isActive: boolean('is_active').notNull().default(true),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -140,6 +150,7 @@ export const users = pgTable(
   (table) => [
     check('users_login_identifier_present', sql`${table.phone} is not null or ${table.email} is not null`),
     check('users_email_lowercase', sql`${table.email} = lower(${table.email})`),
+    check('users_id_document_hash_hmac', sql`${table.idDocumentHash} is null or ${table.idDocumentHash} ~ '^[0-9a-f]{64}$'`),
     // Widened when a locale is added; the UI only offers what i18n can render
     check(
       'users_preferred_language_supported',

@@ -32,7 +32,15 @@ async function activeGrants(userId: string) {
   return rows.map((row) => row.code).sort()
 }
 
-const newAdmin = { name: 'Nisha Kulkarni', phone: '9700000001', email: 'nisha@civickey.local', permissions: ['SOCIETY_MANAGE', 'USER_MANAGE'] }
+/** The office records the document it saw, exactly as it does for a resident */
+const ID = { idDocumentType: 'AADHAAR' as const, idNumber: '123456789012' }
+const newAdmin = {
+  name: 'Nisha Kulkarni',
+  phone: '9700000001',
+  email: 'nisha@civickey.local',
+  permissions: ['SOCIETY_MANAGE', 'USER_MANAGE'],
+  ...ID,
+}
 
 beforeEach(async () => {
   const actor = await createUser({ name: 'Anita Rao', phone: '9000000001', email: null, role: 'ADMIN' })
@@ -97,6 +105,61 @@ describe('POST /api/v1/societies/:societyId/admins', () => {
   })
 })
 
+describe('the document behind an Admin account', () => {
+  it('stores the whole number encrypted and shows only its last 4', async () => {
+    const res = await api.post(`/societies/${TEST_SOCIETY_ID}/admins`, newAdmin)
+
+    expect(res.body.data.user).toMatchObject({ idDocumentType: 'AADHAAR', idDocumentLast4: '9012', idDocumentOnFile: true })
+    const [row] = await db.select().from(users).where(eq(users.id, res.body.data.user.id))
+    expect(row!.idDocumentHash).toMatch(/^[0-9a-f]{64}$/)
+    expect(row!.idDocumentEncrypted).toBeTruthy()
+    // The number itself is never in a response, and neither is anything it could be guessed from
+    expect(JSON.stringify(res.body)).not.toContain('123456789012')
+    expect(res.body.data.user).not.toHaveProperty('idDocumentHash')
+    expect(res.body.data.user).not.toHaveProperty('idDocumentEncrypted')
+  })
+
+  it('will not create an Admin whose document has not been seen', async () => {
+    const { idDocumentType: _type, idNumber: _number, ...withoutId } = newAdmin
+    const res = await api.post(`/societies/${TEST_SOCIETY_ID}/admins`, withoutId)
+
+    expect(res.status).toBe(422)
+    expect(res.body.error.details.fields.map((issue: { field: string }) => issue.field).sort()).toEqual(['idDocumentType', 'idNumber'])
+    expect(await db.select().from(users).where(eq(users.phone, '9700000001'))).toHaveLength(0)
+  })
+
+  it('records the document for the resident it promotes', async () => {
+    const resident = await createUser({ resident: 'OWNER' })
+
+    await api.post(`/societies/${TEST_SOCIETY_ID}/admins`, { ...newAdmin, phone: resident.phone, email: undefined })
+
+    const [row] = await db.select().from(users).where(eq(users.id, resident.id))
+    expect(row).toMatchObject({ idDocumentType: 'AADHAAR', idDocumentLast4: '9012' })
+  })
+
+  it('reads the number back once, with a reason, and writes that down', async () => {
+    const created = (await api.post(`/societies/${TEST_SOCIETY_ID}/admins`, newAdmin)).body.data.user.id
+
+    const res = await api.post(`/users/${created}/id-document`, { reason: 'Society audit of committee records' })
+
+    expect(res.body.data).toEqual({ idDocumentType: 'AADHAAR', idNumber: '123456789012' })
+    expect(res.headers['cache-control']).toBe('no-store')
+    const [event] = await db.select().from(auditLogs).where(eq(auditLogs.eventType, 'USER_ID_REVEALED'))
+    expect(event!.metadata).toMatchObject({ userId: created, reason: 'Society audit of committee records' })
+    // The reason is not optional, and the number is never read without one
+    expect((await api.post(`/users/${created}/id-document`, { reason: 'no' })).status).toBe(422)
+  })
+
+  it('has nothing to read back for an Admin from before the document was recorded', async () => {
+    const older = await createUser({ phone: '9700000004', email: null, role: 'ADMIN' })
+
+    const res = await api.post(`/users/${older.id}/id-document`, { reason: 'Society audit of committee records' })
+
+    expect(res.status).toBe(400)
+    expect(res.body.error.code).toBe('INVALID_STATE')
+  })
+})
+
 describe('GET /api/v1/societies/:societyId/admins', () => {
   it('lists the society Admins with what each one holds', async () => {
     await api.post(`/societies/${TEST_SOCIETY_ID}/admins`, newAdmin)
@@ -106,8 +169,14 @@ describe('GET /api/v1/societies/:societyId/admins', () => {
     expect(res.status).toBe(200)
     expect(res.body.data).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: 'Anita Rao', resident: false, permissions: ['USER_MANAGE'] }),
-        expect.objectContaining({ name: 'Nisha Kulkarni', resident: false, permissions: ['SOCIETY_MANAGE', 'USER_MANAGE'] }),
+        expect.objectContaining({ name: 'Anita Rao', resident: false, idDocumentOnFile: false, permissions: ['USER_MANAGE'] }),
+        expect.objectContaining({
+          name: 'Nisha Kulkarni',
+          resident: false,
+          idDocumentLast4: '9012',
+          idDocumentOnFile: true,
+          permissions: ['SOCIETY_MANAGE', 'USER_MANAGE'],
+        }),
       ]),
     )
   })

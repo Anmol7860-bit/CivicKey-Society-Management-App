@@ -266,6 +266,10 @@ export interface AdminAccount {
   phone: string | null
   email: string | null
   isActive: boolean
+  idDocumentType: IdDocumentType | null
+  idDocumentLast4: string | null
+  /** Whether the document the office saw is on file; the number itself never leaves the server */
+  idDocumentOnFile: boolean
   /** Also lives here, so they keep their own flat's resident screens */
   resident: boolean
   permissions: AdminPermission[]
@@ -276,18 +280,26 @@ export interface CreateAdminBody {
   phone: string
   email?: string
   permissions: AdminPermission[]
+  /** Required: the office records the document it saw before creating the account */
+  idDocumentType: IdDocumentType
+  /** The whole number. The server encrypts it and keeps only its last 4 for display. */
+  idNumber: string
 }
 
 export const listAdmins = (token: string, societyId: string) => call<AdminAccount[]>(token, 'GET', `/societies/${societyId}/admins`)
 
 /** Creates the office account, or gives the permissions to the account that holds this number. */
 export const createAdmin = (token: string, societyId: string, body: CreateAdminBody) =>
-  call<{ user: { id: string; name: string; phone: string | null; email: string | null }; permissions: AdminPermission[]; loginCode: LoginCode | null }>(
+  call<{ user: Omit<AdminAccount, 'isActive' | 'resident' | 'permissions'>; permissions: AdminPermission[]; loginCode: LoginCode | null }>(
     token,
     'POST',
     `/societies/${societyId}/admins`,
     body,
   )
+
+/** The ID number the office recorded, read once with a reason. The read is audited. */
+export const revealAdminIdNumber = (token: string, userId: string, reason: string) =>
+  call<{ idDocumentType: IdDocumentType | null; idNumber: string | null }>(token, 'POST', `/users/${userId}/id-document`, { reason })
 
 /** Committee access for a resident; replaces whatever committee permissions they held. */
 export const setCommitteePermissions = (token: string, userId: string, permissions: CommitteePermission[]) =>

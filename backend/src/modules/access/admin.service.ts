@@ -5,6 +5,7 @@ import { permissions, roles, userPermissions, userRoles, users } from '../../db/
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { recordAuditEvent, type DbExecutor } from '../audit/audit.service.js'
+import { decryptIdNumber, identityOf, withoutHash, type IdentityInput } from './identity.js'
 import { hashPassword } from '../auth/password.js'
 import { issueSetupCode } from '../auth/passwordSetup.js'
 import {
@@ -18,8 +19,14 @@ import {
 import { assertSameSociety, assertState, UUID } from './scope.js'
 
 const userColumns = { id: users.id, name: users.name, phone: users.phone, email: users.email }
+/** What a caller may see of the document on file: its type and last 4, never the number */
+const identityColumns = {
+  idDocumentType: users.idDocumentType,
+  idDocumentLast4: users.idDocumentLast4,
+  idDocumentHash: users.idDocumentHash,
+}
 
-export interface CreateAdminBody {
+export interface CreateAdminBody extends IdentityInput {
   name: string
   phone: string
   email?: string
@@ -70,7 +77,10 @@ export function createAdminAccount(ctx: AuthContext, societyId: string, body: Cr
       assertState(existing.isActive, 'This account is deactivated')
     }
 
+    // The office saw the document just now, so it is recorded either way
+    const identity = identityOf(body)
     let user = existing && { id: existing.id, name: existing.name, phone: existing.phone, email: existing.email }
+    if (user) await tx.update(users).set({ ...identity, updatedAt: new Date() }).where(eq(users.id, user.id))
     if (!user) {
       try {
         ;[user] = await tx
@@ -80,6 +90,7 @@ export function createAdminAccount(ctx: AuthContext, societyId: string, body: Cr
             phone: body.phone,
             email: body.email ?? null,
             societyId,
+            ...identity,
             // Unusable by design: the account gets in through the one-time code issued below
             passwordHash: await hashPassword(randomBytes(32).toString('hex')),
           })
@@ -99,7 +110,11 @@ export function createAdminAccount(ctx: AuthContext, societyId: string, body: Cr
       metadata: { userId: user!.id, societyId, permissions: [...body.permissions].sort(), newAccount: !existing },
     })
     const loginCode = existing ? null : await issueSetupCode(ctx, user!.id, tx)
-    return { user: user!, permissions: [...body.permissions].sort(), loginCode }
+    return {
+      user: { ...user!, idDocumentType: identity.idDocumentType, idDocumentLast4: identity.idDocumentLast4, idDocumentOnFile: true },
+      permissions: [...body.permissions].sort(),
+      loginCode,
+    }
   })
 }
 
@@ -107,7 +122,7 @@ export function createAdminAccount(ctx: AuthContext, societyId: string, body: Cr
 export async function listAdmins(ctx: AuthContext, societyId: string) {
   await assertSameSociety(ctx, societyId)
   const rows = await db
-    .select({ ...userColumns, isActive: users.isActive })
+    .select({ ...userColumns, isActive: users.isActive, ...identityColumns })
     .from(users)
     .innerJoin(userRoles, eq(userRoles.userId, users.id))
     .innerJoin(roles, eq(roles.id, userRoles.roleId))
@@ -125,13 +140,36 @@ export async function listAdmins(ctx: AuthContext, societyId: string) {
   const resident = await Promise.all(rows.map((row) => isResident(db, row.id)))
 
   return rows.map((row, index) => ({
-    ...row,
+    ...withoutHash(row),
     resident: resident[index]!,
     permissions: granted
       .filter((row_) => row_.userId === row.id)
       .map((row_) => row_.code)
       .sort(),
   }))
+}
+
+/**
+ * The Admin's captured ID number, for the one read that may see it.
+ *
+ * Recoverable because the society may have to produce the document it recorded, and audited for
+ * exactly the same reason: who read it and why is part of the record.
+ */
+export function revealUserIdNumber(ctx: AuthContext, userId: string, reason: string) {
+  return db.transaction(async (tx) => {
+    const target = await sameSocietyUser(ctx, userId)
+    const [row] = await tx
+      .select({ idDocumentType: users.idDocumentType, idDocumentEncrypted: users.idDocumentEncrypted })
+      .from(users)
+      .where(eq(users.id, target.id))
+    assertState(row?.idDocumentEncrypted != null, 'No ID document is on file for this account')
+    await recordAuditEvent(tx, {
+      eventType: 'USER_ID_REVEALED',
+      actorUserId: ctx.userId,
+      metadata: { userId, idDocumentType: row!.idDocumentType, reason },
+    })
+    return { idDocumentType: row!.idDocumentType, idNumber: decryptIdNumber(row!.idDocumentEncrypted) }
+  })
 }
 
 /** Committee permissions for a resident of this society; replaces whatever they held before. */

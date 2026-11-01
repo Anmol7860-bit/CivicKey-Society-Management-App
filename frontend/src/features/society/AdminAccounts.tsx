@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import eyeIcon from '../../assets/icons/eye.svg'
+import eyeOffIcon from '../../assets/icons/eye-off.svg'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
 import { ErrorState, Skeleton, SuccessNote } from '../../components/ui/States'
@@ -14,10 +16,13 @@ import {
   setCommitteePermissions,
   type AdminPermission,
   type CommitteePermission,
+  type IdDocumentType,
   type LoginCode,
 } from './api'
 import { FormGrid, LoginCodeNote, Panel, RowButton, useAction } from './parts'
 import { useResource } from './useResource'
+
+const ID_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENCE', 'VOTER_ID'] as const
 
 /** One permission, with what it allows written out, as a checkbox the Admin ticks. */
 function PermissionBox({ code, checked, onChange }: { code: AdminPermission; checked: boolean; onChange: (on: boolean) => void }) {
@@ -66,7 +71,16 @@ export function AdminAccounts({ accessToken, societyId }: { accessToken: string;
   const [created, setCreated] = useState<string | null>(null)
   const [loginCode, setLoginCode] = useState<LoginCode | null>(null)
   const [granted, setGranted] = useState<string | null>(null)
-  const [form, setForm] = useState({ name: '', phone: '', email: '', permissions: [] as AdminPermission[] })
+  const [showId, setShowId] = useState(false)
+  const [form, setForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    idDocumentType: '',
+    idNumber: '',
+    consent: false,
+    permissions: [] as AdminPermission[],
+  })
   const [member, setMember] = useState({ userId: '', permissions: [] as CommitteePermission[] })
 
   const toggle = (code: AdminPermission, on: boolean) =>
@@ -82,7 +96,16 @@ export function AdminAccounts({ accessToken, societyId }: { accessToken: string;
         : previous.permissions.filter((kept) => kept !== code),
     }))
 
-  const ready = Boolean(form.name.trim() && form.phone.trim() && form.permissions.length > 0)
+  // The office records the document it saw for an Admin too; only the committee path skips it,
+  // because a committee member's ID is already on file with their flat registration
+  const ready = Boolean(
+    form.name.trim() &&
+      form.phone.trim() &&
+      form.idDocumentType &&
+      form.idNumber.trim() &&
+      form.consent &&
+      form.permissions.length > 0,
+  )
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -93,11 +116,13 @@ export function AdminAccounts({ accessToken, societyId }: { accessToken: string;
       phone: form.phone.trim(),
       ...(form.email.trim() ? { email: form.email.trim() } : {}),
       permissions: form.permissions,
+      idDocumentType: form.idDocumentType as IdDocumentType,
+      idNumber: form.idNumber.trim().toUpperCase(),
     }
     if (await create.run(async () => { code = (await createAdmin(accessToken, societyId, body)).loginCode })) {
       setCreated(form.name.trim())
       setLoginCode(code)
-      setForm({ name: '', phone: '', email: '', permissions: [] })
+      setForm({ name: '', phone: '', email: '', idDocumentType: '', idNumber: '', consent: false, permissions: [] })
       admins.reload()
     }
   }
@@ -157,13 +182,61 @@ export function AdminAccounts({ accessToken, societyId }: { accessToken: string;
             />
           </FormGrid>
 
+          <div className="flex flex-col gap-3">
+            <h3 className="text-[13px] font-bold text-ink">{t('area.admin.addUser.admin.identity.title')}</h3>
+            <FormGrid>
+              <Select
+                id="admin-id-type"
+                label={t('area.admin.society.register.idType')}
+                options={ID_TYPES.map((type) => ({ value: type, label: t(`area.admin.society.residents.idType.${type}`) }))}
+                placeholder={t('area.admin.society.register.chooseId')}
+                value={form.idDocumentType}
+                onChange={(event) => setForm({ ...form, idDocumentType: event.target.value })}
+                error={create.fieldError('idDocumentType')}
+                required
+              />
+              <TextField
+                id="admin-id-number"
+                label={t('area.admin.society.register.idNumber')}
+                type={showId ? 'text' : 'password'}
+                autoComplete="off"
+                value={form.idNumber}
+                onChange={(event) => setForm({ ...form, idNumber: event.target.value })}
+                error={create.fieldError('idNumber')}
+                hint={t('area.admin.society.register.idNumberHint')}
+                maxLength={20}
+                required
+                disabled={!form.idDocumentType}
+                trailing={
+                  <button
+                    type="button"
+                    className="-m-1 flex cursor-pointer rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                    aria-label={showId ? t('area.admin.society.register.hideId') : t('area.admin.society.register.showId')}
+                    aria-pressed={showId}
+                    onClick={() => setShowId((visible) => !visible)}
+                  >
+                    <img src={showId ? eyeOffIcon : eyeIcon} alt="" width={17} height={17} />
+                  </button>
+                }
+              />
+            </FormGrid>
+            <label className="flex items-start gap-2 text-[13px] text-ink-soft">
+              <input
+                type="checkbox"
+                checked={form.consent}
+                onChange={(event) => setForm({ ...form, consent: event.target.checked })}
+                className="mt-0.5 size-4 accent-[#176b62]"
+              />
+              {t('area.admin.addUser.identity.consent')}
+            </label>
+          </div>
+
           <div className="flex flex-col gap-2">
             <h3 className="text-[13px] font-bold text-ink">{t('area.admin.addUser.admin.permissions.general')}</h3>
             <Boxes codes={GENERAL_ADMIN_PERMISSIONS} chosen={form.permissions} onToggle={toggle} />
             <h3 className="text-[13px] font-bold text-ink">{t('area.admin.addUser.admin.permissions.committee')}</h3>
             <Boxes codes={COMMITTEE_PERMISSIONS} chosen={form.permissions} onToggle={toggle} />
             <p className="text-[12px] text-muted">{t('area.admin.addUser.admin.permissions.hint')}</p>
-            <p className="text-[12px] text-muted">{t('area.admin.addUser.admin.noId')}</p>
           </div>
 
           {create.error && <ErrorState message={create.error} />}
@@ -228,6 +301,14 @@ export function AdminAccounts({ accessToken, societyId }: { accessToken: string;
               <span className="text-muted">{admin.phone}</span>
               <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand">
                 {t(`area.admin.addUser.admin.existing.${admin.resident ? 'resident' : 'staff'}`)}
+              </span>
+              <span className="text-muted">
+                {admin.idDocumentOnFile && admin.idDocumentType
+                  ? t('area.admin.society.residents.idOnFile', {
+                      type: t(`area.admin.society.residents.idType.${admin.idDocumentType}`),
+                      last4: admin.idDocumentLast4 ?? '',
+                    })
+                  : t('area.admin.addUser.admin.existing.noId')}
               </span>
               <span className="text-muted">
                 {admin.permissions.length === 0

@@ -267,6 +267,13 @@
       "when": 1793298485736,
       "tag": "0037_notification_entry_rejected",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793544430207,
+      "tag": "0038_admin_identity",
+      "breakpoints": true
     }
   ]
 }

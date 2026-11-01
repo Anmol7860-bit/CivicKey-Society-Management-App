@@ -17,6 +17,7 @@ built code differ, the difference is listed below and left for Jira to settle.
 | Order of checks | authenticate → permission → society scope → flat scope → state | Done |
 | Denials | 403 from middleware, before the controller or any mutation, and recorded as `AUTHORIZATION_DENIED` with the code, method and path | Done |
 | Frontend | One permission table drives navigation, stats and shortcuts; a page the user lacks permission for shows Access Denied. Hiding a control is for usability only | Done |
+| Who an Admin is | Creating an Admin account records the document the office saw, on `users` itself: type, encrypted number, keyed hash and last 4, as a resident or staff record does. `POST /users/:userId/id-document` is the one audited read-back | Done |
 
 ### Where it lives
 
@@ -43,6 +44,7 @@ built code differ, the difference is listed below and left for Jira to settle.
 | A revoked permission stops working, and works again once re-granted | `permissions.test.ts` |
 | Committee grants add to the resident ones, and removal restores the RESIDENT role and keeps the flat | `permissions.test.ts` |
 | Creating an Admin grants only what was ticked, records the granter and hands over a login code | `backend/src/modules/access/admins.test.ts` |
+| An Admin's ID is stored encrypted, never returned, required to create the account, and read back only with a reason that is audited | `admins.test.ts` |
 | An unassignable permission, another society and a caller without `USER_MANAGE` are all refused | `admins.test.ts` |
 | Committee access is given and taken back over HTTP, and a General Admin code is refused there | `admins.test.ts` |
 | The Admin forms tick permissions and send only those | `frontend/src/features/society/AdminAccounts.test.tsx` |
@@ -102,7 +104,7 @@ The permissions table holds 21 codes; the document lists 29.
 ## Improvements suggested — no ticket yet
 
 1. Add the profile table, or move the allowlist into `loadPermissions`, so a committee account cannot later be granted a General Admin permission through the general route.
-2. An Admin account records no ID document, because `users` has no identity columns; only a flat registration or a staff record carries one. Worth a decision rather than a quiet gap.
+2. The four identity columns now sit on `users`, `flat_residents` and `staff` alike. A shared `person_identities` table would hold them once, and is worth doing before a fourth record type needs them.
 3. Decide 403 against 404 for cross-society identifiers; 34 call sites and `scope.test.ts` assert the current code.
 4. Re-fetch `/auth/permissions` after a 403 `PERMISSION_DENIED`, so a revoked permission's button disappears without waiting for the next token refresh. The API already refuses it, so this is cosmetic.
 5. Replace the `ctx.role === 'RESIDENT'` branches in `billing.service.ts` and `payment.service.ts` with permission checks.

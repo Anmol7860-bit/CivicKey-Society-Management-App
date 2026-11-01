@@ -1128,7 +1128,7 @@
         "admin": {
           "account": {
             "title": "New Admin account",
-            "description": "The account an Admin signs in with, and what it is allowed to do. Give the permissions the job needs and no more.",
+            "description": "The account an Admin signs in with, the document the office saw, and what the account is allowed to do. Give the permissions the job needs and no more.",
             "phoneHint": "The number they sign in with. If this number already has an account, that account becomes an Admin and keeps its password."
           },
           "permissions": {
@@ -1194,9 +1194,12 @@
             "empty": "No Admin accounts yet.",
             "staff": "Office",
             "resident": "Lives here",
-            "none": "No permissions granted"
+            "none": "No permissions granted",
+            "noId": "No ID recorded"
           },
-          "noId": "No ID document is recorded for an Admin account: the identity record belongs to the flat registration."
+          "identity": {
+            "title": "Identity verification"
+          }
         }
       },
       "staff": {
