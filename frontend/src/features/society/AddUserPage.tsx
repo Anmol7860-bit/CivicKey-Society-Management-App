@@ -188,7 +188,7 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
       </header>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+        <div className="flex flex-col gap-4">
           <Step number={1} title={t('area.admin.addUser.role.title')} description={t('area.admin.addUser.role.description')}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t('area.admin.addUser.role.title')}>
               {ROLES.map(({ key, icon: Icon }) => (
@@ -213,7 +213,7 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
           {role === 'ADMIN' ? (
             <AdminAccounts accessToken={accessToken} societyId={societyId} />
           ) : (
-            <>
+            <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
               {registered && (
                 <SuccessNote message={t('area.admin.society.register.done', { name: registered })} onDismiss={() => setRegistered(null)} />
               )}
@@ -481,9 +481,9 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
                   </Button>
                 </div>
               </div>
-            </>
+            </form>
           )}
-        </form>
+        </div>
 
         <aside className="flex flex-col gap-4">
           <Aside title={t('area.admin.addUser.required.title')}>

@@ -71,6 +71,8 @@ it('opens the Admin account forms on the Admin role', async () => {
   expect(screen.getByText('Committee member')).toBeInTheDocument()
   // The resident form is not on screen, so nothing of it can be submitted by mistake
   expect(screen.queryByRole('button', { name: 'Register resident' })).not.toBeInTheDocument()
+  // Nested forms reload the page instead of submitting, so the Admin panel must stand alone
+  expect(document.querySelectorAll('form')).toHaveLength(1)
 })
 
 it('keeps the submit disabled until the required fields and the consent are there', async () => {
