@@ -1042,30 +1042,20 @@
         "intro": "Creates the account and the flat registration. The admin never sets or sees a password.",
         "role": {
           "title": "Role",
-          "description": "The role decides which dashboard this person gets. Owner and tenant are chosen below, under the flat.",
+          "description": "The role decides which dashboard this person gets. Owner and tenant are chosen below, under the flat. Guards are added under Staff management, with the gate and shift they work.",
           "RESIDENT": {
             "label": "Resident",
             "description": "Owner or tenant of a flat"
-          },
-          "GUARD": {
-            "label": "Guard",
-            "description": "Gate and security staff"
           },
           "ADMIN": {
             "label": "Admin",
             "description": "Manager or committee member"
           }
         },
-        "notYet": {
-          "title": "{{role}} accounts are not created here yet",
-          "GUARD": "Guards are added under Staff management, which has no API yet. This form only creates residents.",
-          "ADMIN": "An Admin account is created by another Admin, and a committee member is a resident given committee permissions. Neither has an endpoint yet."
-        },
         "personal": {
           "title": "Personal details",
           "dateOfBirth": "Date of birth",
           "gender": "Gender",
-          "notGiven": "Not given",
           "genders": {
             "MALE": "Male",
             "FEMALE": "Female",
@@ -1078,7 +1068,8 @@
             "en": "English",
             "hi": "Hindi",
             "mr": "Marathi"
-          }
+          },
+          "choose": "Choose one"
         },
         "signIn": {
           "title": "Sign-in and contact",
@@ -1115,7 +1106,9 @@
           "phone": "Mobile number",
           "flat": "Block and flat",
           "type": "Owner or tenant",
-          "moveIn": "Move-in date"
+          "moveIn": "Move-in date",
+          "personal": "Date of birth, gender and language",
+          "identity": "ID document type and number"
         },
         "onSave": {
           "title": "What happens on save",
@@ -1131,7 +1124,80 @@
           "draft": "Save as draft",
           "invite": "The SMS invite and OTP, so a resident cannot sign in until that ticket lands"
         },
-        "noFlats": "There are no flats yet. Add a block, a floor and a flat under Society & users first."
+        "noFlats": "There are no flats yet. Add a block, a floor and a flat under Society & users first.",
+        "admin": {
+          "account": {
+            "title": "New Admin account",
+            "description": "The account an Admin signs in with, and what it is allowed to do. Give the permissions the job needs and no more.",
+            "phoneHint": "The number they sign in with. If this number already has an account, that account becomes an Admin and keeps its password."
+          },
+          "permissions": {
+            "general": "Running the society",
+            "committee": "Billing and reports",
+            "hint": "A committee member is given only the billing and reports permissions. Gate and resident functions come with the Guard and Resident roles, so they are never granted here."
+          },
+          "codes": {
+            "SOCIETY_MANAGE": {
+              "label": "Society, blocks and flats",
+              "description": "Change the society, its blocks, floors, flats and gates"
+            },
+            "USER_MANAGE": {
+              "label": "Residents and accounts",
+              "description": "Register residents, verify them and create Admin accounts"
+            },
+            "GUARD_MANAGE": {
+              "label": "Guards",
+              "description": "Add guards, post them to a gate and give them an account"
+            },
+            "STAFF_MANAGE": {
+              "label": "Staff and daily help",
+              "description": "Add staff, issue passes and see their movement"
+            },
+            "AUDIT_VIEW": {
+              "label": "Audit log",
+              "description": "Read who did what, including refused attempts"
+            },
+            "BACKUP_EXPORT": {
+              "label": "Backups",
+              "description": "Export an encrypted copy of the database"
+            },
+            "BILLING_RATE_SET": {
+              "label": "Billing rates",
+              "description": "Set the quarterly maintenance rates"
+            },
+            "INVOICE_GENERATE": {
+              "label": "Invoices",
+              "description": "Generate the quarterly invoices and one-time charges"
+            },
+            "PAYMENT_CASH_MARK": {
+              "label": "Cash payments",
+              "description": "Record a payment taken at the office"
+            },
+            "REPORT_VIEW": {
+              "label": "Reports",
+              "description": "Read the collection and outstanding reports"
+            }
+          },
+          "create": "Create the Admin account",
+          "done": "{{name}} can now sign in as an Admin.",
+          "committee": {
+            "title": "Committee member",
+            "description": "A resident who also does committee work. They keep their own flat and its screens, and gain only the permissions ticked here.",
+            "resident": "Resident",
+            "chooseResident": "Choose a resident",
+            "save": "Save committee access",
+            "remove": "Remove committee access",
+            "done": "{{name}} now has committee access."
+          },
+          "existing": {
+            "title": "Admins in this society",
+            "empty": "No Admin accounts yet.",
+            "staff": "Office",
+            "resident": "Lives here",
+            "none": "No permissions granted"
+          },
+          "noId": "No ID document is recorded for an Admin account: the identity record belongs to the flat registration."
+        }
       },
       "staff": {
         "intro": "Guards need Manage guards. Daily help and staff passes need Register staff.",

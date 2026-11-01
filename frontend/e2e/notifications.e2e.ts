@@ -74,6 +74,10 @@ async function currentFlatOf(request: APIRequestContext, resident: SignedIn, gua
       residentType: 'OWNER',
       accessLevel: 'FULL',
       startDate: new Date().toISOString().slice(0, 10),
+      // Who the person is: the office records this for everyone it registers
+      dateOfBirth: '1992-05-14',
+      gender: 'FEMALE',
+      preferredLanguage: 'en',
       // The office records the ID it saw; registration is refused without one
       idDocumentType: 'AADHAAR',
       idNumber: '123456789012',

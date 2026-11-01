@@ -19,9 +19,12 @@ function show(path = '/admin/add-user') {
   )
 }
 
-/** Fills everything the API insists on, leaving the optional profile fields alone. */
+/** Fills everything the API insists on, leaving the optional fields alone. */
 async function fillRequired() {
   await userEvent.type(await screen.findByLabelText(/Full name/), 'Arjun Nair')
+  await userEvent.type(screen.getByLabelText(/Date of birth/), '1988-01-09')
+  await userEvent.selectOptions(screen.getByLabelText(/Gender/), 'MALE')
+  await userEvent.selectOptions(screen.getByLabelText(/Preferred language/), 'en')
   await userEvent.type(screen.getByLabelText(/Mobile number/), '9876543216')
   await userEvent.selectOptions(screen.getByLabelText(/^Block/), 'b1')
   await waitFor(() => expect(screen.getByLabelText(/^Flat \*/)).toBeEnabled())
@@ -34,6 +37,8 @@ async function fillRequired() {
 beforeEach(() => {
   vi.resetAllMocks()
   mocked.listSocieties.mockResolvedValue([aSociety()])
+  mocked.listAdmins.mockResolvedValue([])
+  mocked.listResidents.mockResolvedValue([])
   mocked.getOccupancy.mockResolvedValue({
     society: { id: 's1', name: 'Green Meadows' },
     summary: { flats: 1, inactive: 0, unsold: 1, owned: 0, vacant: 1, occupied: 0, sharingAvailable: 0 },
@@ -49,14 +54,23 @@ beforeEach(() => {
   })
 })
 
-it('offers the three roles and says where Guard accounts will live', async () => {
+it('offers only Resident and Admin, and sends guards to Staff management', async () => {
   show()
 
   expect(await screen.findByRole('radio', { name: /Resident/ })).toHaveAttribute('aria-checked', 'true')
-  await userEvent.click(screen.getByRole('radio', { name: /Guard/ }))
-
+  expect(screen.queryByRole('radio', { name: /Guard/ })).not.toBeInTheDocument()
   expect(screen.getByText(/Guards are added under Staff management/)).toBeInTheDocument()
-  expect(screen.queryByLabelText(/Full name/)).not.toBeInTheDocument()
+})
+
+it('opens the Admin account forms on the Admin role', async () => {
+  show()
+
+  await userEvent.click(await screen.findByRole('radio', { name: /Admin/ }))
+
+  expect(await screen.findByRole('button', { name: 'Create the Admin account' })).toBeInTheDocument()
+  expect(screen.getByText('Committee member')).toBeInTheDocument()
+  // The resident form is not on screen, so nothing of it can be submitted by mistake
+  expect(screen.queryByLabelText(/^ID number/)).not.toBeInTheDocument()
 })
 
 it('keeps the submit disabled until the required fields and the consent are there', async () => {
@@ -70,6 +84,12 @@ it('keeps the submit disabled until the required fields and the consent are ther
   await userEvent.selectOptions(screen.getByLabelText(/^Block/), 'b1')
   await waitFor(() => expect(screen.getByLabelText(/^Flat \*/)).toBeEnabled())
   await userEvent.selectOptions(screen.getByLabelText(/^Flat \*/), 'fl1')
+
+  // Who the person is, which the office records for everyone
+  expect(submit).toBeDisabled()
+  await userEvent.type(screen.getByLabelText(/Date of birth/), '1988-01-09')
+  await userEvent.selectOptions(screen.getByLabelText(/Gender/), 'MALE')
+  await userEvent.selectOptions(screen.getByLabelText(/Preferred language/), 'en')
 
   // The flat is chosen, but the office has not recorded the ID it saw
   expect(submit).toBeDisabled()
@@ -109,7 +129,6 @@ it('sends the profile details along with the registration', async () => {
   show()
   await fillRequired()
 
-  await userEvent.type(screen.getByLabelText(/Date of birth/), '1990-04-17')
   await userEvent.selectOptions(screen.getByLabelText(/Gender/), 'FEMALE')
   await userEvent.selectOptions(screen.getByLabelText(/Preferred language/), 'mr')
   await userEvent.type(screen.getByLabelText(/Alternate mobile/), '9833333333')
@@ -124,7 +143,7 @@ it('sends the profile details along with the registration', async () => {
       expect.objectContaining({
         name: 'Arjun Nair',
         phone: '9876543216',
-        dateOfBirth: '1990-04-17',
+        dateOfBirth: '1988-01-09',
         gender: 'FEMALE',
         preferredLanguage: 'mr',
         alternatePhone: '9833333333',

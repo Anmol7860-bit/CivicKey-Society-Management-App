@@ -26,9 +26,18 @@ const api = {
   },
 }
 
+/** What the office records for anyone it registers: who they are, and the document they showed. */
+const PERSON = {
+  dateOfBirth: '1990-04-17',
+  gender: 'FEMALE' as const,
+  preferredLanguage: 'en' as const,
+  idDocumentType: 'AADHAAR' as const,
+  idNumber: '123456789012',
+}
+
 /** Registers a resident and returns the code the Admin is handed. */
 async function registerResident(phone = '9811111111') {
-  const res = await api.post(`/flats/${flatId}/residents`, { name: 'Riya Sharma', phone, residentType: 'OWNER', idDocumentType: 'AADHAAR', idNumber: '123456789012' }, auth)
+  const res = await api.post(`/flats/${flatId}/residents`, { name: 'Riya Sharma', phone, residentType: 'OWNER', ...PERSON }, auth)
   expect(res.status).toBe(201)
   return res.body.data
 }
@@ -79,7 +88,7 @@ describe('a resident the office registered', () => {
 
   it('leaves an existing account its own password', async () => {
     await createUser({ phone: '9833333333', email: null })
-    const res = await api.post(`/flats/${flatId}/residents`, { name: 'Riya Sharma', phone: '9833333333', residentType: 'OWNER', idDocumentType: 'AADHAAR', idNumber: '123456789012' }, auth)
+    const res = await api.post(`/flats/${flatId}/residents`, { name: 'Riya Sharma', phone: '9833333333', residentType: 'OWNER', ...PERSON }, auth)
 
     expect(res.status).toBe(201)
     expect(res.body.data.loginCode).toBeNull()

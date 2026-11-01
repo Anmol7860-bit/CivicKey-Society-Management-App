@@ -35,9 +35,11 @@ const canAccess = (userId: string, id = flatId, write = false) => assertFlatAcce
 
 /** The office has to have seen an ID, so every registration carries one unless it is the point */
 const ID = { idDocumentType: 'AADHAAR' as const, idNumber: '123456789012' }
+/** The office fills these in for everyone, so every registration here carries them */
+const PERSONAL = { dateOfBirth: '1990-04-17', gender: 'FEMALE' as const, preferredLanguage: 'en' as const }
 
 function register(body: object, id = flatId) {
-  return api.post(`/flats/${id}/residents`, { ...ID, ...body })
+  return api.post(`/flats/${id}/residents`, { ...PERSONAL, ...ID, ...body })
 }
 
 beforeEach(async () => {
@@ -334,14 +336,26 @@ describe('government ID', () => {
     const mismatch = await register({ ...owner, idDocumentType: 'PAN', idNumber: 'ABCDE1234F', idDocumentLast4: '9999' })
     expect(mismatch.status).toBe(422)
     // Without the default identity: a number on its own does not say what document it is from
-    expect((await api.post(`/flats/${flatId}/residents`, { ...owner, idNumber: 'ABCDE1234F' })).status).toBe(422)
+    expect((await api.post(`/flats/${flatId}/residents`, { ...owner, ...PERSONAL, idNumber: 'ABCDE1234F' })).status).toBe(422)
   })
 
   it('will not register anyone whose ID has not been seen', async () => {
-    const res = await api.post(`/flats/${flatId}/residents`, owner)
+    const res = await api.post(`/flats/${flatId}/residents`, { ...owner, ...PERSONAL })
 
     expect(res.status).toBe(422)
     expect(res.body.error.details.fields.map((issue: { field: string }) => issue.field).sort()).toEqual(['idDocumentType', 'idNumber'])
+    expect(await db.select().from(flatResidents)).toHaveLength(0)
+  })
+
+  it('will not register anyone whose personal details are missing', async () => {
+    const res = await api.post(`/flats/${flatId}/residents`, { ...owner, ...ID })
+
+    expect(res.status).toBe(422)
+    expect(res.body.error.details.fields.map((issue: { field: string }) => issue.field).sort()).toEqual([
+      'dateOfBirth',
+      'gender',
+      'preferredLanguage',
+    ])
     expect(await db.select().from(flatResidents)).toHaveLength(0)
   })
 })

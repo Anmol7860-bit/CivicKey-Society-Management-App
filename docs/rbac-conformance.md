@@ -21,6 +21,8 @@ built code differ, the difference is listed below and left for Jira to settle.
 ### Where it lives
 
 - `backend/src/modules/access/permissions.ts` — the catalogue lists, `loadPermissions`, `isResident`, `getEffectivePermissions`, committee grant/revoke
+- `backend/src/modules/access/admin.service.ts` + `access.routes.ts` — Admin accounts and committee access over HTTP: `POST`/`GET /societies/:societyId/admins`, `POST`/`DELETE /users/:userId/committee-permissions`, all behind `USER_MANAGE`
+- `frontend/src/features/society/AdminAccounts.tsx` — the Add user screen's Admin side: a new office account with the permissions it is given, and committee access for a resident
 - `backend/src/middleware/requirePermission.ts` — reads role, society and permissions from the database and sets `req.ctx`
 - `backend/src/modules/access/scope.ts` — `assertSameSociety`, `requireRecord`, `assertState`, `assertFlatAccess`, `deny`
 - `backend/src/middleware/requireFlatAccess.ts` — the `:flatId` wrapper; operations taking the flat from the body call `assertFlatAccess` themselves
@@ -40,6 +42,10 @@ built code differ, the difference is listed below and left for Jira to settle.
 | The database role wins over a still-valid token's role | `permissions.test.ts` |
 | A revoked permission stops working, and works again once re-granted | `permissions.test.ts` |
 | Committee grants add to the resident ones, and removal restores the RESIDENT role and keeps the flat | `permissions.test.ts` |
+| Creating an Admin grants only what was ticked, records the granter and hands over a login code | `backend/src/modules/access/admins.test.ts` |
+| An unassignable permission, another society and a caller without `USER_MANAGE` are all refused | `admins.test.ts` |
+| Committee access is given and taken back over HTTP, and a General Admin code is refused there | `admins.test.ts` |
+| The Admin forms tick permissions and send only those | `frontend/src/features/society/AdminAccounts.test.tsx` |
 | Committee membership does not bypass flat ownership | `backend/src/modules/access/scope.test.ts` |
 | Own flat read and write; another flat 403 NOT_YOUR_FLAT; last valid day still active | `scope.test.ts` |
 | A VIEW_ONLY resident may read but not write | `scope.test.ts` |
@@ -62,7 +68,7 @@ built code differ, the difference is listed below and left for Jira to settle.
 | RBAC-06 Guard on resident or finance API | Done | GUARD role grants cover none of them |
 | RBAC-07 Direct API call | Done | 401/403 from middleware before the handler |
 | RBAC-08 Cross-society identifier | Differs | Returns 403 CROSS_SOCIETY_ACCESS, not 404; the denial is audited. See gaps |
-| RBAC-09 Committee grant/revoke | Partly | The service exists, is audited and is tested, but has no HTTP route and no screen. See gaps |
+| RBAC-09 Committee grant/revoke | Done | `POST`/`DELETE /users/:userId/committee-permissions` behind `USER_MANAGE`, audited, with the Add user screen driving them. The target must be a resident of the Admin's own society |
 | RBAC-10 Approval versus gate decision | Done | `VISITOR_APPROVE` and `VISIT_DECIDE` are separate codes; the guard path only opens once a visit has escalated |
 
 ## Catalogue differences — deliberate
@@ -85,8 +91,7 @@ The permissions table holds 21 codes; the document lists 29.
 
 | Document | Code today | Note |
 | --- | --- | --- |
-| `admin_access_profiles` with GENERAL_ADMIN / COMMITTEE_LIMITED | No such table; the distinction is implicit in which permissions were granted | It fails closed correctly, but the profile is not a stored fact, so `/auth/permissions` cannot report it and `loadPermissions` accepts any `ADMIN_PERMISSIONS` grant — the four-code committee allowlist is enforced only inside `setCommitteeMembership` |
-| A General Admin grants and revokes committee permissions | `setCommitteeMembership` / `removeCommitteeMembership` exist, audited and tested, but have no route and no screen | Reachable only from the seed script and tests; RBAC-09 cannot be performed in the running product |
+| `admin_access_profiles` with GENERAL_ADMIN / COMMITTEE_LIMITED | No such table; the distinction is implicit in which permissions were granted | It fails closed correctly, but the profile is not a stored fact, so `/auth/permissions` cannot report it. The committee route grants only the four committee codes; the general route can grant any assignable permission, so nothing in the database says an account was meant to be committee-only |
 | `user_permissions.id` plus a partial unique index, so a regrant appends a row | Primary key `(user_id, permission_id)`; a regrant clears `revoked_at` on the same row | Per-grant lineage survives in `audit_logs`, not in the table |
 | `/auth/permissions` returns `user`, `role`, `accessProfile`, `flatAccess[]` | Returns `userId`, `role`, `permissions` | Per-flat relationship and access level come from `GET /me/flats`. The frontend reads permissions from the login and refresh payloads and never calls this endpoint |
 | RBAC-08 returns 404 NOT_FOUND for another society's identifier | 403 CROSS_SOCIETY_ACCESS | The denial is audited either way; `requireRecord` already returns 404 when the id exists nowhere, so only "exists, other society" is distinguishable |
@@ -96,8 +101,8 @@ The permissions table holds 21 codes; the document lists 29.
 
 ## Improvements suggested — no ticket yet
 
-1. The committee flow has no door: a route pair and a screen on the admin society page would make RBAC-09 demonstrable.
-2. Move the committee allowlist into `loadPermissions`, or add the profile table, so an off-allowlist grant to a committee account cannot take effect.
+1. Add the profile table, or move the allowlist into `loadPermissions`, so a committee account cannot later be granted a General Admin permission through the general route.
+2. An Admin account records no ID document, because `users` has no identity columns; only a flat registration or a staff record carries one. Worth a decision rather than a quiet gap.
 3. Decide 403 against 404 for cross-society identifiers; 34 call sites and `scope.test.ts` assert the current code.
 4. Re-fetch `/auth/permissions` after a 403 `PERMISSION_DENIED`, so a revoked permission's button disappears without waiting for the next token refresh. The API already refuses it, so this is cosmetic.
 5. Replace the `ctx.role === 'RESIDENT'` branches in `billing.service.ts` and `payment.service.ts` with permission checks.

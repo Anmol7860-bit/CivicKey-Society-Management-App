@@ -9,6 +9,7 @@ import { pinoHttp } from 'pino-http'
 import { env } from './config/env.js'
 import { logger as defaultLogger } from './lib/logger.js'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
+import { createAccessRouter } from './modules/access/access.routes.js'
 import { createAuditRouter } from './modules/audit/audit.routes.js'
 import { createAuthRouter } from './modules/auth/auth.routes.js'
 import { createBackupRouter } from './modules/backup/backup.routes.js'
@@ -58,6 +59,7 @@ export function createApp({ logger = defaultLogger }: AppOptions = {}) {
   })
   app.use('/api/v1/auth', createAuthRouter())
   app.use('/api/v1', createSocietyRouter())
+  app.use('/api/v1', createAccessRouter())
   app.use('/api/v1', createResidentRouter())
   app.use('/api/v1', createStaffRouter())
   app.use('/api/v1', createBillingRouter())

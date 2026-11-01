@@ -158,9 +158,10 @@ export interface RegisterResidentBody {
   name: string
   phone: string
   email?: string
-  dateOfBirth?: string
-  gender?: Gender
-  preferredLanguage?: PreferredLanguage
+  /** Required: the office records who the person is before registering them */
+  dateOfBirth: string
+  gender: Gender
+  preferredLanguage: PreferredLanguage
   alternatePhone?: string
   emergencyContactName?: string
   emergencyContactRelationship?: string
@@ -247,6 +248,53 @@ export const updateResident = (
   id: string,
   body: { endDate?: string | null; accessLevel?: AccessLevel; visitorApprovalEligible?: boolean; reason?: string },
 ) => call<Resident>(token, 'PUT', `/residents/${id}`, body)
+
+/**
+ * The permissions an Admin account can be given. GUARD and RESIDENT permissions come with the
+ * role instead, so they are never assigned by hand.
+ */
+export const GENERAL_ADMIN_PERMISSIONS = ['SOCIETY_MANAGE', 'USER_MANAGE', 'GUARD_MANAGE', 'STAFF_MANAGE', 'AUDIT_VIEW', 'BACKUP_EXPORT'] as const
+/** All a committee member may be given: billing, invoicing, cash and reports. */
+export const COMMITTEE_PERMISSIONS = ['BILLING_RATE_SET', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK', 'REPORT_VIEW'] as const
+
+export type CommitteePermission = (typeof COMMITTEE_PERMISSIONS)[number]
+export type AdminPermission = (typeof GENERAL_ADMIN_PERMISSIONS)[number] | CommitteePermission
+
+export interface AdminAccount {
+  id: string
+  name: string
+  phone: string | null
+  email: string | null
+  isActive: boolean
+  /** Also lives here, so they keep their own flat's resident screens */
+  resident: boolean
+  permissions: AdminPermission[]
+}
+
+export interface CreateAdminBody {
+  name: string
+  phone: string
+  email?: string
+  permissions: AdminPermission[]
+}
+
+export const listAdmins = (token: string, societyId: string) => call<AdminAccount[]>(token, 'GET', `/societies/${societyId}/admins`)
+
+/** Creates the office account, or gives the permissions to the account that holds this number. */
+export const createAdmin = (token: string, societyId: string, body: CreateAdminBody) =>
+  call<{ user: { id: string; name: string; phone: string | null; email: string | null }; permissions: AdminPermission[]; loginCode: LoginCode | null }>(
+    token,
+    'POST',
+    `/societies/${societyId}/admins`,
+    body,
+  )
+
+/** Committee access for a resident; replaces whatever committee permissions they held. */
+export const setCommitteePermissions = (token: string, userId: string, permissions: CommitteePermission[]) =>
+  call<{ userId: string; permissions: AdminPermission[] }>(token, 'POST', `/users/${userId}/committee-permissions`, { permissions })
+
+export const removeCommitteePermissions = (token: string, userId: string) =>
+  call<{ userId: string; permissions: AdminPermission[] }>(token, 'DELETE', `/users/${userId}/committee-permissions`)
 
 /** The signed-in person's own assignments. No management permission; the server returns only their rows. */
 export const listMyFlats = (token: string) => call<MyAssignment[]>(token, 'GET', '/me/flats')

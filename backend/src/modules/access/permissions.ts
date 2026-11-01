@@ -43,6 +43,7 @@ export const RESIDENT_PERMISSIONS = [
 ] as const
 
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number]
+export type CommitteePermission = (typeof COMMITTEE_PERMISSIONS)[number]
 export type Permission = AdminPermission | (typeof GUARD_PERMISSIONS)[number] | (typeof RESIDENT_PERMISSIONS)[number]
 
 /** The user's role from user_roles, or undefined when none is assigned. */
@@ -162,7 +163,7 @@ function revokeGrants(executor: DbExecutor, userId: string, ids: string[]) {
 export async function setCommitteeMembership(
   actorUserId: string,
   userId: string,
-  granted: readonly (typeof COMMITTEE_PERMISSIONS)[number][],
+  granted: readonly CommitteePermission[],
 ) {
   if (granted.length === 0) throw committeeError('Assign at least one committee permission')
   if (granted.some((permission) => !(COMMITTEE_PERMISSIONS as readonly string[]).includes(permission))) {

@@ -14,10 +14,10 @@ export const registerResidentSchema = identityRefinements(
       name: z.string().trim().min(2, 'Name is required').max(120),
       phone: mobile,
       email: z.email('Email must be a valid email address').trim().toLowerCase().max(254).optional(),
-      /** Profile details; all optional, and only written when the account is new or has none */
-      dateOfBirth: isoDate.optional(),
-      gender: z.enum(gender.enumValues).optional(),
-      preferredLanguage: preferredLanguage.optional(),
+      /** Personal details. The office fills these in before anyone is registered. */
+      dateOfBirth: isoDate,
+      gender: z.enum(gender.enumValues),
+      preferredLanguage,
       alternatePhone: mobile.optional(),
       emergencyContactName: z.string().trim().min(2).max(120).optional(),
       emergencyContactRelationship: z.string().trim().min(2).max(60).optional(),

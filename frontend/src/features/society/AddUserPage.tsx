@@ -1,7 +1,7 @@
 import { today } from '../../lib/day'
 import eyeIcon from '../../assets/icons/eye.svg'
 import eyeOffIcon from '../../assets/icons/eye-off.svg'
-import { BadgeCheck, Building2, ShieldCheck, UserRound } from 'lucide-react'
+import { BadgeCheck, Building2, UserRound } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
@@ -19,14 +19,15 @@ import {
   type LoginCode,
   type RegisterResidentBody,
 } from './api'
-import { FormGrid, LoginCodeNote, Panel, useAction } from './parts'
+import { AdminAccounts } from './AdminAccounts'
+import { FormGrid, LoginCodeNote, useAction } from './parts'
 import { useResource } from './useResource'
 
-type Role = 'RESIDENT' | 'GUARD' | 'ADMIN'
+// Guards are not here: a guard is a staff record with an account, created under Staff management
+type Role = 'RESIDENT' | 'ADMIN'
 
 const ROLES: { key: Role; icon: typeof UserRound }[] = [
   { key: 'RESIDENT', icon: UserRound },
-  { key: 'GUARD', icon: ShieldCheck },
   { key: 'ADMIN', icon: BadgeCheck },
 ]
 
@@ -71,8 +72,8 @@ const bullets = (items: string[]) => (
 )
 
 /**
- * Add user: the Admin's single place to create an account. Only the Resident path has an API
- * today, so Guard and Admin say where they will live rather than offering a form that cannot save.
+ * Add user: where the office creates a resident or an Admin account. A guard is a staff record
+ * with an account, so guards are created under Staff management instead.
  */
 export function AddUserPage({ accessToken }: { accessToken: string }) {
   const { t } = useTranslation()
@@ -131,7 +132,16 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
   // A tenancy's end date is optional: it is recorded on move-out, not promised on arrival
   // The office does not register anyone without seeing their ID, so it is part of being ready
   const ready = Boolean(
-    form.name.trim() && form.phone.trim() && chosenFlat && form.startDate && form.idDocumentType && form.idNumber.trim() && form.consent,
+    form.name.trim() &&
+      form.dateOfBirth &&
+      form.gender &&
+      form.preferredLanguage &&
+      form.phone.trim() &&
+      chosenFlat &&
+      form.startDate &&
+      form.idDocumentType &&
+      form.idNumber.trim() &&
+      form.consent,
   )
 
   async function handleSubmit(event: FormEvent) {
@@ -142,10 +152,10 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
       residentType: form.residentType,
       accessLevel: form.accessLevel,
       startDate: form.startDate,
+      dateOfBirth: form.dateOfBirth,
+      gender: form.gender as Gender,
+      preferredLanguage: form.preferredLanguage as PreferredLanguage,
       ...(form.email.trim() ? { email: form.email.trim() } : {}),
-      ...(form.dateOfBirth ? { dateOfBirth: form.dateOfBirth } : {}),
-      ...(form.gender ? { gender: form.gender as Gender } : {}),
-      ...(form.preferredLanguage ? { preferredLanguage: form.preferredLanguage as PreferredLanguage } : {}),
       ...(form.alternatePhone.trim() ? { alternatePhone: form.alternatePhone.trim() } : {}),
       ...(form.relationship.trim() ? { relationship: form.relationship.trim() } : {}),
       ...(form.emergencyContactName.trim() ? { emergencyContactName: form.emergencyContactName.trim() } : {}),
@@ -180,7 +190,7 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
         <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
           <Step number={1} title={t('area.admin.addUser.role.title')} description={t('area.admin.addUser.role.description')}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-label={t('area.admin.addUser.role.title')}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label={t('area.admin.addUser.role.title')}>
               {ROLES.map(({ key, icon: Icon }) => (
                 <button
                   key={key}
@@ -200,10 +210,8 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
             </div>
           </Step>
 
-          {role !== 'RESIDENT' ? (
-            <Panel title={t('area.admin.addUser.notYet.title', { role: t(`area.admin.addUser.role.${role}.label`) })}>
-              <p className="text-[13px] text-muted">{t(`area.admin.addUser.notYet.${role}`)}</p>
-            </Panel>
+          {role === 'ADMIN' ? (
+            <AdminAccounts accessToken={accessToken} societyId={societyId} />
           ) : (
             <>
               {registered && (
@@ -231,25 +239,28 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
                     value={form.dateOfBirth}
                     onChange={(event) => set('dateOfBirth', event.target.value)}
                     error={action.fieldError('dateOfBirth')}
+                    required
                   />
                   <Select
                     id="add-gender"
                     label={t('area.admin.addUser.personal.gender')}
                     options={GENDERS.map((value) => ({ value, label: t(`area.admin.addUser.personal.genders.${value}`) }))}
-                    placeholder={t('area.admin.addUser.personal.notGiven')}
+                    placeholder={t('area.admin.addUser.personal.choose')}
                     value={form.gender}
                     onChange={(event) => set('gender', event.target.value)}
                     error={action.fieldError('gender')}
+                    required
                   />
                   <Select
                     id="add-language"
                     label={t('area.admin.addUser.personal.language')}
                     options={LANGUAGES.map((value) => ({ value, label: t(`area.admin.addUser.personal.languages.${value}`) }))}
-                    placeholder={t('area.admin.addUser.personal.notGiven')}
+                    placeholder={t('area.admin.addUser.personal.choose')}
                     value={form.preferredLanguage}
                     onChange={(event) => set('preferredLanguage', event.target.value)}
                     error={action.fieldError('preferredLanguage')}
                     hint={t('area.admin.addUser.personal.languageHint')}
+                    required
                   />
                 </FormGrid>
               </Step>
@@ -478,10 +489,12 @@ export function AddUserPage({ accessToken }: { accessToken: string }) {
           <Aside title={t('area.admin.addUser.required.title')}>
             {bullets([
               t('area.admin.addUser.required.name'),
+              t('area.admin.addUser.required.personal'),
               t('area.admin.addUser.required.phone'),
               t('area.admin.addUser.required.flat'),
               t('area.admin.addUser.required.type'),
               t('area.admin.addUser.required.moveIn'),
+              t('area.admin.addUser.required.identity'),
             ])}
           </Aside>
           <Aside title={t('area.admin.addUser.onSave.title')}>
