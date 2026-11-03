@@ -959,8 +959,6 @@
           "endDateHint": "Leave this empty while the tenant is living here. It is recorded when they move out.",
           "idType": "ID type",
           "noId": "No ID recorded",
-          "idLast4": "Last 4 of ID",
-          "idLast4Hint": "Never the full number; only the last 4 characters are stored.",
           "proof": "Proof reference",
           "proofHint": "Sale deed or rent agreement reference.",
           "done": "{{name}} registered and waiting for verification.",
@@ -1074,7 +1072,8 @@
             "hi": "Hindi",
             "mr": "Marathi"
           },
-          "choose": "Choose one"
+          "choose": "Choose one",
+          "notGiven": "Not given"
         },
         "signIn": {
           "title": "Sign-in and contact",

@@ -1,3 +1,5 @@
+import eyeIcon from '../../assets/icons/eye.svg'
+import eyeOffIcon from '../../assets/icons/eye-off.svg'
 import { today } from '../../lib/day'
 import { Contact, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
@@ -60,7 +62,7 @@ interface FormState {
   homeAddress: string
   workingDays: WorkingDay[]
   idDocumentType: string
-  idDocumentLast4: string
+  idNumber: string
   photoReference: string
   passValidFrom: string
   passValidUntil: string
@@ -80,7 +82,7 @@ const emptyForm = (): FormState => ({
   homeAddress: '',
   workingDays: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'],
   idDocumentType: '',
-  idDocumentLast4: '',
+  idNumber: '',
   photoReference: '',
   passValidFrom: today(),
   passValidUntil: '',
@@ -101,7 +103,8 @@ const formOf = (member: Staff): FormState => ({
   homeAddress: member.homeAddress ?? '',
   workingDays: (member.workingDays?.split(',') ?? []) as WorkingDay[],
   idDocumentType: member.idDocumentType ?? '',
-  idDocumentLast4: member.idDocumentLast4 ?? '',
+  // The number itself never comes back from the API; leaving it blank keeps what is on file
+  idNumber: '',
   photoReference: member.photoReference ?? '',
   passValidFrom: member.passValidFrom,
   passValidUntil: member.passValidUntil ?? '',
@@ -310,6 +313,7 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
   const [offset, setOffset] = useState(0)
   const [loginCode, setLoginCode] = useState<LoginCode | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm())
+  const [showId, setShowId] = useState(false)
   const [editing, setEditing] = useState<Staff | null>(null)
   const [open, setOpen] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -410,7 +414,7 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
       ...(form.gender ? { gender: form.gender as Gender } : {}),
       ...(form.homeAddress.trim() ? { homeAddress: form.homeAddress.trim() } : {}),
       ...(form.idDocumentType ? { idDocumentType: form.idDocumentType as IdDocumentType } : {}),
-      ...(form.idDocumentLast4.trim() ? { idDocumentLast4: form.idDocumentLast4.trim().toUpperCase() } : {}),
+      ...(form.idNumber.trim() ? { idNumber: form.idNumber.trim().toUpperCase() } : {}),
       ...(form.photoReference.trim() ? { photoReference: form.photoReference.trim() } : {}),
       ...(isHelp || form.flatsServed.length
         ? { flatsServed: form.flatsServed.map((flat) => ({ flatId: flat.flatId, ...(flat.timeWindow.trim() ? { timeWindow: flat.timeWindow.trim() } : {}) })) }
@@ -744,14 +748,27 @@ export function StaffPage({ user, accessToken }: { user: AuthUser; accessToken: 
                 error={action.fieldError('idDocumentType')}
               />
               <TextField
-                id="staff-id-last4"
-                label={t('area.admin.society.register.idLast4')}
-                value={form.idDocumentLast4}
-                onChange={(event) => set('idDocumentLast4', event.target.value)}
-                error={action.fieldError('idDocumentLast4')}
-                hint={t('area.admin.society.register.idLast4Hint')}
-                maxLength={4}
+                id="staff-id-number"
+                label={t('area.admin.society.register.idNumber')}
+                type={showId ? 'text' : 'password'}
+                autoComplete="off"
+                value={form.idNumber}
+                onChange={(event) => set('idNumber', event.target.value)}
+                error={action.fieldError('idNumber')}
+                hint={t('area.admin.society.register.idNumberHint')}
+                maxLength={20}
                 disabled={!form.idDocumentType}
+                trailing={
+                  <button
+                    type="button"
+                    className="-m-1 flex cursor-pointer rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                    aria-label={showId ? t('area.admin.society.register.hideId') : t('area.admin.society.register.showId')}
+                    aria-pressed={showId}
+                    onClick={() => setShowId((visible) => !visible)}
+                  >
+                    <img src={showId ? eyeOffIcon : eyeIcon} alt="" width={17} height={17} />
+                  </button>
+                }
               />
               <Select
                 id="staff-verification"

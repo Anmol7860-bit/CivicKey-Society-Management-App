@@ -147,6 +147,36 @@ it('registers a guard with a gate and a shift, and will not submit without them'
   )
 })
 
+it('takes the whole ID number from staff, as it does from a resident', async () => {
+  mocked.createStaff.mockResolvedValue(guard())
+  show()
+
+  await userEvent.click(await screen.findByRole('button', { name: /Add staff/ }))
+  await userEvent.type(screen.getByLabelText(/Full name/), 'Ravi Kumar')
+  await userEvent.type(screen.getByLabelText(/Mobile number/), '9823456789')
+  await userEvent.click(screen.getByLabelText(/agreed to share their photo/))
+  await userEvent.selectOptions(screen.getByLabelText(/^Gate/), 'g1')
+  await userEvent.selectOptions(screen.getByLabelText(/^Shift \*/), 'NIGHT')
+
+  // The number is hidden while it is typed, exactly as the resident form hides it
+  await userEvent.selectOptions(screen.getByLabelText(/ID type/), 'AADHAAR')
+  const idField = document.getElementById('staff-id-number')!
+  expect(idField).toHaveAttribute('type', 'password')
+  await userEvent.type(idField, '123456789012')
+  await userEvent.click(screen.getByRole('button', { name: 'Show the ID number' }))
+  expect(idField).toHaveAttribute('type', 'text')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Save and issue staff pass' }))
+
+  await waitFor(() =>
+    expect(mocked.createStaff).toHaveBeenCalledWith(
+      'token',
+      's1',
+      expect.objectContaining({ idDocumentType: 'AADHAAR', idNumber: '123456789012' }),
+    ),
+  )
+})
+
 it('asks daily help for the flats it serves, and sends the time window with each', async () => {
   mocked.createStaff.mockResolvedValue(guard({ kind: 'DAILY_HELP' }))
   show()
