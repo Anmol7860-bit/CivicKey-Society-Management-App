@@ -97,7 +97,9 @@ export function SocietyPage({ user, accessToken }: { user: AuthUser; accessToken
           societyId={current.id}
           flat={active === 'residents' ? flat : null}
           onClearFlat={() => setFlat(null)}
-          initialStatus={active === 'approvals' ? ('PENDING' as VerificationStatus) : ''}
+          // Residents is the directory of people who hold access; Approvals is the queue waiting
+          // for it. The status filter still reaches the rest, including the rejected.
+          initialStatus={(active === 'approvals' ? 'PENDING' : 'VERIFIED') as VerificationStatus}
         />
       )}
     </div>

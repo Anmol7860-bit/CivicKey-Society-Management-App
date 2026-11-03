@@ -285,7 +285,7 @@ describe('registration review', () => {
     expect(await screen.findByText('2nd Floor · 2 BHK · 1240 sq ft')).toBeInTheDocument()
 
     await userEvent.type(screen.getByLabelText('Search'), 'B-204')
-    await waitFor(() => expect(mocked.listResidents).toHaveBeenLastCalledWith('token', 's1', { search: 'B-204' }))
+    await waitFor(() => expect(mocked.listResidents).toHaveBeenLastCalledWith('token', 's1', { search: 'B-204', status: 'VERIFIED' }))
   })
 
   it('verifies with the access level the Admin chose', async () => {

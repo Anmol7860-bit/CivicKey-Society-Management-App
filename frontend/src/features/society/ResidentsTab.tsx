@@ -188,6 +188,8 @@ export function ResidentsTab({ token, societyId, flat, onClearFlat, initialStatu
 }) {
   const { t } = useTranslation()
   // Empty string is "any" in the selects; only the set filters reach the query string
+  // Which tab opened this: the heading follows the tab, not the filter the reader then picks
+  const queue = initialStatus === 'PENDING'
   const [filters, setFilters] = useState({ search: '', status: initialStatus, residentType: '', active: '' })
   const query: ResidentFilters = {
     ...(filters.search.trim() ? { search: filters.search.trim() } : {}),
@@ -224,8 +226,16 @@ export function ResidentsTab({ token, societyId, flat, onClearFlat, initialStatu
   return (
     <div className="flex flex-col gap-4">
       <Panel
-        title={flat ? t('area.admin.society.residents.flatTitle', { number: flat.number }) : t('area.admin.society.residents.title')}
-        description={flat ? t('area.admin.society.residents.flatDescription') : t('area.admin.society.residents.description')}
+        title={
+          flat
+            ? t('area.admin.society.residents.flatTitle', { number: flat.number })
+            : t(`area.admin.society.residents.${queue ? 'queueTitle' : 'title'}`)
+        }
+        description={
+          flat
+            ? t('area.admin.society.residents.flatDescription')
+            : t(`area.admin.society.residents.${queue ? 'queueDescription' : 'description'}`)
+        }
         action={
           flat ? (
             <div className="flex gap-2">

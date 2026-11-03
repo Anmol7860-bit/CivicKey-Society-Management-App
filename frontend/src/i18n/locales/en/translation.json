@@ -885,7 +885,9 @@
         },
         "residents": {
           "title": "Residents and tenants",
-          "description": "Owners and tenants of this society, current and past.",
+          "description": "Owners and tenants who hold access today. The status filter reaches the rest.",
+          "queueTitle": "Waiting for approval",
+          "queueDescription": "Registrations that need checking before anyone gets access to a flat.",
           "search": "Search",
           "searchPlaceholder": "Name, mobile, flat or flat id",
           "searchHint": "Try a resident name, a mobile number, 101, A-101, or paste a flat id.",
