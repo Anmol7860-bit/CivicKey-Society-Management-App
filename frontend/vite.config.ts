@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     server: {
+      // Dual-stack: the default binds whichever loopback the OS resolves first, so 127.0.0.1
+      // was refused while ::1 worked. `true` also puts it on the LAN, for testing on a phone.
+      host: true,
       proxy: {
         // Forwards API calls to the Express backend during development; ws carries the
         // notification socket, which lives under /api/v1/socket.io
