@@ -1,0 +1,1 @@
+ALTER TYPE "public"."notification_event" ADD VALUE 'PASSWORD_RESET_REQUESTED';

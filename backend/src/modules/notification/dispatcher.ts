@@ -87,6 +87,11 @@ function describe(eventType: NotificationEvent, payload: Record<string, unknown>
       return { title: 'A task is overdue', body: `${String(payload.title ?? 'A task')} has passed its due date.` }
     case 'TASK_STATUS_CHANGED':
       return { title: 'A task moved on', body: `${String(payload.title ?? 'A task')} is now ${String(payload.status ?? 'updated')}.` }
+    case 'PASSWORD_RESET_REQUESTED':
+      return {
+        title: 'Someone needs a login code',
+        body: `${String(payload.name ?? 'A resident')} (${String(payload.phone ?? 'their number')}) asked for a password reset. Issue a code from Society & users.`,
+      }
   }
 }
 

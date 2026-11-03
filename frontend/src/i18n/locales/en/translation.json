@@ -670,7 +670,8 @@
         "activity": "My activity",
         "myFlat": "My flat",
         "staffMovement": "Staff movement",
-        "visitorMovement": "Visitor movement"
+        "visitorMovement": "Visitor movement",
+        "notifications": "Notifications"
       },
       "primary": {
         "addUser": "Add user"

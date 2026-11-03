@@ -281,6 +281,13 @@
       "when": 1793544944834,
       "tag": "0039_four_digit_setup_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1793671847010,
+      "tag": "0040_fuzzy_red_shift",
+      "breakpoints": true
     }
   ]
 }

@@ -977,6 +977,8 @@ export const notificationEvent = pgEnum('notification_event', [
   'TASK_DUE_SOON',
   'TASK_OVERDUE',
   'TASK_STATUS_CHANGED',
+  /** Someone used Forgot password: the office has to hand them a new code */
+  'PASSWORD_RESET_REQUESTED',
 ])
 
 export const outboxStatus = pgEnum('outbox_status', ['PENDING', 'PROCESSING', 'DONE', 'DEAD'])

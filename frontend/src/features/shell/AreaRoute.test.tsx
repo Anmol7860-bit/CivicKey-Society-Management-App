@@ -93,7 +93,7 @@ describe('role destinations', () => {
     renderAt('/admin/overview', user('ADMIN', ['BILLING_RATE_SET', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK', 'REPORT_VIEW']))
 
     // Community tasks needs SOCIETY_MANAGE, which this committee member does not hold
-    expect(navLabels()).toEqual(['Overview', 'Billing', 'Reports'])
+    expect(navLabels()).toEqual(['Overview', 'Billing', 'Reports', 'Notifications'])
     expect(screen.queryByRole('link', { name: 'Add user' })).not.toBeInTheDocument()
     expect(within(screen.getByRole('list', { name: 'Shortcuts' })).getAllByRole('link').map((link) => link.textContent)).toEqual([
       'Billing & reportsCollections and exports',
@@ -112,6 +112,7 @@ describe('role destinations', () => {
       'Visitor movement',
       'Security activity',
       'Community tasks',
+      'Notifications',
     ])
     expect(screen.getAllByRole('link', { name: 'Add user' })[0]).toBeInTheDocument()
   })

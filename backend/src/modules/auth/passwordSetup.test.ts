@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import request from 'supertest'
 import { createApp } from '../../app.js'
 import { db } from '../../db/client.js'
-import { auditLogs, authRateLimitBuckets, authSessions, passwordSetupCodes, users } from '../../db/schema.js'
+import { auditLogs, authRateLimitBuckets, authSessions, notificationOutbox, passwordSetupCodes, users } from '../../db/schema.js'
 import { createFlat, createUser, grantPermissions, PASSWORD, postLogin, TEST_SOCIETY_ID, type App, signTestToken } from '../../test/helpers.js'
 
 const OTHER_SOCIETY_ID = '33333333-3333-4333-8333-333333333333'
@@ -225,6 +225,23 @@ describe('POST /api/v1/auth/forgot-password', () => {
     expect(events).toHaveLength(2)
     // The log is the office's queue, so it must not print the whole number
     expect(JSON.stringify(events)).not.toContain('9855555555')
+  })
+
+  it('notifies the office holding USER_MANAGE, and nobody at all for an unknown number', async () => {
+    const office = await createUser({ phone: '9000000099', email: null, role: 'ADMIN' })
+    await grantPermissions(office.id, ['USER_MANAGE'])
+    const guard = await createUser({ phone: '9000000098', email: null, role: 'GUARD' })
+    await createUser({ phone: '9855555555', email: null })
+
+    await api.post('/auth/forgot-password', { phone: '9855555555' })
+    await api.post('/auth/forgot-password', { phone: '9866666666' })
+
+    const queued = await db.select().from(notificationOutbox).where(eq(notificationOutbox.eventType, 'PASSWORD_RESET_REQUESTED'))
+    expect(queued).toHaveLength(1)
+    expect(queued[0]!.recipientIds).toContain(office.id)
+    expect(queued[0]!.recipientIds).not.toContain(guard.id)
+    // The office may know who asked, but the number stays masked everywhere it is written down
+    expect(JSON.stringify(queued[0]!.payload)).not.toContain('9855555555')
   })
 
   it('rejects anything that is not a mobile number', async () => {

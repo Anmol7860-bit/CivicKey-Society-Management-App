@@ -7,7 +7,7 @@ export interface OutboxEvent {
   societyId: string
   eventType: NotificationEvent
   /** What the event is about, so a reader can open it */
-  entityType: 'visit' | 'staff' | 'invoice' | 'payment' | 'receipt' | 'task' | 'sync'
+  entityType: 'visit' | 'staff' | 'invoice' | 'payment' | 'receipt' | 'task' | 'sync' | 'user'
   entityId?: string | null
   /** Who should be told. An empty list is allowed and simply tells nobody. */
   recipientIds: string[]

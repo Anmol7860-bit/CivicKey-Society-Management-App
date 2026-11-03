@@ -3,13 +3,14 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { db } from '../../db/client.js'
-import { passwordSetupCodes, users } from '../../db/schema.js'
+import { permissions as permissionTable, passwordSetupCodes, userPermissions, users } from '../../db/schema.js'
 import { AppError } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assertSameSociety, assertState, UUID } from '../access/scope.js'
 import { maskIdentifier, recordAuditEvent, type DbExecutor } from '../audit/audit.service.js'
 import { revokeAllSessions } from './auth.service.js'
 import { hashPassword } from './password.js'
+import { enqueueNotification } from '../notification/outbox.service.js'
 import { assertPhoneNotLocked, clearFailedAttempts, countFailedAttempt } from './throttle.js'
 
 /**
@@ -191,7 +192,30 @@ export async function requestPasswordReset(
   phone: string,
   request: { ipAddress: string | null; userAgent: string | null },
 ) {
-  const [user] = await db.select({ id: users.id, societyId: users.societyId }).from(users).where(eq(users.phone, phone))
+  const [user] = await db
+    .select({ id: users.id, name: users.name, societyId: users.societyId })
+    .from(users)
+    .where(eq(users.phone, phone))
+  // The office is told so somebody acts on it. An unknown number notifies nobody, which is also
+  // what keeps the caller from learning whether a number is registered.
+  if (user?.societyId) {
+    const office = await db
+      .select({ id: userPermissions.userId })
+      .from(userPermissions)
+      .innerJoin(permissionTable, eq(permissionTable.id, userPermissions.permissionId))
+      .innerJoin(users, eq(users.id, userPermissions.userId))
+      .where(and(eq(permissionTable.code, 'USER_MANAGE'), eq(users.societyId, user.societyId), eq(users.isActive, true)))
+    if (office.length > 0) {
+      await enqueueNotification(db, {
+        societyId: user.societyId,
+        eventType: 'PASSWORD_RESET_REQUESTED',
+        entityType: 'user',
+        entityId: user.id,
+        recipientIds: office.map((row) => row.id),
+        payload: { name: user.name, phone: maskIdentifier('phone', phone) },
+      })
+    }
+  }
   await recordAuditEvent(db, {
     eventType: 'PASSWORD_RESET_REQUESTED',
     actorUserId: user?.id ?? null,
