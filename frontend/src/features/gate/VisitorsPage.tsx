@@ -385,7 +385,7 @@ export function VisitorsPage({ accessToken }: { accessToken: string }) {
                   error={action.fieldError('validOn')}
                   required
                 />
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <TextField
                     id="pass-from"
                     label={t('area.resident.visitors.from')}

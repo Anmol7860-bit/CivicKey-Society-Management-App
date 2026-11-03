@@ -13,7 +13,7 @@ interface FieldProps {
 /** Label, control and message for one form field. Pair it with `fieldProps` on the control. */
 export function Field({ id, label, error, hint, required = false, children }: FieldProps) {
   return (
-    <div className="flex w-full flex-col gap-1.5">
+    <div className="flex w-full min-w-0 flex-col gap-1.5">
       <label htmlFor={id} className="text-[13px] font-semibold text-ink-soft">
         {label}
         {required && <span className="text-red-600"> *</span>}
