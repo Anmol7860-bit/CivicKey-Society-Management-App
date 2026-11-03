@@ -224,6 +224,21 @@ describe('Notifications', () => {
     notificationApi.markAllRead.mockResolvedValue({ marked: 1 })
   })
 
+  it('shows an Admin with no flat only what was sent, asking for nothing they cannot read', async () => {
+    const officeAdmin: AuthUser = { ...user, role: 'ADMIN', permissions: ['USER_MANAGE'] }
+    render(
+      <MemoryRouter>
+        <NotificationsPage user={officeAdmin} accessToken="token" />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('Amit Kulkarni is at your gate')).toBeInTheDocument()
+    // The flat's own queue belongs to a resident; the OWN endpoints would answer 403 here
+    expect(screen.queryByText('Needs your attention')).not.toBeInTheDocument()
+    expect(gateApi.listMyVisits).not.toHaveBeenCalled()
+    expect(billingApi.listMyInvoices).not.toHaveBeenCalled()
+  })
+
   it('separates what needs an answer from what was sent', async () => {
     showNotifications()
 

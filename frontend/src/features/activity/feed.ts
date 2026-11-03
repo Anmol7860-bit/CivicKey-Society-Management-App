@@ -146,11 +146,15 @@ export function buildEvents(parts: {
  * ponytail: vehicles are left out - they have no lifecycle worth a timeline entry, and My flat
  * lists them. Add them here if "who added this car" ever needs answering.
  */
-export function useFeed(accessToken: string) {
-  const visits = useResource(() => listMyVisits(accessToken), [accessToken])
-  const passes = useResource(() => listMyPasses(accessToken), [accessToken])
-  const invoices = useResource(() => listMyInvoices(accessToken), [accessToken])
-  const requests = useResource(() => listMyAccessRequests(accessToken), [accessToken])
+/**
+ * `enabled` is false for someone with no flat of their own: an Admin who is not also a resident
+ * holds none of the OWN permissions these four calls need, and asking anyway answers 403.
+ */
+export function useFeed(accessToken: string, enabled = true) {
+  const visits = useResource(enabled ? () => listMyVisits(accessToken) : null, [accessToken, enabled])
+  const passes = useResource(enabled ? () => listMyPasses(accessToken) : null, [accessToken, enabled])
+  const invoices = useResource(enabled ? () => listMyInvoices(accessToken) : null, [accessToken, enabled])
+  const requests = useResource(enabled ? () => listMyAccessRequests(accessToken) : null, [accessToken, enabled])
   const parts = [visits, passes, invoices, requests]
 
   const events = buildEvents({ visits: visits.data, passes: passes.data, invoices: invoices.data, requests: requests.data })
