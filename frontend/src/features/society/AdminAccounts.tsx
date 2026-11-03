@@ -4,7 +4,7 @@ import eyeIcon from '../../assets/icons/eye.svg'
 import eyeOffIcon from '../../assets/icons/eye-off.svg'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
-import { ErrorState, Skeleton, SuccessNote } from '../../components/ui/States'
+import { ErrorState, SuccessNote } from '../../components/ui/States'
 import { TextField } from '../../components/ui/TextField'
 import {
   COMMITTEE_PERMISSIONS,
@@ -20,6 +20,7 @@ import {
   type LoginCode,
 } from './api'
 import { FormGrid, LoginCodeNote, Panel, RowButton, useAction } from './parts'
+import { AdminsPanel } from './AdminsPanel'
 import { useResource } from './useResource'
 
 const ID_TYPES = ['AADHAAR', 'PAN', 'PASSPORT', 'DRIVING_LICENCE', 'VOTER_ID'] as const
@@ -60,7 +61,11 @@ function Boxes({ codes, chosen, onToggle }: { codes: readonly AdminPermission[];
  */
 export function AdminAccounts({ accessToken, societyId }: { accessToken: string; societyId: string | undefined }) {
   const { t } = useTranslation()
-  const admins = useResource(societyId ? () => listAdmins(accessToken, societyId) : null, [accessToken, societyId])
+  const [reloadKey, setReloadKey] = useState(0)
+  const reloadAdmins = () => setReloadKey((n) => n + 1)
+  // The panel below lists them; this copy only answers whether a chosen resident is already on
+  // the committee, which decides whether the form offers a grant or a change
+  const admins = useResource(societyId ? () => listAdmins(accessToken, societyId) : null, [accessToken, societyId, reloadKey])
   const residents = useResource(
     societyId ? () => listResidents(accessToken, societyId, { active: 'true' }) : null,
     [accessToken, societyId],
@@ -128,7 +133,7 @@ export function AdminAccounts({ accessToken, societyId }: { accessToken: string;
       setCreated(form.name.trim())
       setLoginCode(code)
       setForm({ name: '', phone: '', email: '', idDocumentType: '', idNumber: '', consent: false, permissions: [] })
-      admins.reload()
+      reloadAdmins()
     }
   }
 
@@ -137,12 +142,12 @@ export function AdminAccounts({ accessToken, societyId }: { accessToken: string;
     if (await committee.run(() => setCommitteePermissions(accessToken, member.userId, member.permissions))) {
       setGranted(name ?? null)
       setMember({ userId: '', permissions: [] })
-      admins.reload()
+      reloadAdmins()
     }
   }
 
   async function endCommittee(userId: string) {
-    if (await committee.run(() => removeCommitteePermissions(accessToken, userId))) admins.reload()
+    if (await committee.run(() => removeCommitteePermissions(accessToken, userId))) reloadAdmins()
   }
 
   // A resident already on the committee is offered the change, not a second grant
@@ -301,35 +306,7 @@ export function AdminAccounts({ accessToken, societyId }: { accessToken: string;
         </div>
       </Panel>
 
-      <Panel title={t('area.admin.addUser.admin.existing.title')}>
-        {admins.loading && <Skeleton rows={2} />}
-        {admins.error && <ErrorState message={admins.error} onRetry={admins.reload} />}
-        {admins.data?.length === 0 && <p className="text-[13px] text-muted">{t('area.admin.addUser.admin.existing.empty')}</p>}
-        <ul className="flex flex-col gap-2">
-          {(admins.data ?? []).map((admin) => (
-            <li key={admin.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-line p-3 text-[13px]">
-              <span className="font-semibold text-ink">{admin.name}</span>
-              <span className="text-muted">{admin.phone}</span>
-              <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand">
-                {t(`area.admin.addUser.admin.existing.${admin.resident ? 'resident' : 'staff'}`)}
-              </span>
-              <span className="text-muted">
-                {admin.idDocumentOnFile && admin.idDocumentType
-                  ? t('area.admin.society.residents.idOnFile', {
-                      type: t(`area.admin.society.residents.idType.${admin.idDocumentType}`),
-                      last4: admin.idDocumentLast4 ?? '',
-                    })
-                  : t('area.admin.addUser.admin.existing.noId')}
-              </span>
-              <span className="text-muted">
-                {admin.permissions.length === 0
-                  ? t('area.admin.addUser.admin.existing.none')
-                  : admin.permissions.map((code) => t(`area.admin.addUser.admin.codes.${code}.label`)).join(', ')}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </Panel>
+      {societyId && <AdminsPanel accessToken={accessToken} societyId={societyId} reloadKey={reloadKey} />}
     </div>
   )
 }

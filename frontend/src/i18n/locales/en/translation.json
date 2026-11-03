@@ -736,7 +736,8 @@
           "residents": "Residents",
           "approvals": "Approvals",
           "gates": "Gates",
-          "settings": "Settings & backups"
+          "settings": "Settings & backups",
+          "admins": "Admins"
         },
         "noSociety": {
           "title": "No society yet",
@@ -1195,6 +1196,7 @@
           },
           "existing": {
             "title": "Admins in this society",
+            "description": "Everyone who can sign in as an Admin here. Issue a login code if one was lost.",
             "empty": "No Admin accounts yet.",
             "staff": "Office",
             "resident": "Lives here",

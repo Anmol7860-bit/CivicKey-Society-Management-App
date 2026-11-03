@@ -275,6 +275,32 @@ describe('registration review', () => {
     expect(mocked.listResidents).toHaveBeenCalledWith('token', 's1', expect.objectContaining({ status: 'PENDING' }))
   })
 
+  it('lists the Admin accounts in their own tab, with a way back to a lost login code', async () => {
+    mocked.listAdmins.mockResolvedValue([
+      {
+        id: 'a1',
+        name: 'Nisha Kulkarni',
+        phone: '9811100022',
+        email: null,
+        isActive: true,
+        resident: false,
+        idDocumentOnFile: false,
+        idDocumentType: null,
+        idDocumentLast4: null,
+        permissions: ['USER_MANAGE'],
+      },
+    ])
+    mocked.issueLoginCode.mockResolvedValue({ code: '7391', expiresAt: '2026-11-06T10:00:00.000Z', user: { id: 'a1', name: 'Nisha Kulkarni' } })
+    show()
+    await openTab('Admins')
+
+    expect(await screen.findByText('Nisha Kulkarni')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Login code' }))
+
+    expect(mocked.issueLoginCode).toHaveBeenCalledWith('token', 'a1')
+    expect(await screen.findByText('7391')).toBeInTheDocument()
+  })
+
   it('searches the directory and shows the flat behind each resident', async () => {
     mocked.listResidents.mockResolvedValue([
       { ...pending, flat: { id: 'fl1', number: '204', flatType: 'TWO_BHK', carpetAreaSqft: 1240 }, floor: { id: 'fo1', floorLabel: '2nd Floor' } },

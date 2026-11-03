@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States'
 import type { AuthUser } from '../auth/api'
 import { listBlocks, listSocieties, type Flat, type Society, type VerificationStatus } from './api'
+import { AdminsPanel } from './AdminsPanel'
 import { BlocksTab } from './BlocksTab'
 import { FlatsTab } from './FlatsTab'
 import { FloorsTab } from './FloorsTab'
@@ -13,7 +14,7 @@ import { SettingsTab } from './SettingsTab'
 import { StructureTab } from './StructureTab'
 import { useResource } from './useResource'
 
-const TAB_KEYS = ['structure', 'blocks', 'floors', 'flats', 'gates', 'residents', 'approvals', 'settings'] as const
+const TAB_KEYS = ['structure', 'blocks', 'floors', 'flats', 'gates', 'residents', 'approvals', 'admins', 'settings'] as const
 type TabKey = (typeof TAB_KEYS)[number]
 
 /**
@@ -49,7 +50,7 @@ export function SocietyPage({ user, accessToken }: { user: AuthUser; accessToken
   }
 
   const permitted = TAB_KEYS.filter((key) =>
-    key === 'residents' || key === 'approvals'
+    key === 'residents' || key === 'approvals' || key === 'admins'
       ? user.permissions.includes('USER_MANAGE')
       : // Settings holds the backup export, which is its own permission
         key === 'settings'
@@ -89,6 +90,7 @@ export function SocietyPage({ user, accessToken }: { user: AuthUser; accessToken
         />
       )}
       {active === 'gates' && <GatesTab token={accessToken} societyId={current.id} />}
+      {active === 'admins' && <AdminsPanel accessToken={accessToken} societyId={current.id} />}
       {active === 'settings' && <SettingsTab token={accessToken} societyId={current.id} />}
       {(active === 'residents' || active === 'approvals') && (
         <ResidentsTab
