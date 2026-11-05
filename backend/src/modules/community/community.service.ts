@@ -1,12 +1,15 @@
-import { and, asc, count, eq, gte, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, isNull, lt, lte, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client.js'
 import {
   blocks,
   communityGroupMembers,
   communityGroups,
+  communityMessages,
   flatResidents,
   flats,
+  permissions,
   societies,
+  userPermissions,
   users,
   type CommunityGroup,
 } from '../../db/schema.js'
@@ -14,7 +17,15 @@ import { AppError, type ErrorCode } from '../../lib/errors.js'
 import type { AuthContext } from '../../middleware/requireAuth.js'
 import { assertState, deny, permissionDenied, requireRecord, UUID } from '../access/scope.js'
 import { recordAuditEvent, type AuditEventType, type DbExecutor } from '../audit/audit.service.js'
-import type { AddMemberBody, ArchiveGroupBody, CreateGroupBody, ListGroupsQuery } from './community.schemas.js'
+import { emitToUsers } from '../notification/realtime.js'
+import type {
+  AddMemberBody,
+  ArchiveGroupBody,
+  CreateGroupBody,
+  ListGroupsQuery,
+  ListMessagesQuery,
+  PostMessageBody,
+} from './community.schemas.js'
 
 function audit(tx: DbExecutor, ctx: AuthContext, eventType: AuditEventType, metadata: Record<string, unknown>) {
   return recordAuditEvent(tx, { eventType, actorUserId: ctx.userId, metadata })
@@ -92,6 +103,17 @@ async function assertEligible(group: CommunityGroup, userId: string) {
     .where(and(eq(flatResidents.userId, userId), eq(blocks.societyId, group.societyId), liveAssignment()))
     .limit(1)
   if (!row) throw new AppError(409, 'ASSIGNEE_NOT_ELIGIBLE', 'Only a resident of this society can be in a group')
+}
+
+/**
+ * Who may read a group: the office anywhere, anyone with a row in it, and anyone the flat
+ * register puts in a block or society group.
+ */
+async function assertCanRead(ctx: AuthContext, group: CommunityGroup) {
+  if (managesGroups(ctx)) return
+  if (await membership(group.id, ctx.userId)) return
+  if (group.scope !== 'CUSTOM' && (await registerMembers(group, ctx.userId)).length) return
+  throw await deny(ctx.userId, permissionDenied(), { groupId: group.id })
 }
 
 /**
@@ -228,11 +250,8 @@ export async function archiveGroup(ctx: AuthContext, id: string, body: ArchiveGr
  */
 export async function listMembers(ctx: AuthContext, groupId: string) {
   const group = await loadGroup(ctx, groupId)
-  const [manage, mine] = [managesGroups(ctx), await membership(groupId, ctx.userId)]
+  await assertCanRead(ctx, group)
   const derived = group.scope !== 'CUSTOM'
-  if (!manage && !mine && !(derived && (await registerMembers(group, ctx.userId)).length)) {
-    throw await deny(ctx.userId, permissionDenied(), { groupId })
-  }
 
   const rows = await db
     .select({ userId: communityGroupMembers.userId, name: users.name, phone: users.phone, role: communityGroupMembers.role, joinedAt: communityGroupMembers.joinedAt })
@@ -297,5 +316,108 @@ export async function removeMember(ctx: AuthContext, groupId: string, userId: st
       .where(and(eq(communityGroupMembers.groupId, groupId), eq(communityGroupMembers.userId, userId), livePart))
     await audit(tx, ctx, 'GROUP_MEMBER_REMOVED', { groupId, userId, role })
     return { groupId, userId, role }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Messages
+// ---------------------------------------------------------------------------
+
+/**
+ * Everyone who should see a group's traffic live: its own rows, the register for a derived group,
+ * and the office, so the admin side of a resident conversation is live too.
+ */
+export async function audience(group: CommunityGroup) {
+  const [picked, derived, office] = await Promise.all([
+    db
+      .select({ userId: communityGroupMembers.userId })
+      .from(communityGroupMembers)
+      .where(and(eq(communityGroupMembers.groupId, group.id), livePart)),
+    group.scope === 'CUSTOM' ? [] : registerMembers(group),
+    db
+      .select({ userId: userPermissions.userId })
+      .from(userPermissions)
+      .innerJoin(permissions, eq(permissions.id, userPermissions.permissionId))
+      .innerJoin(users, eq(users.id, userPermissions.userId))
+      .where(
+        and(
+          eq(permissions.code, 'GROUP_MANAGE'),
+          isNull(userPermissions.revokedAt),
+          eq(users.societyId, group.societyId),
+          eq(users.isActive, true),
+        ),
+      ),
+  ])
+  return [...new Set([...picked, ...derived, ...office].map((row) => row.userId))]
+}
+
+/** A removed message keeps its place in the conversation, without its words. */
+const messageView = (row: { message: typeof communityMessages.$inferSelect; authorName: string | null }) => ({
+  id: row.message.id,
+  groupId: row.message.groupId,
+  authorId: row.message.authorId,
+  authorName: row.authorName,
+  body: row.message.deletedAt ? null : row.message.body,
+  removed: Boolean(row.message.deletedAt),
+  createdAt: row.message.createdAt,
+})
+
+/** The conversation, newest first, walked backwards with `before`. */
+export async function listMessages(ctx: AuthContext, groupId: string, query: ListMessagesQuery) {
+  const group = await loadGroup(ctx, groupId)
+  await assertCanRead(ctx, group)
+
+  const filters = [eq(communityMessages.groupId, groupId)]
+  if (query.before) filters.push(lt(communityMessages.createdAt, query.before))
+  const rows = await db
+    .select({ message: communityMessages, authorName: users.name })
+    .from(communityMessages)
+    .innerJoin(users, eq(users.id, communityMessages.authorId))
+    .where(and(...filters))
+    .orderBy(desc(communityMessages.createdAt))
+    .limit(query.limit)
+  return rows.map(messageView)
+}
+
+export async function postMessage(ctx: AuthContext, groupId: string, body: PostMessageBody) {
+  const group = await loadGroup(ctx, groupId)
+  assertState(!group.archivedAt, 'This group is archived')
+  await assertCanRead(ctx, group)
+
+  const [[written], [author]] = await Promise.all([
+    db.insert(communityMessages).values({ groupId, authorId: ctx.userId, body: body.body }).returning(),
+    db.select({ name: users.name }).from(users).where(eq(users.id, ctx.userId)),
+  ])
+  const message = messageView({ message: written!, authorName: author?.name ?? null })
+  emitToUsers(await audience(group), 'community:message', message)
+  return message
+}
+
+/** The author takes their own words back; the office removes anyone's. The row stays either way. */
+export async function removeMessage(ctx: AuthContext, id: string) {
+  const [row] = UUID.test(id)
+    ? await db
+        .select({ message: communityMessages, group: communityGroups })
+        .from(communityMessages)
+        .innerJoin(communityGroups, eq(communityGroups.id, communityMessages.groupId))
+        .where(eq(communityMessages.id, id))
+    : []
+  if (!row) throw new AppError(404, 'NOT_FOUND', 'Message not found')
+  const group = await requireRecord(ctx, row.group, 'Message')
+  const manage = managesGroups(ctx)
+  if (!manage && row.message.authorId !== ctx.userId) {
+    throw await deny(ctx.userId, permissionDenied(), { messageId: id, groupId: group.id })
+  }
+  assertState(!row.message.deletedAt, 'That message is already removed')
+
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(communityMessages)
+      .set({ deletedAt: new Date(), deletedBy: ctx.userId })
+      .where(eq(communityMessages.id, id))
+      .returning()
+    await audit(tx, ctx, 'COMMUNITY_MESSAGE_REMOVED', { messageId: id, groupId: group.id, authorId: row.message.authorId, byTheOffice: manage })
+    emitToUsers(await audience(group), 'community:message-removed', { id, groupId: group.id })
+    return { id: updated!.id, groupId: group.id, removed: true }
   })
 }

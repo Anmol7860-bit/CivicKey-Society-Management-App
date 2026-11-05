@@ -75,6 +75,18 @@ export function isConnected(userId: string) {
   return (io?.sockets.adapter.rooms.get(roomForUser(userId))?.size ?? 0) > 0
 }
 
+/**
+ * Sends one live event to several people's own rooms. Socket.IO takes the rooms together and
+ * delivers once per socket, so a group's traffic costs one emit however many are listening.
+ *
+ * ponytail: the caller works out who should get it, which is a query per message. A `group:<id>`
+ * room would save that, at the price of joining and leaving it as membership changes; worth it
+ * only if a society's chat ever gets busy enough to notice.
+ */
+export function emitToUsers(userIds: string[], event: string, payload: unknown) {
+  if (userIds.length) io?.to(userIds.map(roomForUser)).emit(event, payload)
+}
+
 /** Sends a live event to everyone in a society, used for gate-wide notices. */
 export function emitToSociety(societyId: string, event: string, payload: unknown) {
   io?.to(roomForSociety(societyId)).emit(event, payload)

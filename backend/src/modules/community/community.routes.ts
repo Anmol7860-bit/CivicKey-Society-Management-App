@@ -2,7 +2,14 @@ import { Router } from 'express'
 import { requireAuth } from '../../middleware/requireAuth.js'
 import { requirePermission } from '../../middleware/requirePermission.js'
 import { parseOrThrow, validateBody } from '../../middleware/validateBody.js'
-import { addMemberSchema, archiveGroupSchema, createGroupSchema, listGroupsSchema } from './community.schemas.js'
+import {
+  addMemberSchema,
+  archiveGroupSchema,
+  createGroupSchema,
+  listGroupsSchema,
+  listMessagesSchema,
+  postMessageSchema,
+} from './community.schemas.js'
 import * as service from './community.service.js'
 
 /**
@@ -35,6 +42,18 @@ export function createCommunityRouter() {
   })
   router.delete('/groups/:id/members/:userId', ...inTheSociety, async (req, res) => {
     res.json({ data: await service.removeMember(req.ctx!, req.params.id as string, req.params.userId as string) })
+  })
+
+  router.get('/groups/:id/messages', ...inTheSociety, async (req, res) => {
+    const query = parseOrThrow(listMessagesSchema, req.query)
+    res.json({ data: await service.listMessages(req.ctx!, req.params.id as string, query) })
+  })
+  router.post('/groups/:id/messages', ...inTheSociety, validateBody(postMessageSchema), async (req, res) => {
+    res.status(201).json({ data: await service.postMessage(req.ctx!, req.params.id as string, req.body) })
+  })
+  /** The author takes back their own; the office removes anyone's */
+  router.delete('/messages/:id', ...inTheSociety, async (req, res) => {
+    res.json({ data: await service.removeMessage(req.ctx!, req.params.id as string) })
   })
 
   return router

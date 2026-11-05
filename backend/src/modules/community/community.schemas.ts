@@ -30,6 +30,19 @@ export const listGroupsSchema = z.strictObject({
   archived: z.enum(['true']).optional(),
 })
 
+export const postMessageSchema = z.strictObject({
+  body: z.string().trim().min(1, 'Write something to send').max(2000),
+})
+
+export const listMessagesSchema = z.strictObject({
+  /** Older than this, so the reader can walk back through the conversation */
+  before: z.coerce.date().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+})
+
+export type PostMessageBody = z.infer<typeof postMessageSchema>
+export type ListMessagesQuery = z.infer<typeof listMessagesSchema>
+
 export type CreateGroupBody = z.infer<typeof createGroupSchema>
 export type ArchiveGroupBody = z.infer<typeof archiveGroupSchema>
 export type AddMemberBody = z.infer<typeof addMemberSchema>
