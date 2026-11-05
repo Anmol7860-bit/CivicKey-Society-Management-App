@@ -34,7 +34,7 @@ describe('POST /api/v1/auth/login', () => {
           email: 'riya@example.com',
           role: 'RESIDENT',
           societyId: user.societyId,
-          permissions: ['BILL_PAY', 'BILL_VIEW_OWN', 'RECEIPT_VIEW_OWN', 'VISITOR_APPROVE', 'VISITOR_PASS_CREATE', 'VISIT_VIEW_OWN'],
+          permissions: ['BILL_PAY', 'BILL_VIEW_OWN', 'COMMUNITY_POST', 'RECEIPT_VIEW_OWN', 'VISITOR_APPROVE', 'VISITOR_PASS_CREATE', 'VISIT_VIEW_OWN'],
         },
       })
       expect(Object.keys(res.body.data.user).sort()).toEqual(['email', 'id', 'name', 'permissions', 'phone', 'role', 'societyId'])

@@ -25,7 +25,7 @@ describe('GET /api/v1/auth/permissions', () => {
     expect(res.body.data).toEqual({
       userId: resident.id,
       role: 'RESIDENT',
-      permissions: ['BILL_PAY', 'BILL_VIEW_OWN', 'RECEIPT_VIEW_OWN', 'VISITOR_APPROVE', 'VISITOR_PASS_CREATE', 'VISIT_VIEW_OWN'],
+      permissions: ['BILL_PAY', 'BILL_VIEW_OWN', 'COMMUNITY_POST', 'RECEIPT_VIEW_OWN', 'VISITOR_APPROVE', 'VISITOR_PASS_CREATE', 'VISIT_VIEW_OWN'],
     })
   })
 

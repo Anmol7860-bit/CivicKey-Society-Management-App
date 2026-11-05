@@ -1591,6 +1591,151 @@ export const backupExportJobs = pgTable(
   (table) => [index('backup_export_jobs_requested_by_idx').on(table.requestedBy, table.createdAt.desc())],
 )
 
+export const groupScope = pgEnum('group_scope', ['SOCIETY', 'BLOCK', 'CUSTOM'])
+
+export const groupMemberRole = pgEnum('group_member_role', ['LEADER', 'MEMBER'])
+
+/**
+ * A space the residents and the office share: the whole society, one block, or a hand-picked set
+ * (sports, a Diwali committee). A SOCIETY or BLOCK group takes its members from the flat
+ * register, so it never goes stale when someone moves in; a CUSTOM group is filled by the office
+ * and by the group's own leaders. Guards and staff are never in one.
+ */
+export const communityGroups = pgTable(
+  'community_groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    societyId: uuid('society_id')
+      .notNull()
+      .references(() => societies.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 80 }).notNull(),
+    purpose: varchar('purpose', { length: 300 }),
+    scope: groupScope('scope').notNull().default('CUSTOM'),
+    /** The block whose residents are the members; only a BLOCK group has one */
+    blockId: uuid('block_id').references(() => blocks.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('community_groups_society_id_name_unique').on(table.societyId, sql`lower(${table.name})`),
+    // One live "everyone" channel per society and one per block, so nobody ends up with two
+    uniqueIndex('community_groups_one_society_channel')
+      .on(table.societyId)
+      .where(sql`${table.scope} = 'SOCIETY' and ${table.archivedAt} is null`),
+    uniqueIndex('community_groups_one_block_channel')
+      .on(table.blockId)
+      .where(sql`${table.scope} = 'BLOCK' and ${table.archivedAt} is null`),
+    check('community_groups_name_trimmed', sql`${table.name} = btrim(${table.name}) and ${table.name} <> ''`),
+    // A block group names its block; the other two scopes never do
+    check('community_groups_block_matches_scope', sql`(${table.scope} = 'BLOCK') = (${table.blockId} is not null)`),
+  ],
+)
+
+/**
+ * Who is in a group. A derived group (SOCIETY, BLOCK) holds only its leader rows - the members
+ * come from the flat register - while a CUSTOM group's rows are the membership itself. A leader
+ * may add members to their own group, which is why leadership lives here and not in a permission.
+ */
+export const communityGroupMembers = pgTable(
+  'community_group_members',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => communityGroups.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: groupMemberRole('role').notNull().default('MEMBER'),
+    addedBy: uuid('added_by').references(() => users.id, { onDelete: 'set null' }),
+    joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
+    removedAt: timestamp('removed_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('community_group_members_one_live_per_user')
+      .on(table.groupId, table.userId)
+      .where(sql`${table.removedAt} is null`),
+    index('community_group_members_user_id_idx').on(table.userId),
+  ],
+)
+
+/**
+ * A chat line in a group. Moderation soft-deletes: the row stays with who removed it, and the
+ * body stops being served.
+ */
+export const communityMessages = pgTable(
+  'community_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => communityGroups.id, { onDelete: 'cascade' }),
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    body: varchar('body', { length: 2000 }).notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('community_messages_group_id_created_at_idx').on(table.groupId, table.createdAt.desc()),
+    check('community_messages_body_present', sql`btrim(${table.body}) <> ''`),
+    check('community_messages_deletion_recorded', sql`(${table.deletedAt} is null) = (${table.deletedBy} is null)`),
+  ],
+)
+
+/**
+ * The residents the office puts on a task. Only they see the task's details and its comments, so
+ * a task is a private working group, never a society-wide broadcast.
+ */
+export const taskParticipants = pgTable(
+  'task_participants',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => communityTasks.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    addedBy: uuid('added_by').references(() => users.id, { onDelete: 'set null' }),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+    removedAt: timestamp('removed_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('task_participants_one_live_per_user')
+      .on(table.taskId, table.userId)
+      .where(sql`${table.removedAt} is null`),
+    index('task_participants_user_id_idx').on(table.userId),
+  ],
+)
+
+/** The discussion on a task, between its participants and the office. Soft-deleted like a message. */
+export const taskComments = pgTable(
+  'task_comments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => communityTasks.id, { onDelete: 'cascade' }),
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    body: varchar('body', { length: 2000 }).notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('task_comments_task_id_created_at_idx').on(table.taskId, table.createdAt),
+    check('task_comments_body_present', sql`btrim(${table.body}) <> ''`),
+    check('task_comments_deletion_recorded', sql`(${table.deletedAt} is null) = (${table.deletedBy} is null)`),
+  ],
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Role = (typeof userRole.enumValues)[number]
@@ -1611,3 +1756,8 @@ export type SocietySettings = typeof societySettings.$inferSelect
 export type BackupExportJob = typeof backupExportJobs.$inferSelect
 export type PaymentAttempt = typeof paymentAttempts.$inferSelect
 export type Receipt = typeof receipts.$inferSelect
+export type CommunityGroup = typeof communityGroups.$inferSelect
+export type CommunityGroupMember = typeof communityGroupMembers.$inferSelect
+export type CommunityMessage = typeof communityMessages.$inferSelect
+export type TaskParticipant = typeof taskParticipants.$inferSelect
+export type TaskComment = typeof taskComments.$inferSelect

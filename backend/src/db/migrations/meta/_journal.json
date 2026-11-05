@@ -288,6 +288,13 @@
       "when": 1793671847010,
       "tag": "0040_fuzzy_red_shift",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793881000576,
+      "tag": "0041_community_groups_and_task_participants",
+      "breakpoints": true
     }
   ]
 }

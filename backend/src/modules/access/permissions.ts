@@ -14,6 +14,7 @@ export const GENERAL_ADMIN_PERMISSIONS = [
   'STAFF_MANAGE',
   'AUDIT_VIEW',
   'BACKUP_EXPORT',
+  'GROUP_MANAGE',
 ] as const
 
 export const COMMITTEE_PERMISSIONS = ['BILLING_RATE_SET', 'INVOICE_GENERATE', 'PAYMENT_CASH_MARK', 'REPORT_VIEW'] as const
@@ -40,6 +41,8 @@ export const RESIDENT_PERMISSIONS = [
   'BILL_VIEW_OWN',
   'BILL_PAY',
   'RECEIPT_VIEW_OWN',
+  /** Post in the society or a group chat, and comment on a task they are on */
+  'COMMUNITY_POST',
 ] as const
 
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number]
