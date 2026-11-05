@@ -20,6 +20,7 @@ import { createNotificationRouter } from './modules/notification/notification.ro
 import { createResidentRouter } from './modules/resident/resident.routes.js'
 import { createSocietyRouter } from './modules/society/society.routes.js'
 import { createTaskRouter } from './modules/task/task.routes.js'
+import { createCommunityRouter } from './modules/community/community.routes.js'
 import { createStaffRouter } from './modules/staff/staff.routes.js'
 import { createSyncRouter } from './modules/sync/sync.routes.js'
 
@@ -65,6 +66,7 @@ export function createApp({ logger = defaultLogger }: AppOptions = {}) {
   app.use('/api/v1', createBillingRouter())
   app.use('/api/v1', createGateRouter())
   app.use('/api/v1', createTaskRouter())
+  app.use('/api/v1', createCommunityRouter())
   app.use('/api/v1', createAuditRouter())
   app.use('/api/v1', createSyncRouter())
   app.use('/api/v1', createNotificationRouter())
